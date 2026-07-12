@@ -35,12 +35,14 @@ pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
             }
             if element == "img" && attribute_lower == "src" {
                 let value_lower = value.trim().to_ascii_lowercase();
-                if value_lower.starts_with("http:")
-                    || value_lower.starts_with("https:")
-                    || value_lower.starts_with("cid:")
+                return if value_lower.starts_with("http://")
+                    || value_lower.starts_with("https://")
+                    || value_lower.starts_with("data:image/")
                 {
-                    return None;
-                }
+                    Some(Cow::Borrowed(value))
+                } else {
+                    None
+                };
             }
             if attribute_lower == "style" {
                 let value_lower = value.to_ascii_lowercase();
@@ -77,7 +79,9 @@ mod tests {
         assert!(!sanitized.document.contains("<script"));
         assert!(!sanitized.document.contains("javascript:"));
         assert!(!sanitized.document.contains("onerror"));
-        assert!(!sanitized.document.contains("tracker.example"));
+        assert!(sanitized.document.contains("tracker.example"));
+        assert!(sanitized.document.contains("img-src data:;"));
+        assert!(!sanitized.document.contains("img-src data: http: https:"));
         assert!(sanitized.remote_images_blocked);
     }
 

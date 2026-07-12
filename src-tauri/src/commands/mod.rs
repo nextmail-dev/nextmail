@@ -278,6 +278,18 @@ pub async fn remove_draft_attachment(
 }
 
 #[tauri::command]
+pub async fn discard_empty_draft(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft_id: String,
+) -> CommandResult<()> {
+    state
+        .composer
+        .discard_empty_draft(&account_id, &draft_id)
+        .await
+}
+
+#[tauri::command]
 pub async fn queue_draft_send(
     state: State<'_, AppState>,
     account_id: String,

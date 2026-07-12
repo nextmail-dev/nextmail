@@ -1,6 +1,7 @@
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
+import { TextStyleKit } from "@tiptap/extension-text-style";
 import {
   Bold,
   Italic,
@@ -12,6 +13,8 @@ import {
   UnderlineIcon,
   Undo2,
   UserRound,
+  Palette,
+  Highlighter,
 } from "lucide-react";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
@@ -20,6 +23,14 @@ import { useTranslation } from "react-i18next";
 import type { DraftContent } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { Inline, Page } from "@/components/ui/layout";
+import { SelectField } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Text } from "@/components/ui/typography";
 
 interface RichTextEditorProps {
   initialJson: string;
@@ -31,7 +42,7 @@ interface RichTextEditorProps {
 export function RichTextEditor({ initialJson, disabled, signature, onChange }: RichTextEditorProps) {
   const { t } = useTranslation();
   const editor = useEditor({
-    extensions: [StarterKit.configure({ underline: false }), Underline],
+    extensions: [StarterKit.configure({ underline: false }), Underline, TextStyleKit],
     content: parseDocument(initialJson),
     editable: !disabled,
     editorProps: {
@@ -70,7 +81,59 @@ export function RichTextEditor({ initialJson, disabled, signature, onChange }: R
 
   return (
     <Page className="flex min-h-0 flex-1 flex-col bg-card">
-      <Inline className="h-11 shrink-0 gap-0.5 border-b border-border px-3" role="toolbar">
+      <Inline className="min-h-11 shrink-0 gap-0.5 overflow-x-auto border-b border-border px-3 py-1.5" role="toolbar">
+        <SelectField
+          compact
+          className="shrink-0"
+          triggerClassName="min-w-32 border-transparent"
+          label={t("composer.fontFamily")}
+          value={editor.getAttributes("textStyle").fontFamily ?? "default"}
+          options={[
+            { value: "default", label: t("composer.fontDefault") },
+            { value: "Arial, sans-serif", label: "Arial" },
+            { value: "Georgia, serif", label: "Georgia" },
+            { value: "'Courier New', monospace", label: "Courier New" },
+            { value: "'Microsoft YaHei', sans-serif", label: "微软雅黑" },
+          ]}
+          disabled={disabled}
+          onValueChange={(value) => value === "default"
+            ? editor.chain().focus().unsetFontFamily().run()
+            : editor.chain().focus().setFontFamily(value).run()}
+        />
+        <SelectField
+          compact
+          className="shrink-0"
+          triggerClassName="min-w-20"
+          label={t("composer.fontSize")}
+          value={editor.getAttributes("textStyle").fontSize ?? "default"}
+          options={[
+            { value: "default", label: t("composer.fontSizeDefault") },
+            { value: "12px", label: "12" },
+            { value: "14px", label: "14" },
+            { value: "16px", label: "16" },
+            { value: "18px", label: "18" },
+            { value: "24px", label: "24" },
+            { value: "32px", label: "32" },
+          ]}
+          disabled={disabled}
+          onValueChange={(value) => value === "default"
+            ? editor.chain().focus().unsetFontSize().run()
+            : editor.chain().focus().setFontSize(value).run()}
+        />
+        <ColorMenu
+          label={t("composer.textColor")}
+          icon={<Palette size={16} />}
+          disabled={disabled}
+          onSelect={(value) => value ? editor.chain().focus().setColor(value).run() : editor.chain().focus().unsetColor().run()}
+        />
+        <ColorMenu
+          label={t("composer.backgroundColor")}
+          icon={<Highlighter size={16} />}
+          disabled={disabled}
+          background
+          onSelect={(value) => value ? editor.chain().focus().setBackgroundColor(value).run() : editor.chain().focus().unsetBackgroundColor().run()}
+        />
+        <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
         {action(t("composer.bold"), editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), <Bold size={16} />)}
         {action(t("composer.italic"), editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), <Italic size={16} />)}
         {action(t("composer.underline"), editor.isActive("underline"), () => editor.chain().focus().toggleUnderline().run(), <UnderlineIcon size={16} />)}
@@ -90,6 +153,40 @@ export function RichTextEditor({ initialJson, disabled, signature, onChange }: R
       </Inline>
       <EditorContent editor={editor} className="min-h-0 flex-1 overflow-auto" />
     </Page>
+  );
+}
+
+function ColorMenu({ label, icon, disabled, background, onSelect }: {
+  label: string;
+  icon: ReactNode;
+  disabled?: boolean;
+  background?: boolean;
+  onSelect: (value: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  const colors = background
+    ? [null, "#fff2a8", "#ffd8a8", "#c8f7d5", "#cfe3ff", "#ead7ff", "#ffd6e7"]
+    : [null, "#202124", "#c93737", "#b45f06", "#18734d", "#2563eb", "#7c3aed", "#d12f7a"];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="ghost" size="icon" disabled={disabled} aria-label={label} title={label}>{icon}</Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-48">
+        {colors.map((color) => (
+          <DropdownMenuItem key={color ?? "default"} onSelect={() => onSelect(color)}>
+            <span
+              className="size-4 rounded-xs ring-1 ring-border"
+              style={color ? { backgroundColor: color } : undefined}
+              aria-hidden="true"
+            />
+            <Text className="text-[13px] text-foreground">
+              {color ? color.toUpperCase() : t("composer.colorDefault")}
+            </Text>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

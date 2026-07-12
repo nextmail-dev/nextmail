@@ -258,6 +258,18 @@ impl ComposerRuntime {
             .await
     }
 
+    pub async fn discard_empty_draft(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        let repository = self.repository().await?;
+        repository
+            .get_draft(account_id, &account.data_slot_id, draft_id)
+            .await?;
+        repository
+            .discard_empty_draft(&account.data_slot_id, draft_id)
+            .await;
+        Ok(())
+    }
+
     pub async fn queue_send(
         &self,
         account_id: &str,
@@ -375,6 +387,11 @@ impl ComposerRuntime {
         else {
             return;
         };
+        let subject = repository
+            .get_draft(&account.id, account_slot_id, &job.draft_id)
+            .await
+            .map(|draft| draft.subject)
+            .unwrap_or_default();
         let _ = self.app.emit(
             "send-job-changed",
             SendJobChangedEvent {
@@ -382,6 +399,7 @@ impl ComposerRuntime {
                 draft_id: job.draft_id,
                 job_id: job.id,
                 status: job.status,
+                subject,
                 revision: job.revision,
             },
         );
@@ -457,5 +475,6 @@ struct SendJobChangedEvent {
     draft_id: String,
     job_id: String,
     status: nextmail_core::SendJobStatus,
+    subject: String,
     revision: u64,
 }

@@ -4,16 +4,16 @@
 
 ## 实施结果（2026-07-12）
 
-已完成独立 `composer-*` 写信窗口、主工具栏本地草稿下拉与重启续写、按需加载的 Tiptap 编辑器、自有富文本工具栏、基本身份签名插入、三格式草稿自动保存、关闭前保存、系统附件选择、内容寻址附件副本、Unicode MIME 生成、Bcc envelope 隔离、持久化 `send_job`、后台 SMTP `send_raw`、三次有限自动重试、失败显式重试和异常启动恢复。
+已完成独立 `composer-*` 写信窗口、主工具栏本地草稿下拉与重启续写、按需加载的 Tiptap 编辑器、自有富文本工具栏与文字样式、基本身份签名插入、三格式草稿自动保存、关闭前保存、空白草稿清理、系统附件选择、内容寻址附件副本、Unicode MIME 生成、Bcc envelope 隔离、持久化 `send_job`、后台 SMTP `send_raw`、三次有限自动重试、失败显式重试、主窗口成功通知和异常启动恢复。
 
 本轮没有实现 IMAP Sent/Drafts 上传、可配置签名库、模板、多账户、OAuth 或完整发件箱页面。
 
 自动验证：
 
 - `cargo fmt --all -- --check`：通过。
-- `cargo test --workspace`：通过，共 24 个 Rust 测试。
+- `cargo test --workspace`：通过，共 25 个 Rust 测试。
 - `cargo clippy --workspace --all-targets -- -D warnings`：通过。
-- `pnpm test`：通过，共 5 个前端测试。
+- `pnpm test`：通过，共 6 个前端测试。
 - `pnpm build`：通过；Tiptap 被拆分为独立 Composer chunk，未进入主窗口首包。
 - `pnpm tauri build --debug --no-bundle`：通过，产物为 `target/debug/nextmail.exe`；构建缓存保留。
 

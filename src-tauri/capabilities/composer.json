@@ -5,6 +5,7 @@
   "windows": ["composer-*"],
   "permissions": [
     "core:default",
+    "core:window:allow-destroy",
     "dialog:allow-open"
   ]
 }

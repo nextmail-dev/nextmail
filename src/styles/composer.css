@@ -33,6 +33,6 @@
   padding-left: 1.5rem;
 }
 
-.nextmail-editor-content.ProseMirror-focused {
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--primary) 70%, transparent);
+.nextmail-editor-content span[style*="background-color"] {
+  color: #202124;
 }

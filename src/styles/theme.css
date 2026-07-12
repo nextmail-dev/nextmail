@@ -58,23 +58,23 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --background: #0f141b;
-  --foreground: #edf1f7;
-  --card: #171d26;
-  --card-foreground: #edf1f7;
-  --popover: #1a212b;
-  --popover-foreground: #edf1f7;
+  --background: #111111;
+  --foreground: #ededed;
+  --card: #181818;
+  --card-foreground: #ededed;
+  --popover: #202020;
+  --popover-foreground: #ededed;
   --primary: #4f83f5;
   --primary-foreground: #ffffff;
-  --secondary: #242c37;
-  --secondary-foreground: #edf1f7;
-  --muted: #212934;
-  --muted-foreground: #a8b3c1;
-  --accent: #273140;
-  --accent-foreground: #edf1f7;
+  --secondary: #272727;
+  --secondary-foreground: #ededed;
+  --muted: #222222;
+  --muted-foreground: #a6a6a6;
+  --accent: #303030;
+  --accent-foreground: #f2f2f2;
   --destructive: #f07878;
-  --border: #303a47;
-  --input: #3b4655;
+  --border: #323232;
+  --input: #444444;
   --ring: #4f83f5;
   --success: #63d1a0;
   --success-soft: rgb(99 209 160 / 0.14);
@@ -85,23 +85,23 @@
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"] {
     color-scheme: dark;
-    --background: #0f141b;
-    --foreground: #edf1f7;
-    --card: #171d26;
-    --card-foreground: #edf1f7;
-    --popover: #1a212b;
-    --popover-foreground: #edf1f7;
+    --background: #111111;
+    --foreground: #ededed;
+    --card: #181818;
+    --card-foreground: #ededed;
+    --popover: #202020;
+    --popover-foreground: #ededed;
     --primary: #4f83f5;
     --primary-foreground: #ffffff;
-    --secondary: #242c37;
-    --secondary-foreground: #edf1f7;
-    --muted: #212934;
-    --muted-foreground: #a8b3c1;
-    --accent: #273140;
-    --accent-foreground: #edf1f7;
+    --secondary: #272727;
+    --secondary-foreground: #ededed;
+    --muted: #222222;
+    --muted-foreground: #a6a6a6;
+    --accent: #303030;
+    --accent-foreground: #f2f2f2;
     --destructive: #f07878;
-    --border: #303a47;
-    --input: #3b4655;
+    --border: #323232;
+    --input: #444444;
     --ring: #4f83f5;
     --success: #63d1a0;
     --success-soft: rgb(99 209 160 / 0.14);
@@ -109,4 +109,3 @@
     --warning-foreground: #f3c477;
   }
 }
-

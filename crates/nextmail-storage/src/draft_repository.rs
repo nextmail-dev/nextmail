@@ -85,6 +85,7 @@ impl MailRepository {
         let _ = sqlx::query(
             "DELETE FROM drafts WHERE id = ? AND account_slot_id = ? AND status = 'editing' \
              AND subject = '' AND to_json = '[]' AND cc_json = '[]' AND bcc_json = '[]' \
+             AND plain_text = '' AND (html = '' OR html = '<p></p>') \
              AND NOT EXISTS(SELECT 1 FROM draft_attachments WHERE draft_id = drafts.id)",
         )
         .bind(draft_id)
@@ -533,6 +534,49 @@ fn json_error(_: serde_json::Error) -> CommandError {
 mod tests {
     use super::*;
     use crate::{create_account_slot, initialize_content_database};
+
+    #[tokio::test]
+    async fn discards_only_completely_empty_drafts() {
+        let directory = tempfile::tempdir().unwrap();
+        initialize_content_database(directory.path()).await.unwrap();
+        create_account_slot(directory.path(), "slot", 1)
+            .await
+            .unwrap();
+        let repository = MailRepository::open(directory.path()).await.unwrap();
+        let empty = repository.create_draft("account", "slot").await.unwrap();
+        repository.discard_empty_draft("slot", &empty.id).await;
+        assert_eq!(
+            repository
+                .get_draft("account", "slot", &empty.id)
+                .await
+                .unwrap_err()
+                .code,
+            "draft.not_found"
+        );
+
+        let retained = repository.create_draft("account", "slot").await.unwrap();
+        repository
+            .save_draft(SaveDraftRequest {
+                account_id: "account",
+                account_slot_id: "slot",
+                draft_id: &retained.id,
+                recipients: &DraftRecipientFields::default(),
+                subject: "",
+                content: &DraftContent {
+                    editor_json: r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"body"}]}]}"#.into(),
+                    html: "<p>body</p>".into(),
+                    plain_text: "body".into(),
+                },
+                expected_revision: retained.revision,
+            })
+            .await
+            .unwrap();
+        repository.discard_empty_draft("slot", &retained.id).await;
+        assert!(repository
+            .get_draft("account", "slot", &retained.id)
+            .await
+            .is_ok());
+    }
 
     #[tokio::test]
     async fn draft_and_send_job_survive_repository_reopen() {

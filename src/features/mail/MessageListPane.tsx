@@ -17,6 +17,7 @@ interface MessageListPaneProps {
   mailboxId: string;
   selectedMessageId: string;
   onSelect: (messageId: string) => void;
+  searchQuery: string;
 }
 
 export function MessageListPane({
@@ -24,6 +25,7 @@ export function MessageListPane({
   mailboxId,
   selectedMessageId,
   onSelect,
+  searchQuery,
 }: MessageListPaneProps) {
   const { t, i18n } = useTranslation();
   const query = useInfiniteQuery({
@@ -33,7 +35,15 @@ export function MessageListPane({
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled: Boolean(accountId && mailboxId),
   });
-  const items = query.data?.pages.flatMap((page) => page.items) ?? [];
+  const allItems = query.data?.pages.flatMap((page) => page.items) ?? [];
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase(i18n.language);
+  const items = normalizedSearch
+    ? allItems.filter((message) => [
+      message.subject,
+      message.preview,
+      ...message.from.flatMap((address) => [address.name ?? "", address.email]),
+    ].some((value) => value.toLocaleLowerCase(i18n.language).includes(normalizedSearch)))
+    : allItems;
 
   return (
     <Stack className="min-h-0 flex-1" gap="xs">
@@ -42,7 +52,7 @@ export function MessageListPane({
         {query.isFetching ? <Inline className="ml-auto"><Spinner size={15} /></Inline> : null}
       </Inline>
       {items.length ? (
-        <Stack className="min-h-0 flex-1 overflow-auto p-2" gap="xs">
+        <Stack className="min-h-0 flex-1 gap-0 overflow-auto">
           {items.map((message) => (
             <MessageRow
               key={message.id}
@@ -71,8 +81,8 @@ export function MessageListPane({
       ) : (
         <EmptyState
           icon={<Inbox size={24} />}
-          title={t("mail.noMessages")}
-          description={t("mail.noMessagesDescription")}
+          title={normalizedSearch ? t("mail.noSearchResults") : t("mail.noMessages")}
+          description={normalizedSearch ? t("mail.noSearchResultsDescription") : t("mail.noMessagesDescription")}
         />
       )}
     </Stack>
@@ -98,11 +108,11 @@ function MessageRow({
   );
   return (
     <Button
-      variant="ghost"
+      variant="list"
       className={
         selected
-          ? "h-auto w-full items-start rounded-sm border-primary/30 bg-primary/8 p-3 text-left"
-          : "h-auto w-full items-start rounded-sm p-3 text-left"
+          ? "h-auto w-full items-start rounded-none bg-accent px-4 py-3.5 text-left"
+          : "h-auto w-full items-start rounded-none px-4 py-3.5 text-left"
       }
       onClick={onClick}
     >

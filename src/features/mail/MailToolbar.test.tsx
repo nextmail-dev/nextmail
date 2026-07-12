@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import i18n from "../../app/i18n";
 import type { AccountSummary } from "../../app/types";
-import { MailToolbar } from "./MailToolbar";
+import { AccountSwitcher } from "./AccountSwitcher";
 
 const first: AccountSummary = {
   id: "one",
@@ -20,7 +20,7 @@ beforeAll(async () => {
   await i18n.changeLanguage("en-US");
 });
 
-describe("MailToolbar", () => {
+describe("AccountSwitcher", () => {
   it("shows a static identity for a single account", () => {
     renderToolbar([first]);
 
@@ -37,17 +37,10 @@ describe("MailToolbar", () => {
 
 function renderToolbar(accounts: AccountSummary[]) {
   render(
-    <MailToolbar
+    <AccountSwitcher
       accounts={accounts}
       selectedAccountId="one"
       onAccountChange={vi.fn()}
-      onCompose={vi.fn()}
-      drafts={[]}
-      onOpenDraft={vi.fn()}
-      onOpenSettings={vi.fn()}
-      onOpenAccounts={vi.fn()}
-      onOpenAbout={vi.fn()}
-      onQuit={vi.fn()}
     />,
   );
 }

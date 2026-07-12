@@ -10,9 +10,11 @@ import { SettingsDialog } from "@/features/preferences/SettingsDialog";
 import { AppShell, Page } from "@/components/ui/layout";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Toast } from "@/components/ui/toast";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { MailToolbar } from "./MailToolbar";
+import { AccountSwitcher } from "./AccountSwitcher";
 import { MailboxPane } from "./MailboxPane";
 import { MessageListPane } from "./MessageListPane";
 import { MessageViewer } from "./MessageViewer";
@@ -33,6 +35,8 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sentNotice, setSentNotice] = useState<{ id: string; subject: string } | null>(null);
   const selectedAccount =
     accounts.find((account) => account.id === selectedAccountId) ?? accounts[0];
   const aboutQuery = useQuery({
@@ -67,6 +71,7 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
   useEffect(() => {
     setSelectedMailboxId("");
     setSelectedMessageId("");
+    setSearchQuery("");
   }, [selectedAccountId]);
 
   useEffect(() => {
@@ -96,62 +101,75 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
           queryKey: ["message", selectedAccountId, event.payload.messageId],
         });
       }),
+      listen<{ accountId: string; jobId: string; status: string; subject: string }>("send-job-changed", (event) => {
+        if (event.payload.accountId !== selectedAccountId || event.payload.status !== "sent") return;
+        setSentNotice({ id: event.payload.jobId, subject: event.payload.subject });
+        void queryClient.invalidateQueries({ queryKey: ["drafts", selectedAccountId] });
+      }),
     ]);
     return () => {
       void unlisteners.then((values) => values.forEach((unlisten) => unlisten()));
     };
   }, [queryClient, selectedAccountId]);
 
+  useEffect(() => {
+    if (!sentNotice) return;
+    const timeout = window.setTimeout(() => setSentNotice(null), 4_500);
+    return () => window.clearTimeout(timeout);
+  }, [sentNotice]);
+
   return (
-    <AppShell className="grid grid-rows-[3.5rem_minmax(0,1fr)] overflow-hidden">
-      <MailToolbar
-        accounts={accounts}
-        selectedAccountId={selectedAccountId}
-        onAccountChange={setSelectedAccountId}
-        onCompose={() => {
-          if (!selectedAccountId) return;
-          setComposeError(null);
-          void api.openComposer(selectedAccountId)
-            .then(() => queryClient.invalidateQueries({ queryKey: ["drafts", selectedAccountId] }))
-            .catch((error) => setComposeError(normalizeCommandError(error).code));
-        }}
-        drafts={draftsQuery.data ?? []}
-        onOpenDraft={(draftId) => {
-          setComposeError(null);
-          void api.openExistingComposer(selectedAccountId, draftId)
-            .catch((error) => setComposeError(normalizeCommandError(error).code));
-        }}
+    <AppShell className="grid grid-cols-[15.625rem_minmax(0,1fr)] overflow-hidden">
+      <Page className="grid min-h-0 grid-rows-[4.5rem_minmax(0,1fr)] bg-card shadow-[inset_-1px_0_0_var(--border)]">
+        <AccountSwitcher accounts={accounts} selectedAccountId={selectedAccountId} onAccountChange={setSelectedAccountId} />
+        <MailboxPane
+          mailboxes={mailboxesQuery.data ?? []}
+          selectedMailboxId={selectedMailboxId}
+          onSelect={(mailboxId) => {
+            setSelectedMailboxId(mailboxId);
+            setSelectedMessageId("");
+            setSearchQuery("");
+          }}
+          progress={progressQuery.data}
+          error={mailboxesQuery.error}
+          onCompose={() => {
+            if (!selectedAccountId) return;
+            setComposeError(null);
+            void api.openComposer(selectedAccountId)
+              .then(() => queryClient.invalidateQueries({ queryKey: ["drafts", selectedAccountId] }))
+              .catch((error) => setComposeError(normalizeCommandError(error).code));
+          }}
+          drafts={draftsQuery.data ?? []}
+          onOpenDraft={(draftId) => {
+            setComposeError(null);
+            void api.openExistingComposer(selectedAccountId, draftId)
+              .catch((error) => setComposeError(normalizeCommandError(error).code));
+          }}
+        />
+      </Page>
+
+      <Page className="grid min-h-0 grid-rows-[4.5rem_minmax(0,1fr)]">
+        <MailToolbar
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenAccounts={() => setAccountsOpen(true)}
         onOpenAbout={() => setAboutOpen(true)}
         onQuit={() => void api.quitApp()}
-      />
-
-      <Page className="grid min-h-0 grid-cols-[15.625rem_minmax(20rem,24.375rem)_minmax(24rem,1fr)]">
-        <Page className="flex min-h-0 flex-col border-r border-border bg-muted/40">
-          <MailboxPane
-            mailboxes={mailboxesQuery.data ?? []}
-            selectedMailboxId={selectedMailboxId}
-            onSelect={(mailboxId) => {
-              setSelectedMailboxId(mailboxId);
-              setSelectedMessageId("");
-            }}
-            progress={progressQuery.data}
-            error={mailboxesQuery.error}
-          />
-        </Page>
-
-        <Page className="flex min-h-0 flex-col border-r border-border bg-background">
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
+        <Page className="grid min-h-0 grid-cols-[minmax(20rem,24rem)_minmax(24rem,1fr)]">
+          <Page className="flex min-h-0 flex-col bg-muted/25 shadow-[inset_-1px_0_0_var(--border)]">
           <MessageListPane
             accountId={selectedAccountId}
             mailboxId={selectedMailboxId}
             selectedMessageId={selectedMessageId}
             onSelect={setSelectedMessageId}
+            searchQuery={searchQuery}
           />
-        </Page>
-
-        <Page className="flex min-h-0 flex-col bg-background">
-          <MessageViewer accountId={selectedAccountId} messageId={selectedMessageId} />
+          </Page>
+          <Page className="flex min-h-0 flex-col bg-background">
+            <MessageViewer accountId={selectedAccountId} messageId={selectedMessageId} />
+          </Page>
         </Page>
       </Page>
 
@@ -178,6 +196,14 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
             <X size={15} />
           </Button>
         </Alert>
+      ) : null}
+      {sentNotice ? (
+        <Toast
+          title={t("composer.sent")}
+          description={sentNotice.subject || t("mail.noSubject")}
+          closeLabel={t("common.close")}
+          onClose={() => setSentNotice(null)}
+        />
       ) : null}
     </AppShell>
   );

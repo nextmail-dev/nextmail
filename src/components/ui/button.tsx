@@ -14,7 +14,8 @@ const buttonVariants = cva(
           "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:-translate-y-px",
         secondary:
           "border-border bg-background text-foreground hover:bg-accent hover:text-accent-foreground",
-        ghost: "border-transparent bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+        ghost: "border-0 bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+        list: "border-x-0 border-t-0 border-b border-border bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
         danger: "border-destructive bg-destructive text-white hover:bg-destructive/90",
       },
       size: {
@@ -53,4 +54,3 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 });
 
 export { buttonVariants };
-

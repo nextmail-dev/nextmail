@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronDown, Paperclip, Send, Trash2, X } from "lucide-react";
+import { ChevronDown, Paperclip, Send, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -127,13 +127,20 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   useEffect(() => {
     const currentWindow = getCurrentWindow();
     const unlisten = currentWindow.onCloseRequested(async (event) => {
-      if (!dirty || !editable) return;
       event.preventDefault();
-      const saved = await saveNow();
-      if (saved) await currentWindow.destroy();
+      if (dirty && editable) {
+        const saved = await saveNow();
+        if (!saved) return;
+      }
+      try {
+        await api.discardEmptyDraft(sender.id, draft.id);
+        await currentWindow.destroy();
+      } catch (error) {
+        setErrorCode(normalizeCommandError(error).code);
+      }
     });
     return () => { void unlisten.then((dispose) => dispose()); };
-  }, [dirty, editable, saveNow]);
+  }, [dirty, draft.id, editable, saveNow, sender.id]);
 
   useEffect(() => {
     if (!sendJob) return;
@@ -152,7 +159,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
 
   useEffect(() => {
     if (sendJob?.status !== "sent") return;
-    const timeout = window.setTimeout(() => void getCurrentWindow().close(), 900);
+    const timeout = window.setTimeout(() => void getCurrentWindow().close(), 80);
     return () => window.clearTimeout(timeout);
   }, [sendJob?.status]);
 
@@ -291,7 +298,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
 
 function SendStatus({ job, onRetry }: { job: SendJobSummary; onRetry: () => void }) {
   const { t } = useTranslation();
-  if (job.status === "sent") return <Alert className="m-3 mb-0" tone="success"><Check size={16} />{t("composer.sent")}</Alert>;
+  if (job.status === "sent") return null;
   if (job.status === "failed") return (
     <Alert className="m-3 mb-0" tone="danger" title={t("composer.sendFailed")}>
       <Inline><Text>{t(`errors.${job.errorCode}`, { defaultValue: t("composer.sendFailedDescription") })}</Text><Button size="sm" variant="secondary" onClick={onRetry}>{t("common.retry")}</Button></Inline>

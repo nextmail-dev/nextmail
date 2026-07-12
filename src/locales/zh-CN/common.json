@@ -106,6 +106,10 @@
     "selectMessage": "选择一封邮件以阅读",
     "accountConnected": "账户已连接",
     "searchPlaceholder": "搜索邮件",
+    "searchCurrentFolder": "搜索当前文件夹",
+    "clearSearch": "清除搜索",
+    "noSearchResults": "没有匹配的邮件",
+    "noSearchResultsDescription": "请尝试其他主题、发件人或正文摘要关键词。",
     "compose": "新建邮件",
     "receive": "收取",
     "receiveDisabledHint": "收取邮件功能将在后续同步交互中启用",
@@ -126,6 +130,7 @@
     "sourceTitle": "原始邮件",
     "remoteImagesBlocked": "已阻止远程图片",
     "remoteImagesBlockedDescription": "为保护隐私，NextMail 没有请求此邮件中的远程图片。",
+    "showRemoteImages": "立即显示",
     "attachments": "附件",
     "downloaded": "已下载",
     "attachmentReady": "已保存到 NextMail 数据目录"
@@ -165,7 +170,14 @@
     "localDrafts": "本地草稿",
     "noRecipients": "尚未填写收件人",
     "undo": "撤销",
-    "redo": "重做"
+    "redo": "重做",
+    "fontFamily": "字体",
+    "fontDefault": "默认字体",
+    "fontSize": "字号",
+    "fontSizeDefault": "默认",
+    "textColor": "文字颜色",
+    "backgroundColor": "背景颜色",
+    "colorDefault": "默认颜色"
   },
   "mailboxNames": {
     "inbox": "收件箱",

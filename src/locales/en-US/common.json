@@ -106,6 +106,10 @@
     "selectMessage": "Select a message to read",
     "accountConnected": "Account connected",
     "searchPlaceholder": "Search mail",
+    "searchCurrentFolder": "Search this folder",
+    "clearSearch": "Clear search",
+    "noSearchResults": "No matching messages",
+    "noSearchResultsDescription": "Try another subject, sender, or message-preview keyword.",
     "compose": "New message",
     "receive": "Receive",
     "receiveDisabledHint": "Receiving mail will be enabled with the complete sync controls",
@@ -126,6 +130,7 @@
     "sourceTitle": "Message source",
     "remoteImagesBlocked": "Remote images blocked",
     "remoteImagesBlockedDescription": "NextMail did not request remote images in this message to protect your privacy.",
+    "showRemoteImages": "Show now",
     "attachments": "Attachments",
     "downloaded": "Downloaded",
     "attachmentReady": "Saved in the NextMail data folder"
@@ -165,7 +170,14 @@
     "localDrafts": "Local drafts",
     "noRecipients": "No recipients yet",
     "undo": "Undo",
-    "redo": "Redo"
+    "redo": "Redo",
+    "fontFamily": "Font family",
+    "fontDefault": "Default font",
+    "fontSize": "Font size",
+    "fontSizeDefault": "Default",
+    "textColor": "Text color",
+    "backgroundColor": "Background color",
+    "colorDefault": "Default color"
   },
   "mailboxNames": {
     "inbox": "Inbox",

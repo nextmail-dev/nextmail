@@ -1,8 +1,10 @@
 import {
   Archive,
+  ChevronDown,
   FilePenLine,
   Folder,
   Inbox,
+  MailPlus,
   Send,
   ShieldAlert,
   Trash2,
@@ -10,11 +12,18 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { normalizeCommandError } from "@/app/api";
-import type { MailboxRole, MailboxSummary, SyncProgress } from "@/app/types";
+import type { DraftListItem, MailboxRole, MailboxSummary, SyncProgress } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Stack } from "@/components/ui/layout";
+import { Inline, Stack } from "@/components/ui/layout";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
 import { LabelText, Text } from "@/components/ui/typography";
 
@@ -24,6 +33,9 @@ interface MailboxPaneProps {
   onSelect: (mailboxId: string) => void;
   progress?: SyncProgress;
   error?: unknown;
+  onCompose: () => void;
+  drafts: DraftListItem[];
+  onOpenDraft: (draftId: string) => void;
 }
 
 export function MailboxPane({
@@ -32,6 +44,9 @@ export function MailboxPane({
   onSelect,
   progress,
   error,
+  onCompose,
+  drafts,
+  onOpenDraft,
 }: MailboxPaneProps) {
   const { t } = useTranslation();
   const activeSync = progress && !["idle", "complete", "failed"].includes(progress.phase);
@@ -40,6 +55,47 @@ export function MailboxPane({
 
   return (
     <Stack className="min-h-0 flex-1 p-3" gap="sm">
+      <Inline className="gap-0">
+        <Button
+          className={drafts.length ? "h-10 flex-1 justify-start rounded-r-none" : "h-10 w-full justify-start"}
+          onClick={onCompose}
+        >
+          <MailPlus size={17} />
+          {t("mail.compose")}
+        </Button>
+        {drafts.length ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                className="h-10 w-9 rounded-l-none border-l border-l-primary-foreground/25 px-0"
+                aria-label={t("composer.openDraft")}
+              >
+                <ChevronDown size={15} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-72 p-2">
+              <DropdownMenuLabel className="px-2 py-1.5 normal-case">{t("composer.localDrafts")}</DropdownMenuLabel>
+              {drafts.map((draft) => (
+                <DropdownMenuItem
+                  key={draft.id}
+                  className="h-auto min-h-12 items-start px-3 py-2.5"
+                  onSelect={() => onOpenDraft(draft.id)}
+                >
+                  <FilePenLine className="mt-0.5 shrink-0" size={15} />
+                  <Stack gap="xs" className="min-w-0 py-0.5">
+                    <Text className="truncate text-[13px] leading-5 text-foreground">
+                      {draft.subject || t("mail.noSubject")}
+                    </Text>
+                    <Text className="truncate text-[11px] leading-4">
+                      {draft.recipients.map((recipient) => recipient.name || recipient.email).join(", ") || t("composer.noRecipients")}
+                    </Text>
+                  </Stack>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </Inline>
       <LabelText className="px-2 py-1 text-muted-foreground">{t("mail.folders")}</LabelText>
       {activeSync ? (
         <Stack className="rounded-sm border border-border bg-background p-3" gap="sm">

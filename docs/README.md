@@ -11,6 +11,8 @@
 - `changes/0005-message-and-mailbox-encoding.md`：邮件多字符集、IMAP 文件夹名和旧缓存重建说明。
 - `changes/0006-rfc2047-robustness.md`：完整 RFC 2047 encoded-word、安全降级和回归语料。
 - `changes/0007-compose-drafts-smtp.md`：独立写信窗口、草稿、附件、MIME 与持久化 SMTP 发件。
+- `changes/0008-composer-ui-and-reader-fixes.md`：写信窗口生命周期、主界面视觉层级和阅读器修复。
+- `changes/0009-mail-list-and-compose-polish.md`：连续邮件列表、侧栏写信组合按钮和编辑器焦点精修。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。
 

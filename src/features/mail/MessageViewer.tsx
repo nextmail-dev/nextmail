@@ -1,6 +1,6 @@
 import { Download, FileText, MailOpen, Paperclip } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -18,6 +18,11 @@ export function MessageViewer({ accountId, messageId }: { accountId: string; mes
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [rawSource, setRawSource] = useState<string | null>(null);
+  const [remoteImagesAllowed, setRemoteImagesAllowed] = useState(false);
+
+  useEffect(() => {
+    setRemoteImagesAllowed(false);
+  }, [messageId]);
   const query = useQuery({
     queryKey: ["message", accountId, messageId],
     queryFn: () => api.getMessageDetail(accountId, messageId),
@@ -58,6 +63,19 @@ export function MessageViewer({ accountId, messageId }: { accountId: string; mes
     timeStyle: "short",
   }).format(new Date(message.receivedAt * 1000));
 
+  async function showRemoteImages() {
+    if (message.safeHtml && /<img[^>]+src=["']https?:\/\//i.test(message.safeHtml)) {
+      setRemoteImagesAllowed(true);
+      return;
+    }
+    try {
+      await bodyMutation.mutateAsync();
+      setRemoteImagesAllowed(true);
+    } catch {
+      // The mutation error is rendered by the shared operation alert.
+    }
+  }
+
   return (
     <Stack className="min-h-0 flex-1" gap="xs">
       <Stack className="border-b border-border px-6 py-5" gap="sm">
@@ -79,9 +97,14 @@ export function MessageViewer({ accountId, messageId }: { accountId: string; mes
         <Text className="text-xs">
           {t("mail.toRecipients", { recipients: formatAddresses(message.to) })}
         </Text>
-        {message.remoteImagesBlocked ? (
+        {message.remoteImagesBlocked && !remoteImagesAllowed ? (
           <Alert tone="warning" title={t("mail.remoteImagesBlocked")}>
-            {t("mail.remoteImagesBlockedDescription")}
+            <Inline className="flex-wrap justify-between">
+              <Text className="text-xs text-current">{t("mail.remoteImagesBlockedDescription")}</Text>
+              <Button variant="secondary" size="sm" loading={bodyMutation.isPending} onClick={() => void showRemoteImages()}>
+                {t("mail.showRemoteImages")}
+              </Button>
+            </Inline>
           </Alert>
         ) : null}
         {normalizedOperationError ? (
@@ -95,7 +118,11 @@ export function MessageViewer({ accountId, messageId }: { accountId: string; mes
 
       <Stack className="min-h-0 flex-1" gap="xs">
         {message.safeHtml ? (
-          <SafeMailFrame document={message.safeHtml} title={message.subject || t("mail.messageBody")} />
+          <SafeMailFrame
+            document={message.safeHtml}
+            title={message.subject || t("mail.messageBody")}
+            allowRemoteImages={remoteImagesAllowed}
+          />
         ) : message.plainText ? (
           <Text className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-6 text-sm leading-relaxed text-foreground">
             {message.plainText}

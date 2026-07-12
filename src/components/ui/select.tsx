@@ -17,6 +17,7 @@ interface SelectFieldProps {
   compact?: boolean;
   className?: string;
   disabled?: boolean;
+  triggerClassName?: string;
 }
 
 export function SelectField({
@@ -27,6 +28,7 @@ export function SelectField({
   compact,
   className,
   disabled,
+  triggerClassName,
 }: SelectFieldProps) {
   const id = useId();
   return (
@@ -39,6 +41,7 @@ export function SelectField({
           className={cn(
             "flex h-10 w-full min-w-36 items-center justify-between gap-3 rounded-sm border border-input bg-background px-3 text-[13px] outline-none transition-shadow focus:ring-3 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50",
             compact && "h-8 min-w-32 bg-muted px-2.5",
+            triggerClassName,
           )}
           aria-labelledby={`${id}-label`}
         >

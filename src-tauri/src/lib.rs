@@ -51,6 +51,7 @@ pub fn run() {
             commands::save_draft,
             commands::add_draft_attachments,
             commands::remove_draft_attachment,
+            commands::discard_empty_draft,
             commands::queue_draft_send,
             commands::retry_send_job,
             commands::get_send_job,
