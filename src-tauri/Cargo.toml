@@ -1,0 +1,42 @@
+[package]
+name = "nextmail"
+version = "0.1.0"
+description = "The NextMail desktop client"
+authors = ["TaurusXin"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "nextmail_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nextmail-core = { path = "../crates/nextmail-core" }
+nextmail-protocols = { path = "../crates/nextmail-protocols" }
+nextmail-storage = { path = "../crates/nextmail-storage" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+async-imap = { version = "0.11", default-features = false, features = ["runtime-tokio"] }
+async-trait = "0.1"
+hickory-resolver = "0.26"
+keyring = "4.1"
+lettre = { version = "0.11", default-features = false, features = ["builder", "pool", "ring", "rustls-platform-verifier", "smtp-transport", "tokio1-rustls"] }
+mime_guess = "2"
+quick-xml = { version = "0.38", features = ["serialize"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sys-locale = "0.3"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+uuid = { version = "1", features = ["serde", "v4"] }

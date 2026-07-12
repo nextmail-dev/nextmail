@@ -1,0 +1,17 @@
+[package]
+name = "nextmail-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+nextmail-core = { path = "../nextmail-core" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+mime_guess = "2"
+sqlx = { version = "0.9", features = ["migrate", "runtime-tokio", "sqlite"] }
+tempfile = "3"
+tokio.workspace = true
+uuid.workspace = true

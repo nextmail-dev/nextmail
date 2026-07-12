@@ -1,0 +1,305 @@
+use tauri::{AppHandle, State};
+
+use crate::{
+    domain::{
+        AccountDraft, AccountManagementDetail, AccountSummary, AppAbout, AppearancePreferences,
+        AttachmentSummary, BootstrapStatus, ComposerBootstrap, ConnectionTestResult,
+        DataDirectoryValidation, DiscoveredAccountConfig, DraftAttachmentSummary, DraftContent,
+        DraftDetail, DraftListItem, DraftRecipientFields, MailboxSummary, MessageDetail,
+        MessageListPage, SendJobSummary, SyncPolicy, SyncProgress,
+    },
+    error::CommandResult,
+    state::AppState,
+};
+
+#[tauri::command]
+pub fn get_bootstrap_status(state: State<'_, AppState>) -> CommandResult<BootstrapStatus> {
+    state.service.get_bootstrap_status()
+}
+
+#[tauri::command]
+pub fn validate_data_directory(
+    state: State<'_, AppState>,
+    path: String,
+) -> DataDirectoryValidation {
+    state.service.validate_data_directory(&path)
+}
+
+#[tauri::command]
+pub async fn initialize_data_directory(
+    state: State<'_, AppState>,
+    path: String,
+) -> CommandResult<BootstrapStatus> {
+    state.service.initialize_data_directory(&path).await
+}
+
+#[tauri::command]
+pub fn get_preferences(state: State<'_, AppState>) -> CommandResult<AppearancePreferences> {
+    state.service.get_preferences()
+}
+
+#[tauri::command]
+pub fn set_appearance_preferences(
+    state: State<'_, AppState>,
+    preferences: AppearancePreferences,
+) -> CommandResult<AppearancePreferences> {
+    state.service.set_preferences(preferences)
+}
+
+#[tauri::command]
+pub async fn discover_account_config(
+    state: State<'_, AppState>,
+    email: String,
+) -> CommandResult<DiscoveredAccountConfig> {
+    state.service.discover_account_config(&email).await
+}
+
+#[tauri::command]
+pub async fn test_account_connections(
+    state: State<'_, AppState>,
+    draft: AccountDraft,
+) -> CommandResult<ConnectionTestResult> {
+    state.service.test_account_connections(&draft).await
+}
+
+#[tauri::command]
+pub async fn save_password_account(
+    state: State<'_, AppState>,
+    draft: AccountDraft,
+) -> CommandResult<AccountSummary> {
+    state.service.save_password_account(draft).await
+}
+
+#[tauri::command]
+pub fn complete_onboarding(state: State<'_, AppState>) -> CommandResult<BootstrapStatus> {
+    let status = state.service.complete_onboarding()?;
+    state.mail.start();
+    state.composer.start();
+    Ok(status)
+}
+
+#[tauri::command]
+pub fn list_account_summaries(state: State<'_, AppState>) -> CommandResult<Vec<AccountSummary>> {
+    state.service.list_account_summaries()
+}
+
+#[tauri::command]
+pub fn get_app_about() -> AppAbout {
+    AppAbout {
+        name: "NextMail".to_owned(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+    }
+}
+
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+pub async fn list_mailboxes(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> CommandResult<Vec<MailboxSummary>> {
+    state.mail.list_mailboxes(&account_id).await
+}
+
+#[tauri::command]
+pub async fn list_messages(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+    cursor: Option<String>,
+    limit: u32,
+) -> CommandResult<MessageListPage> {
+    state
+        .mail
+        .list_messages(&account_id, &mailbox_id, cursor.as_deref(), limit)
+        .await
+}
+
+#[tauri::command]
+pub async fn get_message_detail(
+    state: State<'_, AppState>,
+    account_id: String,
+    message_id: String,
+) -> CommandResult<MessageDetail> {
+    state
+        .mail
+        .get_message_detail(&account_id, &message_id)
+        .await
+}
+
+#[tauri::command]
+pub fn get_sync_progress(state: State<'_, AppState>, account_id: String) -> SyncProgress {
+    state.mail.get_sync_progress(&account_id)
+}
+
+#[tauri::command]
+pub async fn get_account_management_detail(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> CommandResult<AccountManagementDetail> {
+    state.mail.get_account_management_detail(&account_id).await
+}
+
+#[tauri::command]
+pub async fn set_account_sync_policy(
+    state: State<'_, AppState>,
+    account_id: String,
+    sync_policy: SyncPolicy,
+) -> CommandResult<SyncPolicy> {
+    state
+        .mail
+        .set_account_sync_policy(&account_id, sync_policy)
+        .await
+}
+
+#[tauri::command]
+pub async fn request_raw_message(
+    state: State<'_, AppState>,
+    account_id: String,
+    message_id: String,
+) -> CommandResult<String> {
+    state
+        .mail
+        .request_raw_message(&account_id, &message_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn request_message_body(
+    state: State<'_, AppState>,
+    account_id: String,
+    message_id: String,
+) -> CommandResult<MessageDetail> {
+    state
+        .mail
+        .request_message_body(&account_id, &message_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn request_attachment(
+    state: State<'_, AppState>,
+    account_id: String,
+    attachment_id: String,
+) -> CommandResult<AttachmentSummary> {
+    state
+        .mail
+        .request_attachment(&account_id, &attachment_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn open_composer(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> CommandResult<String> {
+    state.composer.open_composer(&account_id).await
+}
+
+#[tauri::command]
+pub async fn list_drafts(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> CommandResult<Vec<DraftListItem>> {
+    state.composer.list_drafts(&account_id).await
+}
+
+#[tauri::command]
+pub async fn open_existing_composer(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft_id: String,
+) -> CommandResult<()> {
+    state
+        .composer
+        .open_existing_composer(&account_id, &draft_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn get_composer_bootstrap(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft_id: String,
+) -> CommandResult<ComposerBootstrap> {
+    state.composer.get_bootstrap(&account_id, &draft_id).await
+}
+
+#[tauri::command]
+pub async fn save_draft(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft_id: String,
+    recipients: DraftRecipientFields,
+    subject: String,
+    content: DraftContent,
+    expected_revision: u64,
+) -> CommandResult<DraftDetail> {
+    state
+        .composer
+        .save_draft(
+            &account_id,
+            &draft_id,
+            recipients,
+            subject,
+            content,
+            expected_revision,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn add_draft_attachments(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft_id: String,
+    selected_paths: Vec<String>,
+) -> CommandResult<Vec<DraftAttachmentSummary>> {
+    state
+        .composer
+        .add_attachments(&account_id, &draft_id, selected_paths)
+        .await
+}
+
+#[tauri::command]
+pub async fn remove_draft_attachment(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft_id: String,
+    attachment_id: String,
+) -> CommandResult<()> {
+    state
+        .composer
+        .remove_attachment(&account_id, &draft_id, &attachment_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn queue_draft_send(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft_id: String,
+) -> CommandResult<SendJobSummary> {
+    state.composer.queue_send(&account_id, &draft_id).await
+}
+
+#[tauri::command]
+pub async fn retry_send_job(
+    state: State<'_, AppState>,
+    account_id: String,
+    send_job_id: String,
+) -> CommandResult<SendJobSummary> {
+    state.composer.retry_send(&account_id, &send_job_id).await
+}
+
+#[tauri::command]
+pub async fn get_send_job(
+    state: State<'_, AppState>,
+    account_id: String,
+    send_job_id: String,
+) -> CommandResult<SendJobSummary> {
+    state.composer.get_send_job(&account_id, &send_job_id).await
+}

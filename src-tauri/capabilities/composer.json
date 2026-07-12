@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "composer",
+  "description": "Narrow capability for independent message composer windows",
+  "windows": ["composer-*"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open"
+  ]
+}

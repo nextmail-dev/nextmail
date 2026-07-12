@@ -1,0 +1,38 @@
+.nextmail-editor-content {
+  min-height: 100%;
+  padding: 22px 24px 80px;
+  color: var(--foreground);
+  background: var(--card);
+  font-size: 14px;
+  line-height: 1.65;
+  outline: none;
+  overflow-wrap: anywhere;
+}
+
+.nextmail-editor-content p {
+  margin: 0 0 0.8em;
+}
+
+.nextmail-editor-content h1,
+.nextmail-editor-content h2,
+.nextmail-editor-content h3 {
+  margin: 1.1em 0 0.55em;
+  line-height: 1.25;
+}
+
+.nextmail-editor-content blockquote {
+  margin: 1em 0;
+  padding-left: 1rem;
+  border-left: 3px solid var(--primary);
+  color: var(--muted-foreground);
+}
+
+.nextmail-editor-content ul,
+.nextmail-editor-content ol {
+  margin: 0.8em 0;
+  padding-left: 1.5rem;
+}
+
+.nextmail-editor-content.ProseMirror-focused {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--primary) 70%, transparent);
+}
