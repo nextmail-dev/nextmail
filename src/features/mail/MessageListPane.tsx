@@ -46,13 +46,13 @@ export function MessageListPane({
     : allItems;
 
   return (
-    <Stack className="min-h-0 flex-1" gap="xs">
+    <Stack className="min-h-0 flex-1" gap="none">
       <Inline className="min-h-14 border-b border-border px-4">
         <Heading level={2}>{t("mail.messages")}</Heading>
         {query.isFetching ? <Inline className="ml-auto"><Spinner size={15} /></Inline> : null}
       </Inline>
       {items.length ? (
-        <Stack className="min-h-0 flex-1 gap-0 overflow-auto">
+        <Stack className="min-h-0 flex-1 overflow-auto" gap="none">
           {items.map((message) => (
             <MessageRow
               key={message.id}

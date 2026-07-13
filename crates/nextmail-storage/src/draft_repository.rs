@@ -94,6 +94,37 @@ impl MailRepository {
         .await;
     }
 
+    pub async fn delete_editing_draft(
+        &self,
+        account_slot_id: &str,
+        draft_id: &str,
+    ) -> CommandResult<()> {
+        let status = sqlx::query_scalar::<_, String>(
+            "SELECT status FROM drafts WHERE id = ? AND account_slot_id = ?",
+        )
+        .bind(draft_id)
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("draft.read_failed"))?
+        .ok_or_else(|| CommandError::new("draft.not_found"))?;
+        if status != "editing" {
+            return Err(CommandError::new("draft.not_editable"));
+        }
+        let result = sqlx::query(
+            "DELETE FROM drafts WHERE id = ? AND account_slot_id = ? AND status = 'editing'",
+        )
+        .bind(draft_id)
+        .bind(account_slot_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("draft.delete_failed"))?;
+        if result.rows_affected() != 1 {
+            return Err(CommandError::new("draft.delete_failed"));
+        }
+        Ok(())
+    }
+
     pub async fn get_draft(
         &self,
         account_id: &str,
@@ -576,6 +607,29 @@ mod tests {
             .get_draft("account", "slot", &retained.id)
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn deletes_an_editing_draft_explicitly() {
+        let directory = tempfile::tempdir().unwrap();
+        initialize_content_database(directory.path()).await.unwrap();
+        create_account_slot(directory.path(), "slot", 1)
+            .await
+            .unwrap();
+        let repository = MailRepository::open(directory.path()).await.unwrap();
+        let draft = repository.create_draft("account", "slot").await.unwrap();
+        repository
+            .delete_editing_draft("slot", &draft.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            repository
+                .get_draft("account", "slot", &draft.id)
+                .await
+                .unwrap_err()
+                .code,
+            "draft.not_found"
+        );
     }
 
     #[tokio::test]

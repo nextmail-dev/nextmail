@@ -145,6 +145,16 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
             void api.openExistingComposer(selectedAccountId, draftId)
               .catch((error) => setComposeError(normalizeCommandError(error).code));
           }}
+          onDeleteDraft={async (draftId) => {
+            setComposeError(null);
+            try {
+              await api.deleteDraft(selectedAccountId, draftId);
+              await queryClient.invalidateQueries({ queryKey: ["drafts", selectedAccountId] });
+            } catch (error) {
+              setComposeError(normalizeCommandError(error).code);
+              throw error;
+            }
+          }}
         />
       </Page>
 

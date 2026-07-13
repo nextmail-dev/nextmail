@@ -93,6 +93,8 @@ export const api = {
     invoke<void>("remove_draft_attachment", { accountId, draftId, attachmentId }),
   discardEmptyDraft: (accountId: string, draftId: string) =>
     invoke<void>("discard_empty_draft", { accountId, draftId }),
+  deleteDraft: (accountId: string, draftId: string) =>
+    invoke<void>("delete_draft", { accountId, draftId }),
   queueDraftSend: (accountId: string, draftId: string) =>
     invoke<SendJobSummary>("queue_draft_send", { accountId, draftId }),
   retrySendJob: (accountId: string, sendJobId: string) =>

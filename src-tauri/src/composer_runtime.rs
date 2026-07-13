@@ -270,6 +270,21 @@ impl ComposerRuntime {
         Ok(())
     }
 
+    pub async fn delete_draft(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        if self
+            .app
+            .get_webview_window(&format!("composer-{draft_id}"))
+            .is_some()
+        {
+            return Err(CommandError::new("draft.window_open"));
+        }
+        self.repository()
+            .await?
+            .delete_editing_draft(&account.data_slot_id, draft_id)
+            .await
+    }
+
     pub async fn queue_send(
         &self,
         account_id: &str,

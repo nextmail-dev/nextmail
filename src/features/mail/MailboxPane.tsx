@@ -8,7 +8,9 @@ import {
   Send,
   ShieldAlert,
   Trash2,
+  X,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { normalizeCommandError } from "@/app/api";
@@ -36,6 +38,7 @@ interface MailboxPaneProps {
   onCompose: () => void;
   drafts: DraftListItem[];
   onOpenDraft: (draftId: string) => void;
+  onDeleteDraft: (draftId: string) => Promise<void>;
 }
 
 export function MailboxPane({
@@ -47,11 +50,19 @@ export function MailboxPane({
   onCompose,
   drafts,
   onOpenDraft,
+  onDeleteDraft,
 }: MailboxPaneProps) {
   const { t } = useTranslation();
+  const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
   const activeSync = progress && !["idle", "complete", "failed"].includes(progress.phase);
   const percentage = progress?.total ? (progress.completed / progress.total) * 100 : 8;
   const normalizedError = error ? normalizeCommandError(error) : null;
+
+  useEffect(() => {
+    if (!pendingDeleteDraftId) return;
+    const timeout = window.setTimeout(() => setPendingDeleteDraftId(null), 4_000);
+    return () => window.clearTimeout(timeout);
+  }, [pendingDeleteDraftId]);
 
   return (
     <Stack className="min-h-0 flex-1 p-3" gap="sm">
@@ -76,21 +87,47 @@ export function MailboxPane({
             <DropdownMenuContent align="start" className="w-72 p-2">
               <DropdownMenuLabel className="px-2 py-1.5 normal-case">{t("composer.localDrafts")}</DropdownMenuLabel>
               {drafts.map((draft) => (
-                <DropdownMenuItem
-                  key={draft.id}
-                  className="h-auto min-h-12 items-start px-3 py-2.5"
-                  onSelect={() => onOpenDraft(draft.id)}
-                >
-                  <FilePenLine className="mt-0.5 shrink-0" size={15} />
-                  <Stack gap="xs" className="min-w-0 py-0.5">
-                    <Text className="truncate text-[13px] leading-5 text-foreground">
-                      {draft.subject || t("mail.noSubject")}
-                    </Text>
-                    <Text className="truncate text-[11px] leading-4">
-                      {draft.recipients.map((recipient) => recipient.name || recipient.email).join(", ") || t("composer.noRecipients")}
-                    </Text>
-                  </Stack>
-                </DropdownMenuItem>
+                <Inline key={draft.id} className="gap-1">
+                  <DropdownMenuItem
+                    className="h-auto min-h-12 min-w-0 flex-1 items-start px-3 py-2.5"
+                    onSelect={() => onOpenDraft(draft.id)}
+                  >
+                    <FilePenLine className="mt-0.5 shrink-0" size={15} />
+                    <Stack gap="xs" className="min-w-0 py-0.5">
+                      <Text className="truncate text-[13px] leading-5 text-foreground">
+                        {draft.subject || t("mail.noSubject")}
+                      </Text>
+                      <Text className="truncate text-[11px] leading-4">
+                        {draft.recipients.map((recipient) => recipient.name || recipient.email).join(", ") || t("composer.noRecipients")}
+                      </Text>
+                    </Stack>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className={pendingDeleteDraftId === draft.id
+                      ? "size-7 shrink-0 justify-center self-center bg-destructive p-0 text-white focus:bg-destructive/90 focus:text-white"
+                      : "size-7 shrink-0 justify-center self-center p-0 text-muted-foreground"}
+                    aria-label={pendingDeleteDraftId === draft.id
+                      ? t("composer.confirmDeleteDraft")
+                      : t("composer.deleteDraft")}
+                    title={pendingDeleteDraftId === draft.id
+                      ? t("composer.confirmDeleteDraft")
+                      : t("composer.deleteDraft")}
+                    onSelect={(event) => {
+                      if (pendingDeleteDraftId !== draft.id) {
+                        event.preventDefault();
+                        setPendingDeleteDraftId(draft.id);
+                        return;
+                      }
+                      void onDeleteDraft(draft.id)
+                        .then(() => setPendingDeleteDraftId(null))
+                        .catch(() => undefined);
+                    }}
+                  >
+                    {pendingDeleteDraftId === draft.id
+                      ? <Trash2 size={13} />
+                      : <X size={13} />}
+                  </DropdownMenuItem>
+                </Inline>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>

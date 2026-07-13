@@ -15,6 +15,7 @@ export function Page({ className, ...props }: HTMLAttributes<HTMLElement>) {
 }
 
 const stackGaps = {
+  none: "gap-0",
   xs: "gap-1.5",
   sm: "gap-2.5",
   md: "gap-4",
@@ -41,4 +42,3 @@ export function Form({ className, ...props }: FormHTMLAttributes<HTMLFormElement
 export function ScreenReaderText({ children }: PropsWithChildren) {
   return <span className="sr-only">{children}</span>;
 }
-
