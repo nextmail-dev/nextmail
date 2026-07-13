@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::{
     domain::{
@@ -42,9 +42,12 @@ pub fn get_preferences(state: State<'_, AppState>) -> CommandResult<AppearancePr
 #[tauri::command]
 pub fn set_appearance_preferences(
     state: State<'_, AppState>,
+    app: AppHandle,
     preferences: AppearancePreferences,
 ) -> CommandResult<AppearancePreferences> {
-    state.service.set_preferences(preferences)
+    let preferences = state.service.set_preferences(preferences)?;
+    let _ = app.emit("appearance-preferences-changed", &preferences);
+    Ok(preferences)
 }
 
 #[tauri::command]
@@ -95,6 +98,42 @@ pub fn get_app_about() -> AppAbout {
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+pub async fn open_settings_window(app: AppHandle) -> CommandResult<()> {
+    // Window creation must not run inside the synchronous WebView IPC callback on Windows.
+    // Yielding here keeps this path aligned with the working composer-window lifecycle.
+    tokio::task::yield_now().await;
+
+    if let Some(window) = app.get_webview_window("settings") {
+        window
+            .show()
+            .and_then(|_| window.set_focus())
+            .map_err(|_| crate::error::CommandError::new("settings.window_create_failed"))?;
+        return Ok(());
+    }
+
+    let builder = WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        WebviewUrl::App("index.html?window=settings".into()),
+    )
+    .title("NextMail Settings")
+    .inner_size(900.0, 680.0)
+    .min_inner_size(760.0, 560.0);
+    #[cfg(target_os = "windows")]
+    let builder = builder.decorations(false);
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(15.0, 17.0));
+
+    builder
+        .build()
+        .map_err(|_| crate::error::CommandError::new("settings.window_create_failed"))?;
+    Ok(())
 }
 
 #[tauri::command]

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import i18n from "../../app/i18n";
-import type { DraftListItem } from "../../app/types";
+import type { DraftListItem, MailboxSummary } from "../../app/types";
 import { MailboxPane } from "./MailboxPane";
 
 const draft: DraftListItem = {
@@ -47,5 +47,35 @@ describe("MailboxPane draft actions", () => {
     await waitFor(() => expect(onDeleteDraft).toHaveBeenCalledWith("draft-one"));
     expect(onOpenDraft).not.toHaveBeenCalled();
   });
-});
 
+  it("keeps collapsed compose and mailbox icons in fixed square controls", () => {
+    const inbox: MailboxSummary = {
+      id: "inbox",
+      accountId: "account-one",
+      name: "INBOX",
+      role: "inbox",
+      selectable: true,
+      totalCount: 3,
+      unreadCount: 1,
+      revision: 1,
+    };
+    render(
+      <MailboxPane
+        mailboxes={[inbox]}
+        selectedMailboxId="inbox"
+        onSelect={vi.fn()}
+        onCompose={vi.fn()}
+        drafts={[]}
+        onOpenDraft={vi.fn()}
+        onDeleteDraft={vi.fn()}
+        collapsed
+      />,
+    );
+
+    const compose = screen.getByRole("button", { name: "New message" });
+    const mailbox = screen.getByRole("button", { name: "Inbox" });
+    expect(compose).toHaveClass("mx-auto", "size-11", "p-0");
+    expect(mailbox).toHaveClass("mx-auto", "size-11", "p-0");
+    expect(mailbox.querySelector("svg")).toHaveClass("size-[18px]", "shrink-0");
+  });
+});

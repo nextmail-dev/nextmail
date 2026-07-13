@@ -16,7 +16,7 @@ export const CompactField = forwardRef<HTMLInputElement, CompactFieldProps>(func
   return (
     <label
       htmlFor={id}
-      className={cn("flex min-h-11 items-center overflow-hidden border-b border-border bg-card", className)}
+      className={cn("flex min-h-11 items-center overflow-hidden bg-card", className)}
     >
       <span className="w-20 shrink-0 px-4 text-xs font-semibold text-muted-foreground">{label}</span>
       <input

@@ -71,7 +71,7 @@ export function ResizeHandle({
       aria-valuenow={collapsed ? 0 : value}
       tabIndex={0}
       className={cn(
-        "group relative z-10 flex h-full cursor-col-resize touch-none items-center justify-center bg-border/70 outline-none transition-colors hover:bg-primary/45 focus-visible:bg-primary/55",
+        "group relative z-10 flex h-full cursor-col-resize touch-none items-center justify-center bg-transparent outline-none",
         className,
       )}
       onPointerDown={handlePointerDown}
@@ -85,7 +85,7 @@ export function ResizeHandle({
         <Button
           variant="secondary"
           size="icon"
-          className="absolute top-1/2 z-20 size-5 -translate-y-1/2 rounded-full bg-background p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+          className="absolute top-1/2 z-20 size-5 -translate-y-1/2 rounded-full bg-card p-0 opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
           aria-label={collapsed ? expandLabel : collapseLabel}
           title={collapsed ? expandLabel : collapseLabel}
           onPointerDown={(event) => event.stopPropagation()}

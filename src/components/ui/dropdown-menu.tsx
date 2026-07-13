@@ -18,7 +18,7 @@ export function DropdownMenuContent({
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
         className={cn(
-          "z-50 min-w-48 overflow-hidden rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+          "z-50 min-w-48 overflow-hidden rounded-md border-0 bg-popover p-1.5 text-popover-foreground shadow-[0_18px_48px_rgb(15_23_42/0.18)] outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           className,
         )}
         sideOffset={sideOffset}
@@ -118,7 +118,7 @@ export function DropdownMenuSubContent({
   return (
     <DropdownMenuPrimitive.SubContent
       className={cn(
-        "min-w-44 rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none",
+        "min-w-44 rounded-md border-0 bg-popover p-1.5 text-popover-foreground shadow-[0_18px_48px_rgb(15_23_42/0.18)] outline-none",
         className,
       )}
       {...props}

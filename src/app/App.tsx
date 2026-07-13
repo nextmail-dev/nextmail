@@ -1,4 +1,6 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Component, lazy, Suspense, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Mail } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,9 +19,13 @@ import { IconTile } from "@/components/ui/icon-tile";
 import { AppShell, Page, Stack } from "@/components/ui/layout";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/typography";
+import { WindowTitlebar, type WindowKind } from "@/components/window/WindowTitlebar";
 
 const ComposerApp = lazy(() =>
   import("@/features/composer/ComposerApp").then((module) => ({ default: module.ComposerApp })),
+);
+const SettingsApp = lazy(() =>
+  import("@/features/preferences/SettingsApp").then((module) => ({ default: module.SettingsApp })),
 );
 
 const queryClient = new QueryClient({
@@ -31,19 +37,80 @@ const queryClient = new QueryClient({
 export function App() {
   const params = new URLSearchParams(window.location.search);
   const composer = params.get("window") === "composer";
+  const settings = params.get("window") === "settings";
   const accountId = params.get("accountId") ?? "";
   const draftId = params.get("draftId") ?? "";
+  const kind: WindowKind = composer ? "composer" : settings ? "settings" : "main";
   return (
     <QueryClientProvider client={queryClient}>
-      {composer && accountId && draftId ? (
-        <Suspense fallback={<AppShell className="grid place-items-center"><Spinner size={24} /></AppShell>}>
-          <ComposerApp accountId={accountId} draftId={draftId} />
-        </Suspense>
-      ) : (
-        <AppContent />
-      )}
+      <WindowTitlebar kind={kind} title={kind === "main" ? "" : "NextMail"} />
+      <AppearanceEventBridge />
+      <div className="h-full pt-[var(--titlebar-height)]">
+        <WindowContentBoundary kind={kind}>
+          {composer && accountId && draftId ? (
+            <Suspense fallback={<AppShell className="grid place-items-center"><Spinner size={24} /></AppShell>}>
+              <ComposerApp accountId={accountId} draftId={draftId} />
+            </Suspense>
+          ) : settings ? (
+            <Suspense fallback={<AppShell className="grid place-items-center"><Spinner size={24} /></AppShell>}>
+              <SettingsApp />
+            </Suspense>
+          ) : (
+            <AppContent />
+          )}
+        </WindowContentBoundary>
+      </div>
     </QueryClientProvider>
   );
+}
+
+class WindowContentBoundary extends Component<
+  { kind: WindowKind; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("NextMail window content failed to render", error, info);
+  }
+
+  private closeWindow = () => {
+    const appWindow = getCurrentWindow();
+    void (this.props.kind === "settings" ? appWindow.destroy() : appWindow.close());
+  };
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <AppShell className="grid place-items-center bg-card p-8">
+        <EmptyState
+          icon={<AlertTriangle size={28} />}
+          title={i18n.t("errors.title")}
+          description={i18n.t("common.unexpectedError")}
+          action={<Button onClick={this.closeWindow}>{i18n.t("common.close")}</Button>}
+        />
+      </AppShell>
+    );
+  }
+}
+
+function AppearanceEventBridge() {
+  const queryCache = useQueryClient();
+  const appearance = useAppearanceStore();
+  useEffect(() => {
+    const unlisten = listen<AppearancePreferences>("appearance-preferences-changed", (event) => {
+      queryCache.setQueryData(["preferences"], event.payload);
+      appearance.setPreferences(event.payload);
+      applyAppearance(event.payload);
+      void i18n.changeLanguage(event.payload.language);
+    });
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, [appearance.setPreferences, queryCache]);
+  return null;
 }
 
 function AppContent() {
@@ -154,10 +221,6 @@ function AppContent() {
     );
   }
   return (
-    <MainShell
-      accounts={status.accounts}
-      preferences={preferencesState.preferences}
-      onPreferencesChange={changePreferences}
-    />
+    <MainShell accounts={status.accounts} />
   );
 }

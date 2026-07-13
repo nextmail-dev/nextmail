@@ -5,13 +5,13 @@ import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 import { Stack } from "./layout";
 
-const alertVariants = cva("flex items-start gap-3 rounded-sm border px-3.5 py-3 text-[13px]", {
+const alertVariants = cva("flex items-start gap-3 rounded-md border-0 px-3.5 py-3 text-[13px]", {
   variants: {
     tone: {
-      info: "border-primary/20 bg-primary/8 text-primary",
-      success: "border-success/20 bg-success/10 text-success",
-      warning: "border-warning/25 bg-warning/10 text-warning-foreground",
-      danger: "border-destructive/20 bg-destructive/10 text-destructive",
+      info: "bg-primary/8 text-primary",
+      success: "bg-success/10 text-success",
+      warning: "bg-warning/10 text-warning-foreground",
+      danger: "bg-destructive/10 text-destructive",
     },
   },
   defaultVariants: { tone: "info" },

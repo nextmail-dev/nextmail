@@ -12,7 +12,7 @@ interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "
 export function SearchField({ className, clearLabel, value, onValueChange, ...props }: SearchFieldProps) {
   const hasValue = typeof value === "string" && value.length > 0;
   return (
-    <label className={cn("flex h-9 w-64 items-center gap-2 rounded-sm bg-muted px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-ring/20", className)}>
+    <label className={cn("flex h-9 w-64 items-center gap-2 rounded-md bg-muted px-3 text-muted-foreground focus-within:ring-3 focus-within:ring-ring/20", className)}>
       <Search size={16} aria-hidden="true" />
       <input
         type="search"

@@ -81,7 +81,7 @@ export function RichTextEditor({ initialJson, disabled, signature, onChange }: R
 
   return (
     <Page className="flex min-h-0 flex-1 flex-col bg-card">
-      <Inline className="min-h-11 shrink-0 gap-0.5 overflow-x-auto border-b border-border px-3 py-1.5" role="toolbar">
+      <Inline className="min-h-11 shrink-0 gap-0.5 overflow-x-auto bg-muted/35 px-3 py-1.5" role="toolbar">
         <SelectField
           compact
           className="shrink-0"

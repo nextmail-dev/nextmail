@@ -246,7 +246,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
 
   return (
     <AppShell className="flex min-h-0 flex-col overflow-hidden">
-      <Inline className="h-14 shrink-0 border-b border-border bg-card px-3 shadow-xs">
+      <Inline className="h-14 shrink-0 bg-card px-3">
         <Button loading={sending} onClick={() => void sendMessage()} disabled={!editable || saveState === "saving"}>
           <Send size={16} />{t("composer.send")}
         </Button>
@@ -263,7 +263,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       </Inline>
 
       <Page className="flex min-h-0 flex-1 flex-col">
-        <Inline className="min-h-11 border-b border-border bg-card px-4">
+        <Inline className="min-h-11 bg-card px-4">
           <Text className="w-16 shrink-0 text-xs font-semibold">{t("composer.from")}</Text>
           <Text className="text-sm text-foreground">{sender.displayName || sender.email} &lt;{sender.email}&gt;</Text>
         </Inline>
@@ -292,9 +292,9 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         ) : null}
         {sendJob?.status === "failed" ? <SendFailure job={sendJob} onRetry={retrySend} /> : null}
         {attachments.length ? (
-          <Inline className="flex-wrap border-b border-border bg-muted/40 px-4 py-2">
+          <Inline className="flex-wrap bg-muted/50 px-4 py-2">
             {attachments.map((attachment) => (
-              <Inline key={attachment.id} className="rounded-sm border border-border bg-card px-2.5 py-1.5">
+              <Inline key={attachment.id} className="rounded-md border-0 bg-card px-2.5 py-1.5 shadow-xs">
                 <Paperclip size={14} /><Text className="max-w-56 truncate text-xs text-foreground">{attachment.fileName}</Text>
                 <Text className="text-[11px]">{formatBytes(attachment.size)}</Text>
                 {editable ? (
@@ -350,7 +350,7 @@ function SendProgressOverlay({ status }: { status: "preparing" | "queued" | "sen
       aria-modal="true"
       aria-label={t("composer.sendProgressTitle")}
     >
-      <Stack className="w-[min(22rem,calc(100vw-3rem))] items-center rounded-md border border-border bg-popover px-8 py-7 text-center text-popover-foreground shadow-2xl" gap="sm">
+      <Stack className="w-[min(22rem,calc(100vw-3rem))] items-center rounded-lg border-0 bg-popover px-8 py-7 text-center text-popover-foreground shadow-2xl" gap="sm">
         <Spinner size={30} />
         <Text className="font-semibold text-foreground">{t("composer.sendProgressTitle")}</Text>
         <Text className="text-xs">{t(`composer.${status}`)}</Text>

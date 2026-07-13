@@ -21,8 +21,8 @@ export function ProgressSteps({ label, items, activeIndex }: ProgressStepsProps)
         >
           <span
             className={cn(
-              "flex size-6 items-center justify-center rounded-xs border border-border bg-background text-[11px]",
-              index <= activeIndex && "border-primary bg-primary text-primary-foreground",
+              "flex size-6 items-center justify-center rounded-sm border-0 bg-muted text-[11px]",
+              index <= activeIndex && "bg-primary text-primary-foreground",
             )}
           >
             {index < activeIndex ? <Check size={12} /> : index + 1}
@@ -33,4 +33,3 @@ export function ProgressSteps({ label, items, activeIndex }: ProgressStepsProps)
     </nav>
   );
 }
-

@@ -11,7 +11,7 @@ export function Checkbox({ checked, onCheckedChange, label }: CheckboxProps) {
   return (
     <label className="flex cursor-pointer items-start gap-2.5 text-[13px] leading-relaxed text-foreground">
       <CheckboxPrimitive.Root
-        className="mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-xs border border-input bg-background text-primary-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/20 data-[state=checked]:border-primary data-[state=checked]:bg-primary"
+        className="mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-sm border-0 bg-muted text-primary-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/20 data-[state=checked]:bg-primary"
         checked={checked}
         onCheckedChange={(value) => onCheckedChange(value === true)}
       >
@@ -23,4 +23,3 @@ export function Checkbox({ checked, onCheckedChange, label }: CheckboxProps) {
     </label>
   );
 }
-

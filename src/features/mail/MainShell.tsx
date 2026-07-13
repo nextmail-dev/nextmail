@@ -1,21 +1,17 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-
-import { api, normalizeCommandError } from "@/app/api";
-import type { AccountSummary, AppearancePreferences, MessageComposeAction } from "@/app/types";
-import { AboutDialog } from "@/features/about/AboutDialog";
-import { AccountManagementDialog } from "@/features/accounts/AccountManagementDialog";
-import { SettingsDialog } from "@/features/preferences/SettingsDialog";
-import { AppShell, Page, Stack } from "@/components/ui/layout";
-import { Alert } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Toast } from "@/components/ui/toast";
-import { Text } from "@/components/ui/typography";
-import { ResizeHandle } from "@/components/ui/resize-handle";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { MailToolbar } from "./MailToolbar";
+
+import { api, normalizeCommandError } from "@/app/api";
+import type { AccountSummary } from "@/app/types";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { AppShell, Page, Stack } from "@/components/ui/layout";
+import { ResizeHandle } from "@/components/ui/resize-handle";
+import { Toast } from "@/components/ui/toast";
+import { Text } from "@/components/ui/typography";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { MailboxPane } from "./MailboxPane";
 import { MessageListPane } from "./MessageListPane";
@@ -23,34 +19,21 @@ import { MessageViewer } from "./MessageViewer";
 
 interface MainShellProps {
   accounts: AccountSummary[];
-  preferences: AppearancePreferences;
-  onPreferencesChange: (preferences: AppearancePreferences) => void;
 }
 
-export function MainShell({ accounts, preferences, onPreferencesChange }: MainShellProps) {
+export function MainShell({ accounts }: MainShellProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id ?? "");
   const [selectedMailboxId, setSelectedMailboxId] = useState("");
   const [selectedMessageId, setSelectedMessageId] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [accountsOpen, setAccountsOpen] = useState(false);
-  const [aboutOpen, setAboutOpen] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sentNotice, setSentNotice] = useState<{ id: string; subject: string } | null>(null);
   const [folderPaneWidth, setFolderPaneWidth] = useState(250);
-  const [messagePaneWidth, setMessagePaneWidth] = useState(384);
+  const [messagePaneWidth, setMessagePaneWidth] = useState(370);
   const [folderPaneCollapsed, setFolderPaneCollapsed] = useState(false);
-  const [activeMessageAction, setActiveMessageAction] = useState<MessageComposeAction | "copy" | null>(null);
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
-  const selectedAccount =
-    accounts.find((account) => account.id === selectedAccountId) ?? accounts[0];
-  const aboutQuery = useQuery({
-    queryKey: ["about"],
-    queryFn: api.getAppAbout,
-    staleTime: Number.POSITIVE_INFINITY,
-  });
   const mailboxesQuery = useQuery({
     queryKey: ["mailboxes", selectedAccountId],
     queryFn: () => api.listMailboxes(selectedAccountId),
@@ -60,8 +43,7 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
     queryKey: ["sync-progress", selectedAccountId],
     queryFn: () => api.getSyncProgress(selectedAccountId),
     enabled: Boolean(selectedAccountId),
-    refetchInterval: (query) =>
-      ["complete", "failed"].includes(query.state.data?.phase ?? "idle") ? false : 1_500,
+    refetchInterval: (query) => ["complete", "failed"].includes(query.state.data?.phase ?? "idle") ? false : 1_500,
   });
   const draftsQuery = useQuery({
     queryKey: ["drafts", selectedAccountId],
@@ -77,6 +59,9 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
   });
   const pendingIssue = pendingOperationsQuery.data?.find((operation) =>
     operation.cleanupPending || operation.status === "failed" || operation.status === "needs_reconcile");
+  const visibleFolderWidth = folderPaneCollapsed ? 72 : folderPaneWidth;
+  const selectedMailbox = mailboxesQuery.data?.find((mailbox) => mailbox.id === selectedMailboxId);
+  const receiving = !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
 
   useEffect(() => {
     if (selectedAccountId && accounts.some((account) => account.id === selectedAccountId)) return;
@@ -102,9 +87,7 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
       listen<{ accountId: string; mailboxId: string }>("mailbox-changed", (event) => {
         if (event.payload.accountId !== selectedAccountId) return;
         void queryClient.invalidateQueries({ queryKey: ["mailboxes", selectedAccountId] });
-        void queryClient.invalidateQueries({
-          queryKey: ["messages", selectedAccountId, event.payload.mailboxId],
-        });
+        void queryClient.invalidateQueries({ queryKey: ["messages", selectedAccountId, event.payload.mailboxId] });
       }),
       listen<{ accountId: string }>("sync-progress", (event) => {
         if (event.payload.accountId !== selectedAccountId) return;
@@ -112,9 +95,7 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
       }),
       listen<{ accountId: string; messageId: string }>("message-content-changed", (event) => {
         if (event.payload.accountId !== selectedAccountId) return;
-        void queryClient.invalidateQueries({
-          queryKey: ["message", selectedAccountId, event.payload.messageId],
-        });
+        void queryClient.invalidateQueries({ queryKey: ["message", selectedAccountId, event.payload.messageId] });
       }),
       listen<{ accountId: string; jobId: string; status: string; subject: string }>("send-job-changed", (event) => {
         if (event.payload.accountId !== selectedAccountId || event.payload.status !== "sent") return;
@@ -129,9 +110,7 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
         void queryClient.invalidateQueries({ queryKey: ["pending-operations", selectedAccountId] });
       }),
     ]);
-    return () => {
-      void unlisteners.then((values) => values.forEach((unlisten) => unlisten()));
-    };
+    return () => { void unlisteners.then((values) => values.forEach((unlisten) => unlisten())); };
   }, [queryClient, selectedAccountId]);
 
   useEffect(() => {
@@ -147,36 +126,49 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
   }, []);
 
   useEffect(() => {
-    const available = Math.max(488, windowWidth - 372);
-    let folder = folderPaneCollapsed ? 64 : Math.min(360, Math.max(208, folderPaneWidth));
-    let messages = Math.min(560, Math.max(280, messagePaneWidth));
+    const available = Math.max(500, windowWidth - 372);
+    let folder = folderPaneCollapsed ? 72 : Math.min(350, Math.max(220, folderPaneWidth));
+    let messages = Math.min(520, Math.max(310, messagePaneWidth));
     let overflow = folder + messages - available;
     if (overflow > 0) {
-      const messageReduction = Math.min(overflow, messages - 280);
+      const messageReduction = Math.min(overflow, messages - 310);
       messages -= messageReduction;
       overflow -= messageReduction;
     }
-    if (overflow > 0 && !folderPaneCollapsed) {
-      folder -= Math.min(overflow, folder - 208);
-    }
+    if (overflow > 0 && !folderPaneCollapsed) folder -= Math.min(overflow, folder - 220);
     if (!folderPaneCollapsed) setFolderPaneWidth(folder);
     setMessagePaneWidth(messages);
   }, [windowWidth, folderPaneCollapsed]);
 
-  const folderPaneMax = Math.max(208, Math.min(360, windowWidth - messagePaneWidth - 372));
-  const visibleFolderWidth = folderPaneCollapsed ? 64 : folderPaneWidth;
-  const messagePaneMax = Math.max(280, Math.min(560, windowWidth - visibleFolderWidth - 372));
+  useEffect(() => {
+    document.documentElement.style.setProperty("--shell-sidebar-width", `${visibleFolderWidth}px`);
+  }, [visibleFolderWidth]);
+
+  const folderPaneMax = Math.max(220, Math.min(350, windowWidth - messagePaneWidth - 372));
+  const messagePaneMax = Math.max(310, Math.min(520, windowWidth - visibleFolderWidth - 372));
+
+  function receive() {
+    if (!selectedAccountId) return;
+    setComposeError(null);
+    void api.syncNow(selectedAccountId)
+      .then(() => queryClient.invalidateQueries({ queryKey: ["sync-progress", selectedAccountId] }))
+      .catch((error) => setComposeError(normalizeCommandError(error).code));
+  }
 
   return (
     <AppShell
-      className="grid overflow-hidden"
-      style={{ gridTemplateColumns: `${folderPaneCollapsed ? 64 : folderPaneWidth}px 6px minmax(0, 1fr)` }}
+      className="grid overflow-hidden bg-card"
+      style={{ gridTemplateColumns: `${visibleFolderWidth}px 6px minmax(0,1fr)` }}
     >
-      <Page className="grid min-h-0 grid-rows-[4.5rem_minmax(0,1fr)] bg-card shadow-[inset_-1px_0_0_var(--border)]">
+      <Page className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] bg-sidebar">
         <AccountSwitcher
           accounts={accounts}
           selectedAccountId={selectedAccountId}
           onAccountChange={setSelectedAccountId}
+          onReceive={receive}
+          receiving={receiving}
+          onOpenSettings={() => void api.openSettingsWindow().catch((error) => setComposeError(normalizeCommandError(error).code))}
+          onQuit={() => void api.quitApp()}
           collapsed={folderPaneCollapsed}
         />
         <MailboxPane
@@ -197,13 +189,8 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
               .catch((error) => setComposeError(normalizeCommandError(error).code));
           }}
           drafts={draftsQuery.data ?? []}
-          onOpenDraft={(draftId) => {
-            setComposeError(null);
-            void api.openExistingComposer(selectedAccountId, draftId)
-              .catch((error) => setComposeError(normalizeCommandError(error).code));
-          }}
+          onOpenDraft={(draftId) => void api.openExistingComposer(selectedAccountId, draftId).catch((error) => setComposeError(normalizeCommandError(error).code))}
           onDeleteDraft={async (draftId) => {
-            setComposeError(null);
             try {
               await api.deleteDraft(selectedAccountId, draftId);
               await queryClient.invalidateQueries({ queryKey: ["drafts", selectedAccountId] });
@@ -215,10 +202,9 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
           collapsed={folderPaneCollapsed}
         />
       </Page>
-
       <ResizeHandle
         value={folderPaneWidth}
-        min={208}
+        min={220}
         max={folderPaneMax}
         onValueChange={setFolderPaneWidth}
         label={t("mail.resizeFolderPane")}
@@ -227,131 +213,45 @@ export function MainShell({ accounts, preferences, onPreferencesChange }: MainSh
         collapseLabel={t("mail.collapseFolderPane")}
         expandLabel={t("mail.expandFolderPane")}
       />
-
-      <Page className="grid min-h-0 grid-rows-[4.5rem_minmax(0,1fr)]">
-        <MailToolbar
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenAccounts={() => setAccountsOpen(true)}
-          onOpenAbout={() => setAboutOpen(true)}
-          onQuit={() => void api.quitApp()}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          receiving={!["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle")}
-          onReceive={() => {
-            if (!selectedAccountId) return;
-            setComposeError(null);
-            void api.syncNow(selectedAccountId)
-              .then(() => queryClient.invalidateQueries({ queryKey: ["sync-progress", selectedAccountId] }))
-              .catch((error) => setComposeError(normalizeCommandError(error).code));
-          }}
-          selectedMessageId={selectedMessageId}
-          selectedMailboxId={selectedMailboxId}
-          mailboxes={mailboxesQuery.data ?? []}
-          activeMessageAction={activeMessageAction}
-          onMessageAction={(action) => {
-            if (!selectedAccountId || !selectedMessageId) return;
-            setComposeError(null);
-            setActiveMessageAction(action);
-            void api.openMessageActionComposer(selectedAccountId, selectedMessageId, action)
-              .then(() => queryClient.invalidateQueries({ queryKey: ["drafts", selectedAccountId] }))
-              .catch((error) => setComposeError(normalizeCommandError(error).code))
-              .finally(() => setActiveMessageAction(null));
-          }}
-          onCopy={(destinationMailboxId) => {
-            if (!selectedAccountId || !selectedMailboxId || !selectedMessageId) return;
-            setComposeError(null);
-            setActiveMessageAction("copy");
-            void api.copyMessages(
-              selectedAccountId,
-              selectedMailboxId,
-              destinationMailboxId,
-              [selectedMessageId],
-            )
-              .catch((error) => setComposeError(normalizeCommandError(error).code))
-              .finally(() => setActiveMessageAction(null));
-          }}
-        />
-        <Page
-          className="grid min-h-0"
-          style={{ gridTemplateColumns: `${messagePaneWidth}px 6px minmax(360px, 1fr)` }}
-        >
-          <Page className="flex min-h-0 flex-col bg-muted/25 shadow-[inset_-1px_0_0_var(--border)]">
+      <Page className="grid min-h-0 bg-card" style={{ gridTemplateColumns: `${messagePaneWidth}px 6px minmax(360px,1fr)` }}>
+        <Page className="flex min-h-0 flex-col bg-card">
           <MessageListPane
             accountId={selectedAccountId}
             mailboxId={selectedMailboxId}
+            mailbox={selectedMailbox}
             selectedMessageId={selectedMessageId}
             onSelect={setSelectedMessageId}
             searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
           />
-          </Page>
-          <ResizeHandle
-            value={messagePaneWidth}
-            min={280}
-            max={messagePaneMax}
-            onValueChange={setMessagePaneWidth}
-            label={t("mail.resizeMessagePane")}
+        </Page>
+        <ResizeHandle value={messagePaneWidth} min={310} max={messagePaneMax} onValueChange={setMessagePaneWidth} label={t("mail.resizeMessagePane")} />
+        <Page className="flex min-h-0 flex-col bg-card">
+          <MessageViewer
+            accountId={selectedAccountId}
+            mailboxId={selectedMailboxId}
+            messageId={selectedMessageId}
+            mailboxes={mailboxesQuery.data ?? []}
+            onMessageRemoved={() => setSelectedMessageId("")}
           />
-          <Page className="flex min-h-0 flex-col bg-background">
-            <MessageViewer
-              accountId={selectedAccountId}
-              mailboxId={selectedMailboxId}
-              messageId={selectedMessageId}
-              mailboxes={mailboxesQuery.data ?? []}
-              onMessageRemoved={() => setSelectedMessageId("")}
-            />
-          </Page>
         </Page>
       </Page>
 
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        preferences={preferences}
-        onChange={onPreferencesChange}
-      />
-      <AccountManagementDialog
-        open={accountsOpen}
-        onOpenChange={setAccountsOpen}
-        accountId={selectedAccount?.id ?? ""}
-      />
-      <AboutDialog
-        open={aboutOpen}
-        onOpenChange={setAboutOpen}
-        version={aboutQuery.data?.version ?? "0.1.0"}
-      />
       {composeError ? (
         <Alert className="fixed right-4 bottom-4 z-40 max-w-sm bg-popover shadow-xl" tone="danger">
           {t(`errors.${composeError}`, { defaultValue: t("common.unexpectedError") })}
-          <Button variant="ghost" size="icon" aria-label={t("common.close")} onClick={() => setComposeError(null)}>
-            <X size={15} />
-          </Button>
+          <Button variant="ghost" size="icon" aria-label={t("common.close")} onClick={() => setComposeError(null)}><X size={15} /></Button>
         </Alert>
       ) : null}
-      {sentNotice ? (
-        <Toast
-          title={t("composer.sent")}
-          description={sentNotice.subject || t("mail.noSubject")}
-          closeLabel={t("common.close")}
-          onClose={() => setSentNotice(null)}
-        />
-      ) : null}
+      {sentNotice ? <Toast title={t("composer.sent")} description={sentNotice.subject || t("mail.noSubject")} closeLabel={t("common.close")} onClose={() => setSentNotice(null)} /> : null}
       {pendingIssue ? (
         <Alert className="fixed right-4 bottom-20 z-40 max-w-sm bg-popover shadow-xl" tone="warning" title={t("mail.syncActionNeedsAttention")}>
           <Stack gap="sm">
             <Text className="text-xs text-current">
-              {pendingIssue.cleanupPending
-                ? t("mail.serverCleanupPending")
-                : t(`errors.${pendingIssue.errorCode}`, { defaultValue: t("mail.syncActionFailed") })}
+              {pendingIssue.cleanupPending ? t("mail.serverCleanupPending") : t(`errors.${pendingIssue.errorCode}`, { defaultValue: t("mail.syncActionFailed") })}
             </Text>
             {!pendingIssue.cleanupPending ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => void api.retryPendingOperation(selectedAccountId, pendingIssue.id)
-                  .then(() => queryClient.invalidateQueries({ queryKey: ["pending-operations", selectedAccountId] }))}
-              >
-                {t("common.retry")}
-              </Button>
+              <Button variant="secondary" size="sm" onClick={() => void api.retryPendingOperation(selectedAccountId, pendingIssue.id).then(() => queryClient.invalidateQueries({ queryKey: ["pending-operations", selectedAccountId] }))}>{t("common.retry")}</Button>
             ) : null}
           </Stack>
         </Alert>

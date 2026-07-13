@@ -25,7 +25,7 @@ export function OnboardingLayout({
   const { t } = useTranslation();
   return (
     <AppShell className="grid grid-cols-[minmax(260px,300px)_minmax(0,1fr)]">
-      <Page className="flex min-h-0 flex-col justify-between border-r border-border bg-card/80 px-7 py-8">
+      <Page className="flex min-h-0 flex-col justify-between bg-sidebar px-7 py-8">
         <Stack gap="xl">
           <Brand />
           <ProgressSteps
@@ -39,7 +39,7 @@ export function OnboardingLayout({
           />
           {aside}
         </Stack>
-        <Surface className="mt-6 rounded-sm bg-muted p-3.5">
+        <Surface className="mt-6 rounded-lg bg-card/75 p-3.5 shadow-none">
           <LanguageSwitcher preferences={preferences} onChange={onPreferencesChange} />
         </Surface>
       </Page>

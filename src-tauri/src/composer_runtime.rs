@@ -236,10 +236,18 @@ impl ComposerRuntime {
             LanguagePreference::ZhCn => "新建邮件 — NextMail",
             LanguagePreference::EnUs => "New message — NextMail",
         };
-        WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::App(url.into()))
+        let builder = WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::App(url.into()))
             .title(title)
             .inner_size(860.0, 700.0)
-            .min_inner_size(680.0, 560.0)
+            .min_inner_size(680.0, 560.0);
+        #[cfg(target_os = "windows")]
+        let builder = builder.decorations(false);
+        #[cfg(target_os = "macos")]
+        let builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
+            .traffic_light_position(tauri::LogicalPosition::new(15.0, 17.0));
+        builder
             .build()
             .map_err(|_| CommandError::new("composer.window_create_failed"))?;
         Ok(())

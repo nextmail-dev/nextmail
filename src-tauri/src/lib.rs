@@ -35,6 +35,7 @@ pub fn run() {
             commands::list_account_summaries,
             commands::get_app_about,
             commands::quit_app,
+            commands::open_settings_window,
             commands::list_mailboxes,
             commands::list_messages,
             commands::get_message_detail,

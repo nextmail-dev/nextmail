@@ -3,29 +3,34 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
-import type { MessageListItem } from "@/app/types";
-import { Button } from "@/components/ui/button";
+import type { MailboxSummary, MessageListItem } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { UnreadDot } from "@/components/ui/icon-tile";
 import { Inline, Stack } from "@/components/ui/layout";
+import { SearchField } from "@/components/ui/search-field";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, Text } from "@/components/ui/typography";
 
 interface MessageListPaneProps {
   accountId: string;
   mailboxId: string;
+  mailbox?: MailboxSummary;
   selectedMessageId: string;
   onSelect: (messageId: string) => void;
   searchQuery: string;
+  onSearchChange: (value: string) => void;
 }
 
 export function MessageListPane({
   accountId,
   mailboxId,
+  mailbox,
   selectedMessageId,
   onSelect,
   searchQuery,
+  onSearchChange,
 }: MessageListPaneProps) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -47,11 +52,8 @@ export function MessageListPane({
     : allItems;
   const operation = useMutation({
     mutationFn: async ({ message, kind }: { message: MessageListItem; kind: "read" | "flag" }) => {
-      if (kind === "read") {
-        await api.setMessageRead(accountId, mailboxId, [message.id], true);
-      } else {
-        await api.setMessageFlagged(accountId, mailboxId, [message.id], !message.flagged);
-      }
+      if (kind === "read") await api.setMessageRead(accountId, mailboxId, [message.id], true);
+      else await api.setMessageFlagged(accountId, mailboxId, [message.id], !message.flagged);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["mailboxes", accountId] });
@@ -59,12 +61,27 @@ export function MessageListPane({
       void queryClient.invalidateQueries({ queryKey: ["message", accountId] });
     },
   });
+  const mailboxName = mailbox
+    ? mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`)
+    : t("mail.messages");
 
   return (
-    <Stack className="min-h-0 flex-1" gap="none">
-      <Inline className="min-h-14 border-b border-border px-4">
-        <Heading level={2}>{t("mail.messages")}</Heading>
-      </Inline>
+    <Stack className="min-h-0 flex-1 bg-card" gap="none">
+      <Stack className="px-6 pt-6 pb-5" gap="md">
+        <Stack gap="xs">
+          <Heading level={2} className="text-xl">{mailboxName}</Heading>
+          <Text className="text-xs">
+            {t("mail.folderSummary", { total: mailbox?.totalCount ?? allItems.length, unread: mailbox?.unreadCount ?? 0 })}
+          </Text>
+        </Stack>
+        <SearchField
+          className="h-11 w-full rounded-lg bg-muted px-4"
+          value={searchQuery}
+          placeholder={t("mail.searchPlaceholder")}
+          clearLabel={t("mail.clearSearch")}
+          onValueChange={onSearchChange}
+        />
+      </Stack>
       {items.length ? (
         <Stack className="min-h-0 flex-1 overflow-auto" gap="none">
           {items.map((message) => (
@@ -83,12 +100,7 @@ export function MessageListPane({
             />
           ))}
           {query.hasNextPage ? (
-            <Button
-              variant="ghost"
-              className="mx-auto my-2"
-              loading={query.isFetchingNextPage}
-              onClick={() => void query.fetchNextPage()}
-            >
+            <Button variant="ghost" className="mx-auto my-3" loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>
               {t("mail.loadMore")}
             </Button>
           ) : null}
@@ -126,29 +138,23 @@ function MessageRow({
   onToggleFlag: () => void;
 }) {
   const sender = message.from[0];
-  const date = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(
-    new Date(message.receivedAt * 1000),
-  );
+  const date = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(message.receivedAt * 1000));
   return (
     <Inline className={selected
-      ? "group gap-0 border-b border-border bg-accent transition-colors"
-      : "group gap-0 border-b border-border transition-colors hover:bg-accent/70"}>
+      ? "group relative gap-0 bg-selection before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:rounded-r-full before:bg-primary"
+      : "group relative gap-0 bg-card transition-colors hover:bg-muted/75"}>
       <Button
         variant="ghost"
-        className="h-auto min-w-0 flex-1 items-start rounded-none px-4 py-3.5 text-left hover:bg-transparent"
+        className="h-auto min-w-0 flex-1 items-start rounded-none bg-transparent px-6 py-4 pr-12 text-left hover:bg-transparent"
         onClick={onClick}
       >
         <Stack className="min-w-0 flex-1" gap="xs">
           <Inline className="w-full">
             {message.unread ? <UnreadDot /> : null}
-            <Text className="min-w-0 flex-1 truncate font-semibold text-foreground">
-              {sender?.name || sender?.email || "—"}
-            </Text>
+            <Text className="min-w-0 flex-1 truncate font-semibold text-foreground">{sender?.name || sender?.email || "—"}</Text>
             <Text className="shrink-0 text-[11px]">{date}</Text>
           </Inline>
-          <Text className="truncate text-[13px] font-medium text-foreground">
-            {message.subject || noSubject}
-          </Text>
+          <Text className="truncate text-[13px] font-medium text-foreground">{message.subject || noSubject}</Text>
           <Inline className="w-full text-muted-foreground">
             <Text className="min-w-0 flex-1 truncate text-xs">{message.preview}</Text>
             {message.hasAttachments ? <Paperclip size={13} /> : null}
@@ -159,11 +165,12 @@ function MessageRow({
       <Button
         variant="ghost"
         size="icon"
-        className="mr-2 size-8 self-center bg-transparent hover:bg-accent"
+        className="absolute right-3 top-1/2 size-8 -translate-y-1/2 bg-transparent hover:bg-foreground/7"
         aria-label={starLabel}
+        title={starLabel}
         onClick={onToggleFlag}
       >
-        <Star size={15} className={message.flagged ? "fill-current text-primary" : undefined} />
+        <Star size={16} className={message.flagged ? "fill-current text-[#f2b84b]" : undefined} />
       </Button>
     </Inline>
   );
@@ -172,9 +179,5 @@ function MessageRow({
 function MessageListError({ error }: { error: unknown }) {
   const { t } = useTranslation();
   const normalized = normalizeCommandError(error);
-  return (
-    <Alert className="m-4" tone="danger" title={t("errors.title")}>
-      {t(`errors.${normalized.code}`, { defaultValue: t("common.unexpectedError") })}
-    </Alert>
-  );
+  return <Alert className="m-4" tone="danger" title={t("errors.title")}>{t(`errors.${normalized.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>;
 }

@@ -39,7 +39,7 @@ export function SelectField({
       <SelectPrimitive.Root value={value} onValueChange={onValueChange} disabled={disabled}>
         <SelectPrimitive.Trigger
           className={cn(
-            "flex h-10 w-full min-w-36 items-center justify-between gap-3 rounded-sm border border-input bg-background px-3 text-[13px] outline-none transition-shadow focus:ring-3 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50",
+            "flex h-10 w-full min-w-36 items-center justify-between gap-3 rounded-md border-0 bg-muted px-3 text-[13px] outline-none transition-[background-color,box-shadow] focus:bg-card focus:ring-3 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50",
             compact && "h-8 min-w-32 bg-muted px-2.5",
             triggerClassName,
           )}
@@ -52,7 +52,7 @@ export function SelectField({
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal>
           <SelectPrimitive.Content
-            className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-sm border border-border bg-popover p-1 text-popover-foreground shadow-md"
+            className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border-0 bg-popover p-1.5 text-popover-foreground shadow-[0_18px_48px_rgb(17_24_39/0.16)]"
             position="popper"
             sideOffset={5}
           >

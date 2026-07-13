@@ -6,7 +6,7 @@ export function IconTile({ children, large }: PropsWithChildren<{ large?: boolea
   return (
     <span
       className={cn(
-        "flex size-10 shrink-0 items-center justify-center rounded-sm bg-primary/10 text-primary",
+        "flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary",
         large && "size-13",
       )}
       aria-hidden="true"

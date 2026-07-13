@@ -31,8 +31,8 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
       </label>
       <div
         className={cn(
-          "flex min-h-10 items-center overflow-hidden rounded-sm border border-input bg-background transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20",
-          error && "border-destructive",
+          "flex min-h-10 items-center overflow-hidden rounded-md bg-muted transition-[background-color,box-shadow] focus-within:bg-card focus-within:ring-3 focus-within:ring-ring/20",
+          error && "ring-2 ring-destructive/40",
         )}
       >
         <input
@@ -87,4 +87,3 @@ export const PasswordField = forwardRef<HTMLInputElement, PasswordFieldProps>(
     );
   },
 );
-

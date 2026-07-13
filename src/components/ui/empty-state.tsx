@@ -14,7 +14,7 @@ interface EmptyStateProps {
 export function EmptyState({ icon, title, description, action, className }: EmptyStateProps) {
   return (
     <Stack className={className ?? "m-auto max-w-xs items-center p-7 text-center"} gap="sm">
-      <span className="flex size-11 items-center justify-center rounded-sm bg-primary/10 text-primary">
+      <span className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
         {icon}
       </span>
       <Heading level={3}>{title}</Heading>

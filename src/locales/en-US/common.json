@@ -9,6 +9,9 @@
     "browse": "Choose folder",
     "cancel": "Cancel",
     "close": "Close",
+    "minimize": "Minimize",
+    "maximize": "Maximize or restore",
+    "windowControls": "Window controls",
     "loading": "Preparing NextMail…",
     "unexpectedError": "The operation could not be completed. Please try again.",
     "retry": "Try again",
@@ -107,6 +110,7 @@
     "folders": "Mail folders",
     "noFolders": "No folders yet",
     "messages": "Messages",
+    "folderSummary": "{{total}} messages · {{unread}} unread",
     "notSynced": "Mail has not been synced yet",
     "notSyncedDescription": "Your account is securely connected. Messages will appear here after syncing begins.",
     "noMessages": "No messages in this folder",
@@ -128,6 +132,7 @@
     "archive": "Archive",
     "moveTo": "Move to",
     "copyTo": "Copy to",
+    "moreActions": "More actions",
     "delete": "Delete",
     "pendingSync": "Waiting to sync",
     "editDraft": "Continue editing draft",
@@ -215,7 +220,31 @@
   },
   "settings": {
     "title": "Settings",
-    "description": "Adjust the language and appearance of NextMail on this device. Changes are saved immediately."
+    "description": "Manage NextMail on this device",
+    "categories": "Settings categories",
+    "noAccount": "No email account is connected",
+    "noOptions": "No adjustable options yet",
+    "noOptionsDescription": "Options will appear here when the related feature can be configured.",
+    "category": {
+      "general": "General",
+      "appearance": "Appearance",
+      "accounts": "Accounts",
+      "reading": "Reading",
+      "composer": "Composing",
+      "notifications": "Notifications",
+      "advanced": "Advanced",
+      "about": "About"
+    },
+    "categoryDescription": {
+      "general": "Choose the interface language and general behavior.",
+      "appearance": "Adjust the interface theme and accent color.",
+      "accounts": "Review account connections, sync range, and system-folder mappings.",
+      "reading": "Manage reading and remote-image preferences.",
+      "composer": "Manage default composing and editor preferences.",
+      "notifications": "Manage new-message and system notifications.",
+      "advanced": "Review storage, connection, and advanced runtime options.",
+      "about": "View the NextMail version and product information."
+    }
   },
   "accounts": {
     "folderMappings": "System folder mappings",
@@ -321,6 +350,7 @@
     "draft.create_from_message_failed": "A reply or forwarding draft could not be created from this message.",
     "draft.editor_json_invalid": "The editor content could not be saved. Try again.",
     "composer.window_create_failed": "The composer window could not be opened. Try again.",
+    "settings.window_create_failed": "The settings window could not be opened. Try again.",
     "send.recipient_required": "Add at least one To, Cc, or Bcc recipient.",
     "send.recipient_invalid": "One or more email addresses are invalid. Check the recipients.",
     "send.smtp_timeout": "The outgoing server timed out. Your message is still stored locally.",

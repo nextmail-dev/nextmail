@@ -14,7 +14,7 @@ interface ToastProps {
 export function Toast({ title, description, closeLabel, onClose }: ToastProps) {
   return (
     <aside
-      className="fixed top-4 right-4 z-[70] w-[min(22rem,calc(100vw-2rem))] rounded-sm bg-popover p-3.5 text-popover-foreground shadow-xl ring-1 ring-border/70"
+      className="fixed top-4 right-4 z-[70] w-[min(22rem,calc(100vw-2rem))] rounded-lg bg-popover p-3.5 text-popover-foreground shadow-[0_20px_60px_rgb(15_23_42/0.2)]"
       role="status"
       aria-live="polite"
     >

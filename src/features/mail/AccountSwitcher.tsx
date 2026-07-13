@@ -1,4 +1,4 @@
-import { ChevronDown, Mail } from "lucide-react";
+import { ChevronDown, MoreHorizontal, RefreshCw, Settings, UserRound, LogOut } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { AccountSummary } from "@/app/types";
@@ -7,7 +7,8 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Inline, Stack } from "@/components/ui/layout";
@@ -17,44 +18,100 @@ interface AccountSwitcherProps {
   accounts: AccountSummary[];
   selectedAccountId: string;
   onAccountChange: (accountId: string) => void;
+  onReceive?: () => void;
+  onOpenSettings?: () => void;
+  onQuit?: () => void;
+  receiving?: boolean;
   collapsed?: boolean;
 }
 
-export function AccountSwitcher({ accounts, selectedAccountId, onAccountChange, collapsed = false }: AccountSwitcherProps) {
+export function AccountSwitcher({
+  accounts,
+  selectedAccountId,
+  onAccountChange,
+  onReceive = () => undefined,
+  onOpenSettings = () => undefined,
+  onQuit = () => undefined,
+  receiving = false,
+  collapsed = false,
+}: AccountSwitcherProps) {
   const { t } = useTranslation();
   const selected = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0];
   const identity = <AccountIdentity account={selected} collapsed={collapsed} />;
-  if (accounts.length <= 1) {
-    return <Inline className={collapsed ? "h-full justify-center px-2" : "h-full px-3"}>{identity}</Inline>;
-  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className={collapsed ? "h-full w-full rounded-none px-2" : "h-full w-full justify-between rounded-none px-3 text-left"} aria-label={t("mail.switchAccount")}>
-          {identity}{collapsed ? null : <ChevronDown size={15} />}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-64" align="start">
-        <DropdownMenuLabel>{t("mail.accounts")}</DropdownMenuLabel>
-        {accounts.map((account) => (
-          <DropdownMenuCheckboxItem key={account.id} checked={account.id === selected?.id} onCheckedChange={() => onAccountChange(account.id)}>
-            <AccountIdentity account={account} />
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Inline className={collapsed ? "justify-center px-2 pt-5" : "px-4 pt-5"}>
+      {accounts.length > 1 ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              className={collapsed ? "size-10 p-0" : "h-12 min-w-0 flex-1 justify-start px-1"}
+              aria-label={t("mail.switchAccount")}
+            >
+              {identity}
+              {collapsed ? null : <ChevronDown className="ml-auto" size={15} />}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-72" align="start">
+            {accounts.map((account) => (
+              <DropdownMenuCheckboxItem
+                key={account.id}
+                checked={account.id === selected?.id}
+                onCheckedChange={() => onAccountChange(account.id)}
+              >
+                <AccountIdentity account={account} />
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : identity}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={collapsed ? "absolute top-3 right-1 size-7" : "ml-auto"}
+            aria-label={t("mail.appMenu")}
+          >
+            <MoreHorizontal size={18} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuItem disabled={receiving} onSelect={onReceive}>
+            <RefreshCw className={receiving ? "animate-spin" : undefined} size={16} />
+            {t("mail.receive")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={onOpenSettings}>
+            <Settings size={16} />
+            {t("mail.settings")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={onQuit}>
+            <LogOut size={16} />
+            {t("mail.quit")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </Inline>
   );
 }
 
 function AccountIdentity({ account, collapsed = false }: { account?: AccountSummary; collapsed?: boolean }) {
   if (!account) return null;
+  const label = account.displayName || account.email;
+  const initial = label.trim().charAt(0).toLocaleUpperCase() || <UserRound size={16} />;
   return (
     <Inline className={collapsed ? "min-w-0 justify-center" : "min-w-0 flex-1"} title={collapsed ? account.email : undefined}>
-      <span className="grid size-9 shrink-0 place-items-center rounded-sm bg-foreground text-background"><Mail size={17} /></span>
-      {collapsed ? null : <Stack className="min-w-0 flex-1" gap="xs">
-        <Text className="truncate text-[13px] font-semibold leading-none text-foreground">{account.displayName || account.email}</Text>
-        <Text className="truncate text-[11px] leading-none">{account.email}</Text>
-      </Stack>}
+      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground shadow-[0_7px_18px_color-mix(in_srgb,var(--primary)_22%,transparent)]">
+        {initial}
+      </span>
+      {collapsed ? null : (
+        <Stack className="min-w-0 flex-1" gap="xs">
+          <Text className="truncate text-sm font-semibold leading-none text-foreground">{label}</Text>
+          <Text className="truncate text-[11px] leading-none">{account.email}</Text>
+        </Stack>
+      )}
     </Inline>
   );
 }

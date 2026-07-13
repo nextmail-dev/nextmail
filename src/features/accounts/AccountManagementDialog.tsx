@@ -24,21 +24,44 @@ export function AccountManagementDialog({
   accountId,
 }: AccountManagementDialogProps) {
   const { t } = useTranslation();
+
+  return (
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t("accounts.title")}
+      closeLabel={t("common.close")}
+    >
+      <AccountManagementPanel accountId={accountId} enabled={open} className="mt-5" />
+    </Modal>
+  );
+}
+
+export function AccountManagementPanel({
+  accountId,
+  enabled = true,
+  className,
+}: {
+  accountId: string;
+  enabled?: boolean;
+  className?: string;
+}) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const detailQuery = useQuery({
     queryKey: ["account-management", accountId],
     queryFn: () => api.getAccountManagementDetail(accountId),
-    enabled: open && Boolean(accountId),
+    enabled: enabled && Boolean(accountId),
   });
   const progressQuery = useQuery({
     queryKey: ["sync-progress", accountId],
     queryFn: () => api.getSyncProgress(accountId),
-    enabled: open && Boolean(accountId),
+    enabled: enabled && Boolean(accountId),
   });
   const mailboxesQuery = useQuery({
     queryKey: ["mailboxes", accountId],
     queryFn: () => api.listMailboxes(accountId),
-    enabled: open && Boolean(accountId),
+    enabled: enabled && Boolean(accountId),
   });
   const policyMutation = useMutation({
     mutationFn: (syncPolicy: SyncPolicy) => api.setAccountSyncPolicy(accountId, syncPolicy),
@@ -55,13 +78,7 @@ export function AccountManagementDialog({
   const normalizedError = operationError ? normalizeCommandError(operationError) : null;
 
   return (
-    <Modal
-      open={open}
-      onOpenChange={onOpenChange}
-      title={t("accounts.title")}
-      closeLabel={t("common.close")}
-    >
-      <Stack className="mt-5" gap="lg">
+      <Stack className={className} gap="lg">
         <Text>{t("accounts.description")}</Text>
         {normalizedError ? (
           <Alert tone="danger" title={t("errors.title")}>
@@ -72,7 +89,7 @@ export function AccountManagementDialog({
           <Stack className="items-center py-8"><Spinner size={22} /></Stack>
         ) : account ? (
           <>
-            <Surface className="rounded-sm p-4">
+            <Surface className="rounded-lg bg-muted/60 p-4 shadow-none">
               <Stack gap="sm">
                 <Inline className="text-primary">
                   <ShieldCheck size={17} />
@@ -129,6 +146,5 @@ export function AccountManagementDialog({
           </>
         ) : null}
       </Stack>
-    </Modal>
   );
 }

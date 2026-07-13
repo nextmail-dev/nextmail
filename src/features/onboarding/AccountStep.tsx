@@ -100,7 +100,7 @@ export function AccountStep({ preferences, onPreferencesChange, onCompleted }: A
       preferences={preferences}
       onPreferencesChange={onPreferencesChange}
       aside={
-        <Stack className="mt-2 rounded-sm bg-primary/10 p-4 text-primary" gap="sm">
+        <Stack className="mt-2 rounded-lg bg-primary/10 p-4 text-primary" gap="sm">
           <ShieldCheck size={28} aria-hidden="true" />
           <Text className="text-xs">{t("onboarding.privacyNote")}</Text>
         </Stack>

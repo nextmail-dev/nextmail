@@ -77,7 +77,7 @@ function WelcomeFeature({
   description: string;
 }) {
   return (
-    <Surface className="rounded-sm p-4">
+    <Surface className="rounded-lg p-4">
       <Stack gap="sm">
         <Inline className="text-primary">
           {icon}

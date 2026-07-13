@@ -16,7 +16,7 @@ export function Modal({ open, onOpenChange, title, closeLabel, children }: Modal
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px]" />
-        <DialogPrimitive.Content className="fixed top-1/2 left-1/2 z-50 w-[min(520px,calc(100vw-40px))] -translate-x-1/2 -translate-y-1/2 rounded-md border border-border bg-popover p-6 text-popover-foreground shadow-xl outline-none">
+        <DialogPrimitive.Content className="fixed top-1/2 left-1/2 z-50 w-[min(520px,calc(100vw-40px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border-0 bg-popover p-6 text-popover-foreground shadow-[0_26px_80px_rgb(15_23_42/0.24)] outline-none">
           <DialogPrimitive.Title className="m-0 text-lg font-semibold tracking-tight">
             {title}
           </DialogPrimitive.Title>
@@ -36,4 +36,3 @@ export function Modal({ open, onOpenChange, title, closeLabel, children }: Modal
     </DialogPrimitive.Root>
   );
 }
-

@@ -9,6 +9,9 @@
     "browse": "选择目录",
     "cancel": "取消",
     "close": "关闭",
+    "minimize": "最小化",
+    "maximize": "最大化或还原",
+    "windowControls": "窗口控制",
     "loading": "正在准备 NextMail…",
     "unexpectedError": "操作未能完成，请重试。",
     "retry": "重试",
@@ -107,6 +110,7 @@
     "folders": "邮件文件夹",
     "noFolders": "尚无文件夹",
     "messages": "邮件",
+    "folderSummary": "{{total}} 封邮件 · {{unread}} 封未读",
     "notSynced": "尚未同步邮件",
     "notSyncedDescription": "账户已安全连接。开始同步后，邮件会显示在这里。",
     "noMessages": "此文件夹没有邮件",
@@ -128,6 +132,7 @@
     "archive": "归档",
     "moveTo": "移动到",
     "copyTo": "复制到",
+    "moreActions": "更多操作",
     "delete": "删除",
     "pendingSync": "等待同步",
     "editDraft": "继续编辑草稿",
@@ -215,7 +220,31 @@
   },
   "settings": {
     "title": "设置",
-    "description": "调整 NextMail 在这台设备上的语言和外观。更改会立即保存。"
+    "description": "管理这台设备上的 NextMail",
+    "categories": "设置类别",
+    "noAccount": "尚未连接邮件账户",
+    "noOptions": "当前没有可调整的选项",
+    "noOptionsDescription": "此类别会在相关功能可配置时显示选项。",
+    "category": {
+      "general": "通用",
+      "appearance": "外观",
+      "accounts": "账户",
+      "reading": "阅读",
+      "composer": "写信",
+      "notifications": "通知",
+      "advanced": "高级",
+      "about": "关于"
+    },
+    "categoryDescription": {
+      "general": "设置界面语言与通用使用偏好。",
+      "appearance": "调整界面主题和强调色。",
+      "accounts": "查看账户连接、同步范围和系统文件夹映射。",
+      "reading": "管理邮件正文与远程图片的阅读偏好。",
+      "composer": "管理默认写信行为和编辑器偏好。",
+      "notifications": "管理新邮件和系统通知行为。",
+      "advanced": "查看存储、连接与高级运行选项。",
+      "about": "查看 NextMail 的版本和产品信息。"
+    }
   },
   "accounts": {
     "folderMappings": "系统文件夹映射",
@@ -321,6 +350,7 @@
     "draft.create_from_message_failed": "无法从这封邮件创建回复或转发草稿。",
     "draft.editor_json_invalid": "编辑器内容无法保存，请重试。",
     "composer.window_create_failed": "无法打开写信窗口，请重试。",
+    "settings.window_create_failed": "无法打开设置窗口，请重试。",
     "send.recipient_required": "请至少填写一个收件人、抄送或密送地址。",
     "send.recipient_invalid": "存在无效的邮件地址，请检查收件人。",
     "send.smtp_timeout": "连接发件服务器超时，邮件仍保留在本地。",

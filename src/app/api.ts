@@ -52,6 +52,7 @@ export const api = {
     invoke<AccountSummary[]>("list_account_summaries"),
   getAppAbout: () => invoke<AppAbout>("get_app_about"),
   quitApp: () => invoke<void>("quit_app"),
+  openSettingsWindow: () => invoke<void>("open_settings_window"),
   listMailboxes: (accountId: string) =>
     invoke<MailboxSummary[]>("list_mailboxes", { accountId }),
   listMessages: (accountId: string, mailboxId: string, cursor: string | null, limit = 50) =>

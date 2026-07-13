@@ -1,3 +1,16 @@
+@font-face {
+  font-family: "NextMail CJK";
+  src: url("@fontpkg/droid-sans-fallback/Droid Sans.ttf") format("truetype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+:root {
+  --titlebar-height: 40px;
+  --shell-sidebar-width: 250px;
+}
+
 * {
   box-sizing: border-box;
   border-color: var(--border);
@@ -16,12 +29,40 @@ body,
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family:
-    Inter, "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  font-family: Roboto, "NextMail CJK", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.window-titlebar {
+  -webkit-app-region: drag;
+}
+
+.window-titlebar button,
+.window-titlebar nav {
+  -webkit-app-region: no-drag;
+}
+
+.window-titlebar--mac > span {
+  padding-left: 78px;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted-foreground) 35%, transparent);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 button,
@@ -44,4 +85,3 @@ input {
     transition-duration: 0.01ms !important;
   }
 }
-
