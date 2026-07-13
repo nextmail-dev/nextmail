@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useRef, type KeyboardEvent, type PointerEvent } from "react";
 
 import { cn } from "@/lib/utils";
@@ -80,7 +80,7 @@ export function ResizeHandle({
       onPointerCancel={handlePointerUp}
       onKeyDown={handleKeyDown}
     >
-      <GripVertical className="pointer-events-none absolute text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" size={12} />
+      <span className="pointer-events-none absolute h-12 w-1 rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
       {onCollapsedChange ? (
         <Button
           variant="secondary"

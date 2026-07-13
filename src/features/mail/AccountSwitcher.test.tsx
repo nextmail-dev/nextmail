@@ -25,6 +25,7 @@ describe("AccountSwitcher", () => {
     renderSwitcher([first]);
     expect(screen.getByText("Alice")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Switch email account" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "NextMail menu" })).not.toBeInTheDocument();
   });
 
   it("shows the account menu trigger only when multiple accounts exist", () => {

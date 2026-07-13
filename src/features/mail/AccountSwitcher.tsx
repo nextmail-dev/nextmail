@@ -1,4 +1,4 @@
-import { ChevronDown, MoreHorizontal, RefreshCw, Settings, UserRound, LogOut } from "lucide-react";
+import { ChevronDown, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { AccountSummary } from "@/app/types";
@@ -7,8 +7,6 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Inline, Stack } from "@/components/ui/layout";
@@ -18,10 +16,6 @@ interface AccountSwitcherProps {
   accounts: AccountSummary[];
   selectedAccountId: string;
   onAccountChange: (accountId: string) => void;
-  onReceive?: () => void;
-  onOpenSettings?: () => void;
-  onQuit?: () => void;
-  receiving?: boolean;
   collapsed?: boolean;
 }
 
@@ -29,10 +23,6 @@ export function AccountSwitcher({
   accounts,
   selectedAccountId,
   onAccountChange,
-  onReceive = () => undefined,
-  onOpenSettings = () => undefined,
-  onQuit = () => undefined,
-  receiving = false,
   collapsed = false,
 }: AccountSwitcherProps) {
   const { t } = useTranslation();
@@ -66,33 +56,6 @@ export function AccountSwitcher({
           </DropdownMenuContent>
         </DropdownMenu>
       ) : identity}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={collapsed ? "absolute top-3 right-1 size-7" : "ml-auto"}
-            aria-label={t("mail.appMenu")}
-          >
-            <MoreHorizontal size={18} />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem disabled={receiving} onSelect={onReceive}>
-            <RefreshCw className={receiving ? "animate-spin" : undefined} size={16} />
-            {t("mail.receive")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onOpenSettings}>
-            <Settings size={16} />
-            {t("mail.settings")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onQuit}>
-            <LogOut size={16} />
-            {t("mail.quit")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
     </Inline>
   );
 }

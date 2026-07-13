@@ -165,10 +165,6 @@ export function MainShell({ accounts }: MainShellProps) {
           accounts={accounts}
           selectedAccountId={selectedAccountId}
           onAccountChange={setSelectedAccountId}
-          onReceive={receive}
-          receiving={receiving}
-          onOpenSettings={() => void api.openSettingsWindow().catch((error) => setComposeError(normalizeCommandError(error).code))}
-          onQuit={() => void api.quitApp()}
           collapsed={folderPaneCollapsed}
         />
         <MailboxPane
@@ -199,6 +195,9 @@ export function MainShell({ accounts }: MainShellProps) {
               throw error;
             }
           }}
+          onReceive={receive}
+          receiving={receiving}
+          onOpenSettings={() => void api.openSettingsWindow().catch((error) => setComposeError(normalizeCommandError(error).code))}
           collapsed={folderPaneCollapsed}
         />
       </Page>

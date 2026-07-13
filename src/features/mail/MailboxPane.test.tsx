@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import i18n from "../../app/i18n";
@@ -30,6 +30,9 @@ describe("MailboxPane draft actions", () => {
         drafts={[draft]}
         onOpenDraft={onOpenDraft}
         onDeleteDraft={onDeleteDraft}
+        onReceive={vi.fn()}
+        receiving={false}
+        onOpenSettings={vi.fn()}
       />,
     );
 
@@ -68,6 +71,9 @@ describe("MailboxPane draft actions", () => {
         drafts={[]}
         onOpenDraft={vi.fn()}
         onDeleteDraft={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onOpenSettings={vi.fn()}
         collapsed
       />,
     );
@@ -77,5 +83,36 @@ describe("MailboxPane draft actions", () => {
     expect(compose).toHaveClass("mx-auto", "size-11", "p-0");
     expect(mailbox).toHaveClass("mx-auto", "size-11", "p-0");
     expect(mailbox.querySelector("svg")).toHaveClass("size-[18px]", "shrink-0");
+  });
+
+  it("places receive beside the folder heading and settings at the pane bottom", () => {
+    const onReceive = vi.fn();
+    const onOpenSettings = vi.fn();
+    const { container } = render(
+      <MailboxPane
+        mailboxes={[]}
+        selectedMailboxId=""
+        onSelect={vi.fn()}
+        onCompose={vi.fn()}
+        drafts={[]}
+        onOpenDraft={vi.fn()}
+        onDeleteDraft={vi.fn()}
+        onReceive={onReceive}
+        receiving={false}
+        onOpenSettings={onOpenSettings}
+      />,
+    );
+
+    const current = within(container);
+    const folderHeading = current.getByText("Mail folders");
+    const receive = current.getByRole("button", { name: "Receive" });
+    const settings = current.getByRole("button", { name: "Settings" });
+    expect(folderHeading.parentElement).toContainElement(receive);
+    expect(settings).toHaveClass("mt-auto");
+
+    fireEvent.click(receive);
+    fireEvent.click(settings);
+    expect(onReceive).toHaveBeenCalledOnce();
+    expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 });

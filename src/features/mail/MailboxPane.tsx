@@ -5,7 +5,9 @@ import {
   Folder,
   Inbox,
   MailPlus,
+  RefreshCw,
   Send,
+  Settings,
   ShieldAlert,
   Trash2,
   X,
@@ -39,6 +41,9 @@ interface MailboxPaneProps {
   drafts: DraftListItem[];
   onOpenDraft: (draftId: string) => void;
   onDeleteDraft: (draftId: string) => Promise<void>;
+  onReceive: () => void;
+  receiving: boolean;
+  onOpenSettings: () => void;
   collapsed?: boolean;
 }
 
@@ -52,6 +57,9 @@ export function MailboxPane({
   drafts,
   onOpenDraft,
   onDeleteDraft,
+  onReceive,
+  receiving,
+  onOpenSettings,
   collapsed = false,
 }: MailboxPaneProps) {
   const { t } = useTranslation();
@@ -125,7 +133,24 @@ export function MailboxPane({
           </DropdownMenu>
         ) : null}
       </Inline>
-      {collapsed ? null : <LabelText className="px-2 pt-1 text-[11px] tracking-[0.09em] text-muted-foreground uppercase">{t("mail.folders")}</LabelText>}
+      <Inline className={collapsed ? "w-full justify-center" : "w-full px-2 pt-1"}>
+        {collapsed ? null : (
+          <LabelText className="min-w-0 flex-1 text-[11px] tracking-[0.09em] text-muted-foreground uppercase">
+            {t("mail.folders")}
+          </LabelText>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className={collapsed ? "size-9" : "size-7"}
+          aria-label={t("mail.receive")}
+          title={t("mail.receive")}
+          disabled={receiving}
+          onClick={onReceive}
+        >
+          <RefreshCw className={receiving ? "animate-spin" : undefined} size={15} />
+        </Button>
+      </Inline>
       {activeSync && !collapsed ? (
         <Stack className="rounded-lg bg-card/70 p-3" gap="sm">
           <Text className="text-xs">{t(`sync.${progress.phase}`)}</Text>
@@ -137,7 +162,7 @@ export function MailboxPane({
         <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
       ) : null}
       {mailboxes.length ? (
-        <Stack className={collapsed ? "min-h-0 w-full overflow-auto" : "min-h-0 overflow-auto"} gap="xs">
+        <Stack className={collapsed ? "min-h-0 w-full flex-1 overflow-auto" : "min-h-0 flex-1 overflow-auto"} gap="xs">
           {mailboxes.map((mailbox) => {
             const selected = mailbox.id === selectedMailboxId;
             const label = mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`);
@@ -166,8 +191,20 @@ export function MailboxPane({
           })}
         </Stack>
       ) : (
-        <EmptyState className="mt-6 items-center p-4 text-center" icon={<Inbox size={21} />} title={t("mail.noFolders")} />
+        <EmptyState className="mt-6 flex-1 items-center p-4 text-center" icon={<Inbox size={21} />} title={t("mail.noFolders")} />
       )}
+      <Button
+        variant="ghost"
+        className={collapsed
+          ? "mx-auto mt-auto size-11 flex-none justify-center p-0"
+          : "mt-auto h-10 w-full flex-none justify-start px-3"}
+        aria-label={t("mail.settings")}
+        title={collapsed ? t("mail.settings") : undefined}
+        onClick={onOpenSettings}
+      >
+        <Settings className="size-[18px] shrink-0" strokeWidth={1.8} />
+        {collapsed ? null : <Text className="text-[13px] text-inherit">{t("mail.settings")}</Text>}
+      </Button>
     </Stack>
   );
 }
