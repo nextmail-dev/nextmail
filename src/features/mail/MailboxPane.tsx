@@ -39,6 +39,7 @@ interface MailboxPaneProps {
   drafts: DraftListItem[];
   onOpenDraft: (draftId: string) => void;
   onDeleteDraft: (draftId: string) => Promise<void>;
+  collapsed?: boolean;
 }
 
 export function MailboxPane({
@@ -51,6 +52,7 @@ export function MailboxPane({
   drafts,
   onOpenDraft,
   onDeleteDraft,
+  collapsed = false,
 }: MailboxPaneProps) {
   const { t } = useTranslation();
   const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
@@ -65,16 +67,22 @@ export function MailboxPane({
   }, [pendingDeleteDraftId]);
 
   return (
-    <Stack className="min-h-0 flex-1 p-3" gap="sm">
+    <Stack className={collapsed ? "min-h-0 flex-1 items-center px-2 py-3" : "min-h-0 flex-1 p-3"} gap="sm">
       <Inline className="gap-0">
         <Button
-          className={drafts.length ? "h-10 flex-1 justify-start rounded-r-none" : "h-10 w-full justify-start"}
+          className={collapsed
+            ? "size-10 px-0"
+            : drafts.length
+              ? "h-10 flex-1 justify-start rounded-r-none"
+              : "h-10 w-full justify-start"}
+          aria-label={collapsed ? t("mail.compose") : undefined}
+          title={collapsed ? t("mail.compose") : undefined}
           onClick={onCompose}
         >
           <MailPlus size={17} />
-          {t("mail.compose")}
+          {collapsed ? null : t("mail.compose")}
         </Button>
-        {drafts.length ? (
+        {drafts.length && !collapsed ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -133,41 +141,47 @@ export function MailboxPane({
           </DropdownMenu>
         ) : null}
       </Inline>
-      <LabelText className="px-2 py-1 text-muted-foreground">{t("mail.folders")}</LabelText>
-      {activeSync ? (
+      {collapsed ? null : <LabelText className="px-2 py-1 text-muted-foreground">{t("mail.folders")}</LabelText>}
+      {activeSync && !collapsed ? (
         <Stack className="rounded-sm border border-border bg-background p-3" gap="sm">
           <Text className="text-xs">{t(`sync.${progress.phase}`)}</Text>
           <Progress value={percentage} />
         </Stack>
       ) : null}
-      {progress?.phase === "failed" ? (
+      {progress?.phase === "failed" && !collapsed ? (
         <Alert tone="warning" title={t("sync.failed")}>{t("sync.failedDescription")}</Alert>
       ) : null}
-      {normalizedError ? (
+      {normalizedError && !collapsed ? (
         <Alert tone="danger" title={t("errors.title")}>
           {t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}
         </Alert>
       ) : null}
       {mailboxes.length ? (
-        <Stack className="min-h-0 overflow-auto" gap="xs">
+        <Stack className={collapsed ? "min-h-0 w-full overflow-auto" : "min-h-0 overflow-auto"} gap="xs">
           {mailboxes.map((mailbox) => (
             <Button
               key={mailbox.id}
               variant="ghost"
-              className={
+              className={collapsed
+                ? mailbox.id === selectedMailboxId
+                  ? "h-10 w-full justify-center bg-accent px-0 text-foreground"
+                  : "h-10 w-full justify-center px-0"
+                :
                 mailbox.id === selectedMailboxId
                   ? "h-9 w-full justify-start bg-accent px-2.5 text-foreground"
                   : "h-9 w-full justify-start px-2.5"
               }
+              aria-label={mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`)}
+              title={collapsed ? (mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`)) : undefined}
               onClick={() => onSelect(mailbox.id)}
             >
               <MailboxIcon role={mailbox.role} />
-              <Text className="min-w-0 flex-1 truncate text-left text-[13px] text-inherit">
+              {collapsed ? null : <Text className="min-w-0 flex-1 truncate text-left text-[13px] text-inherit">
                 {mailbox.role === "other"
                   ? mailbox.name
                   : t(`mailboxNames.${mailbox.role}`)}
-              </Text>
-              {mailbox.unreadCount ? (
+              </Text>}
+              {mailbox.unreadCount && !collapsed ? (
                 <Text className="rounded-xs bg-primary/10 px-1.5 text-[11px] font-semibold text-primary">
                   {mailbox.unreadCount}
                 </Text>

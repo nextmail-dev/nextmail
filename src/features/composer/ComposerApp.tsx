@@ -74,12 +74,14 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [sendJob, setSendJob] = useState<SendJobSummary | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [confirmEmptySubject, setConfirmEmptySubject] = useState(false);
   const [saveRetry, setSaveRetry] = useState(0);
   const savingRef = useRef(false);
   const revisionRef = useRef(revision);
   const changeVersionRef = useRef(0);
-  const editable = draft.status === "editing" && !sendJob;
+  const editable = draft.status === "editing" && !sendJob && !submitting;
+  const sending = submitting || sendJob?.status === "queued" || sendJob?.status === "sending";
 
   useEffect(() => { revisionRef.current = revision; }, [revision]);
 
@@ -125,14 +127,33 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   }, [dirty, editable, saveNow, saveRetry]);
 
   useEffect(() => {
+    if (!editable || dirty || revision === draft.revision) return;
+    const timeout = window.setTimeout(
+      () => void api.queueRemoteDraft(sender.id, draft.id).catch(() => undefined),
+      10_000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [dirty, draft.id, draft.revision, editable, revision, sender.id]);
+
+  useEffect(() => {
     const currentWindow = getCurrentWindow();
     const unlisten = currentWindow.onCloseRequested(async (event) => {
       event.preventDefault();
+      if (sendJob?.status === "sent") {
+        try {
+          await currentWindow.destroy();
+        } catch (error) {
+          setErrorCode(normalizeCommandError(error).code);
+        }
+        return;
+      }
+      if (sendJob || submitting) return;
       if (dirty && editable) {
         const saved = await saveNow();
         if (!saved) return;
       }
       try {
+        await api.queueRemoteDraft(sender.id, draft.id);
         await api.discardEmptyDraft(sender.id, draft.id);
         await currentWindow.destroy();
       } catch (error) {
@@ -140,7 +161,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       }
     });
     return () => { void unlisten.then((dispose) => dispose()); };
-  }, [dirty, draft.id, editable, saveNow, sender.id]);
+  }, [dirty, draft.id, editable, saveNow, sendJob, sender.id, submitting]);
 
   useEffect(() => {
     if (!sendJob) return;
@@ -159,7 +180,11 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
 
   useEffect(() => {
     if (sendJob?.status !== "sent") return;
-    const timeout = window.setTimeout(() => void getCurrentWindow().close(), 80);
+    const timeout = window.setTimeout(() => {
+      void getCurrentWindow()
+        .destroy()
+        .catch((error) => setErrorCode(normalizeCommandError(error).code));
+    }, 80);
     return () => window.clearTimeout(timeout);
   }, [sendJob?.status]);
 
@@ -196,14 +221,20 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       return;
     }
     setConfirmEmptySubject(false);
+    setSubmitting(true);
     const saved = await saveNow();
-    if (dirty && !saved) return;
+    if (dirty && !saved) {
+      setSubmitting(false);
+      return;
+    }
     try {
       const job = await api.queueDraftSend(sender.id, draft.id);
       setSendJob(job);
       setErrorCode(null);
     } catch (error) {
       setErrorCode(normalizeCommandError(error).code);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -216,7 +247,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   return (
     <AppShell className="flex min-h-0 flex-col overflow-hidden">
       <Inline className="h-14 shrink-0 border-b border-border bg-card px-3 shadow-xs">
-        <Button loading={sendJob?.status === "queued" || sendJob?.status === "sending"} onClick={() => void sendMessage()} disabled={!editable || saveState === "saving"}>
+        <Button loading={sending} onClick={() => void sendMessage()} disabled={!editable || saveState === "saving"}>
           <Send size={16} />{t("composer.send")}
         </Button>
         <Button variant="ghost" onClick={() => void addAttachments()} disabled={!editable}>
@@ -226,7 +257,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         <Text className="text-xs" aria-live="polite">
           {saveState === "saving" ? t("composer.saving") : saveState === "failed" ? t("composer.saveFailed") : t("composer.saved")}
         </Text>
-        <Button variant="ghost" size="icon" aria-label={t("common.close")} onClick={() => void getCurrentWindow().close()}>
+        <Button variant="ghost" size="icon" aria-label={t("common.close")} disabled={sending || Boolean(sendJob)} onClick={() => void getCurrentWindow().close()}>
           <X size={17} />
         </Button>
       </Inline>
@@ -259,7 +290,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         {errorCode ? (
           <Alert className="m-3 mb-0" tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert>
         ) : null}
-        {sendJob ? <SendStatus job={sendJob} onRetry={retrySend} /> : null}
+        {sendJob?.status === "failed" ? <SendFailure job={sendJob} onRetry={retrySend} /> : null}
         {attachments.length ? (
           <Inline className="flex-wrap border-b border-border bg-muted/40 px-4 py-2">
             {attachments.map((attachment) => (
@@ -292,19 +323,40 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           </Inline>
         </Stack>
       </Modal>
+      {sending ? (
+        <SendProgressOverlay
+          status={submitting ? "preparing" : sendJob?.status === "sending" ? "sending" : "queued"}
+        />
+      ) : null}
     </AppShell>
   );
 }
 
-function SendStatus({ job, onRetry }: { job: SendJobSummary; onRetry: () => void }) {
+function SendFailure({ job, onRetry }: { job: SendJobSummary; onRetry: () => void }) {
   const { t } = useTranslation();
-  if (job.status === "sent") return null;
-  if (job.status === "failed") return (
+  return (
     <Alert className="m-3 mb-0" tone="danger" title={t("composer.sendFailed")}>
       <Inline><Text>{t(`errors.${job.errorCode}`, { defaultValue: t("composer.sendFailedDescription") })}</Text><Button size="sm" variant="secondary" onClick={onRetry}>{t("common.retry")}</Button></Inline>
     </Alert>
   );
-  return <Alert className="m-3 mb-0" tone="info">{t(job.status === "sending" ? "composer.sending" : "composer.queued")}</Alert>;
+}
+
+function SendProgressOverlay({ status }: { status: "preparing" | "queued" | "sending" }) {
+  const { t } = useTranslation();
+  return (
+    <Page
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-6 backdrop-blur-[2px]"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("composer.sendProgressTitle")}
+    >
+      <Stack className="w-[min(22rem,calc(100vw-3rem))] items-center rounded-md border border-border bg-popover px-8 py-7 text-center text-popover-foreground shadow-2xl" gap="sm">
+        <Spinner size={30} />
+        <Text className="font-semibold text-foreground">{t("composer.sendProgressTitle")}</Text>
+        <Text className="text-xs">{t(`composer.${status}`)}</Text>
+      </Stack>
+    </Page>
+  );
 }
 
 function formatBytes(bytes: number) {

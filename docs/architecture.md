@@ -8,7 +8,7 @@ Rust 代码使用 Cargo Workspace 分为：
 
 - `crates/nextmail-core`：不依赖 Tauri、数据库和协议库的领域 DTO、稳定错误与 ports。
 - `crates/nextmail-storage`：SQLx Repository、嵌入式迁移和内容寻址文件存储。
-- `crates/nextmail-protocols`：只读 IMAP、MIME 解析/生成和 HTML 清洗；后续继续承载 POP3 Adapter。
+- `crates/nextmail-protocols`：IMAP 同步与写操作、MIME 解析/生成和 HTML 清洗；后续继续承载 POP3 Adapter。
 - `src-tauri`：首次启动用例、Keyring、自动发现、Command/Event 和 Worker 装配。
 
 协议库类型不得越过 Adapter。命令错误只返回稳定错误码、可本地化参数和是否可重试，不返回密码、服务器原始响应或内部堆栈。
@@ -29,7 +29,7 @@ Rust 代码使用 Cargo Workspace 分为：
 用户选择的数据目录是可迁移数据集，当前包含：
 
 - `.nextmail-data.json`：格式版本和匿名数据集 ID。
-- `content.sqlite`：匿名账户槽、文件夹、邮件、远端位置、正文、草稿、附件元数据、发件任务与同步状态。
+- `content.sqlite`：匿名账户槽、文件夹、邮件、远端位置、正文、草稿、附件元数据、发件任务、待办操作与同步状态。
 - `raw/`：按 SHA-256 分层保存的收取和待发送原始 EML。
 - `attachments/`：按 SHA-256 分层、去重保存的已下载附件和草稿附件副本。
 - `cache/`：可重建缓存的保留目录。
@@ -47,15 +47,28 @@ Rust 代码使用 Cargo Workspace 分为：
 - 自动发现顺序为内置服务商、DNS SRV、域名 HTTPS autoconfig。自动配置响应限制为 1 MiB 且不接受 HTTP 降级。
 - 账户保存顺序为连接验证、匿名数据槽、系统凭据、外置账户配置；任一步失败都会补偿此前写入。
 
+## IMAP 同步与离线操作
+
+- 单账户 `AccountSupervisor` 常驻 Rust 端。启动先返回 SQLite 本地视图，再执行网络同步；Inbox 使用独立 IDLE 会话，服务器不支持时回退轮询。
+- 同步按 UIDVALIDITY/UID 定位邮件，拉取新 UID，并对账当前 UID 集合、Flags 和 MODSEQ。UIDVALIDITY 改变时重建文件夹位置，不使用消息序号作为持久身份。
+- 用户修改在 SQLite 事务中同时更新本地投影和 `pending_operations`。Worker 按顺序执行，`running` 状态可在重启后恢复。
+- Flags 以增量意图写回；CONDSTORE 可用时使用条件 STORE 并在冲突后基于最新 MODSEQ 重放一次。
+- MOVE、UIDPLUS、CONDSTORE 和 IDLE 全部在自有 Adapter 内做 Capability 分支。缺失 UIDPLUS 时不执行可能影响其他邮件的宽泛 EXPUNGE。
+- React 事件只收到账户、文件夹、消息或操作 ID 与修订状态，并通过 TanStack Query 重新读取本地视图。
+- Supervisor 区分“仅执行待办”和“执行同步”：本地 Flags、移动、复制、删除及 APPEND 只唤醒待办 Worker，不再先完整同步。首次启动和手动收取发布可见进度；IDLE/定时/轮询同步静默落库并只通知数据变化。
+- 支持 IDLE 时由服务器变化即时唤醒，并以 5 分钟全文件夹对账兜底；无 IDLE 时每 60 秒轮询。网络错误退避范围为 2 秒到 5 分钟。
+
 ## 草稿与发件边界
 
 - 独立 `composer-*` WebView 通过窄业务命令访问草稿，不直接访问数据库、任意文件或网络；系统文件选择器只授权用户明确选择的附件。
 - 草稿保存 Tiptap JSON、HTML 和纯文本，使用修订号做乐观并发控制。写信窗口关闭前会提交未保存改动。
 - SMTP 联网前先用 `mail-builder` 生成完整 UTF-8 MIME，按内容哈希原子落盘并创建 `send_job`。Bcc 只进入 SMTP envelope，不写入邮件头。
 - 后台 `SendWorker` 从系统凭据库取密码，串行发送不可变 MIME；临时错误最多自动尝试三次，失败内容继续保留并支持显式重试。
-- 异常退出遗留的 `sending` 在启动时恢复为 `queued`。SMTP 成功只标记本地 `sent`，IMAP Sent/Drafts 归档留在第四阶段。
+- 异常退出遗留的 `sending` 在启动时恢复为 `queued`。SMTP 成功后独立排队 APPEND 到映射的 Sent；Sent 归档失败不会触发再次 SMTP 发送。
+- 本地草稿停止编辑 10 秒或关闭窗口时排队同步到映射的 Drafts。远端版本用 `X-NextMail-Draft-ID` 关联，先追加新版本再安全清理旧 UID；服务器草稿可转换成本地可编辑草稿。
 - Tiptap 写信代码按窗口动态加载，不进入主窗口首包。
 - 完全未修改的空草稿在写信窗口关闭时由 Rust 条件删除；前端不能直接删除任意草稿。SMTP 成功通过 ID/状态事件通知主窗口，由主窗口显示站内成功通知。
+- 回复、回复全部和转发由 Rust 从本地规范邮件生成新草稿。回复草稿保存 `In-Reply-To`/`References` 并在 MIME 生成时安全注入；回复全部排除自身并去重，转发按需取得原附件后复用内容寻址副本。
 
 ## 邮件与文件夹编码
 
@@ -70,7 +83,7 @@ Rust 代码使用 Cargo Workspace 分为：
 
 主题使用 shadcn 语义 CSS Variables，并通过 Tailwind v4 映射为工具类。视觉基线结合 Nova 的紧凑密度和 Lyra 的利落几何：基础圆角为 4px，控件使用矩形或微圆角，不采用 shadcn 默认外观。普通导航项和邮件行以背景、留白和文字层级表达状态，不为每个元素绘制边框；边框只承担侧栏、工具栏和内容栏的结构性分隔。深色主题的表面令牌为无色度灰黑色，强调色仍可独立切换。
 
-主窗口当前采用“左侧账户与文件夹、右侧工具栏、邮件列表和正文”的层级。账户切换属于侧栏顶部；新建与本地草稿组成文件夹上方的主操作组合按钮；收取、当前文件夹即时过滤和应用菜单属于工具栏。当前搜索只过滤已加载邮件，不等同于后续 FTS 全文搜索。邮件列表采用连续行与底部分隔线，不使用独立卡片间距。
+主窗口当前采用“左侧账户与文件夹、右侧工具栏、邮件列表和正文”的层级。账户切换属于侧栏顶部；新建与本地草稿组成文件夹上方的主操作组合按钮；收取、回复、回复全部、转发、复制、当前文件夹即时过滤和应用菜单属于顶部工具栏。文件夹栏和邮件列表可在最小/最大宽度内拖动，文件夹栏可折叠为保留可访问名称的图标模式。当前搜索只过滤已加载邮件，不等同于后续 FTS 全文搜索。邮件列表采用连续行与底部分隔线，不使用独立卡片间距。
 
 业务页面消费拆分后的布局、文本、表单、选择器、提示和空状态组件，原则上不直接使用原生表单控件。中文与英文文案由独立 JSON 语言包提供，不在功能组件中写死生产文案。首次设置保留语言切换；进入主界面后，语言、主题和强调色统一由工具栏菜单中的“设置”承载。
 

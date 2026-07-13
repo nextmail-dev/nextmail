@@ -17,20 +17,21 @@ interface AccountSwitcherProps {
   accounts: AccountSummary[];
   selectedAccountId: string;
   onAccountChange: (accountId: string) => void;
+  collapsed?: boolean;
 }
 
-export function AccountSwitcher({ accounts, selectedAccountId, onAccountChange }: AccountSwitcherProps) {
+export function AccountSwitcher({ accounts, selectedAccountId, onAccountChange, collapsed = false }: AccountSwitcherProps) {
   const { t } = useTranslation();
   const selected = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0];
-  const identity = <AccountIdentity account={selected} />;
+  const identity = <AccountIdentity account={selected} collapsed={collapsed} />;
   if (accounts.length <= 1) {
-    return <Inline className="h-full px-3">{identity}</Inline>;
+    return <Inline className={collapsed ? "h-full justify-center px-2" : "h-full px-3"}>{identity}</Inline>;
   }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-full w-full justify-between rounded-none px-3 text-left" aria-label={t("mail.switchAccount")}>
-          {identity}<ChevronDown size={15} />
+        <Button variant="ghost" className={collapsed ? "h-full w-full rounded-none px-2" : "h-full w-full justify-between rounded-none px-3 text-left"} aria-label={t("mail.switchAccount")}>
+          {identity}{collapsed ? null : <ChevronDown size={15} />}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-64" align="start">
@@ -45,15 +46,15 @@ export function AccountSwitcher({ accounts, selectedAccountId, onAccountChange }
   );
 }
 
-function AccountIdentity({ account }: { account?: AccountSummary }) {
+function AccountIdentity({ account, collapsed = false }: { account?: AccountSummary; collapsed?: boolean }) {
   if (!account) return null;
   return (
-    <Inline className="min-w-0 flex-1">
+    <Inline className={collapsed ? "min-w-0 justify-center" : "min-w-0 flex-1"} title={collapsed ? account.email : undefined}>
       <span className="grid size-9 shrink-0 place-items-center rounded-sm bg-foreground text-background"><Mail size={17} /></span>
-      <Stack className="min-w-0 flex-1" gap="xs">
+      {collapsed ? null : <Stack className="min-w-0 flex-1" gap="xs">
         <Text className="truncate text-[13px] font-semibold leading-none text-foreground">{account.displayName || account.email}</Text>
         <Text className="truncate text-[11px] leading-none">{account.email}</Text>
-      </Stack>
+      </Stack>}
     </Inline>
   );
 }

@@ -1,5 +1,5 @@
-import { Inbox, Paperclip, Star } from "lucide-react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { CloudUpload, Inbox, Paperclip, Star } from "lucide-react";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -28,6 +28,7 @@ export function MessageListPane({
   searchQuery,
 }: MessageListPaneProps) {
   const { t, i18n } = useTranslation();
+  const queryClient = useQueryClient();
   const query = useInfiniteQuery({
     queryKey: ["messages", accountId, mailboxId],
     queryFn: ({ pageParam }) => api.listMessages(accountId, mailboxId, pageParam, 50),
@@ -44,12 +45,25 @@ export function MessageListPane({
       ...message.from.flatMap((address) => [address.name ?? "", address.email]),
     ].some((value) => value.toLocaleLowerCase(i18n.language).includes(normalizedSearch)))
     : allItems;
+  const operation = useMutation({
+    mutationFn: async ({ message, kind }: { message: MessageListItem; kind: "read" | "flag" }) => {
+      if (kind === "read") {
+        await api.setMessageRead(accountId, mailboxId, [message.id], true);
+      } else {
+        await api.setMessageFlagged(accountId, mailboxId, [message.id], !message.flagged);
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["mailboxes", accountId] });
+      void queryClient.invalidateQueries({ queryKey: ["messages", accountId, mailboxId] });
+      void queryClient.invalidateQueries({ queryKey: ["message", accountId] });
+    },
+  });
 
   return (
     <Stack className="min-h-0 flex-1" gap="none">
       <Inline className="min-h-14 border-b border-border px-4">
         <Heading level={2}>{t("mail.messages")}</Heading>
-        {query.isFetching ? <Inline className="ml-auto"><Spinner size={15} /></Inline> : null}
       </Inline>
       {items.length ? (
         <Stack className="min-h-0 flex-1 overflow-auto" gap="none">
@@ -60,7 +74,12 @@ export function MessageListPane({
               selected={message.id === selectedMessageId}
               locale={i18n.language}
               noSubject={t("mail.noSubject")}
-              onClick={() => onSelect(message.id)}
+              starLabel={message.flagged ? t("mail.removeStar") : t("mail.addStar")}
+              onClick={() => {
+                onSelect(message.id);
+                if (message.unread) operation.mutate({ message, kind: "read" });
+              }}
+              onToggleFlag={() => operation.mutate({ message, kind: "flag" })}
             />
           ))}
           {query.hasNextPage ? (
@@ -76,8 +95,8 @@ export function MessageListPane({
         </Stack>
       ) : query.isPending ? (
         <Stack className="m-auto items-center"><Spinner size={22} /></Stack>
-      ) : query.isError ? (
-        <MessageListError error={query.error} />
+      ) : query.isError || operation.isError ? (
+        <MessageListError error={query.error ?? operation.error} />
       ) : (
         <EmptyState
           icon={<Inbox size={24} />}
@@ -94,46 +113,59 @@ function MessageRow({
   selected,
   locale,
   noSubject,
+  starLabel,
   onClick,
+  onToggleFlag,
 }: {
   message: MessageListItem;
   selected: boolean;
   locale: string;
   noSubject: string;
+  starLabel: string;
   onClick: () => void;
+  onToggleFlag: () => void;
 }) {
   const sender = message.from[0];
   const date = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(
     new Date(message.receivedAt * 1000),
   );
   return (
-    <Button
-      variant="list"
-      className={
-        selected
-          ? "h-auto w-full items-start rounded-none bg-accent px-4 py-3.5 text-left"
-          : "h-auto w-full items-start rounded-none px-4 py-3.5 text-left"
-      }
-      onClick={onClick}
-    >
-      <Stack className="min-w-0 flex-1" gap="xs">
-        <Inline className="w-full">
-          {message.unread ? <UnreadDot /> : null}
-          <Text className="min-w-0 flex-1 truncate font-semibold text-foreground">
-            {sender?.name || sender?.email || "—"}
+    <Inline className={selected
+      ? "group gap-0 border-b border-border bg-accent transition-colors"
+      : "group gap-0 border-b border-border transition-colors hover:bg-accent/70"}>
+      <Button
+        variant="ghost"
+        className="h-auto min-w-0 flex-1 items-start rounded-none px-4 py-3.5 text-left hover:bg-transparent"
+        onClick={onClick}
+      >
+        <Stack className="min-w-0 flex-1" gap="xs">
+          <Inline className="w-full">
+            {message.unread ? <UnreadDot /> : null}
+            <Text className="min-w-0 flex-1 truncate font-semibold text-foreground">
+              {sender?.name || sender?.email || "—"}
+            </Text>
+            <Text className="shrink-0 text-[11px]">{date}</Text>
+          </Inline>
+          <Text className="truncate text-[13px] font-medium text-foreground">
+            {message.subject || noSubject}
           </Text>
-          <Text className="shrink-0 text-[11px]">{date}</Text>
-        </Inline>
-        <Text className="truncate text-[13px] font-medium text-foreground">
-          {message.subject || noSubject}
-        </Text>
-        <Inline className="w-full text-muted-foreground">
-          <Text className="min-w-0 flex-1 truncate text-xs">{message.preview}</Text>
-          {message.hasAttachments ? <Paperclip size={13} /> : null}
-          {message.flagged ? <Star size={13} className="fill-current" /> : null}
-        </Inline>
-      </Stack>
-    </Button>
+          <Inline className="w-full text-muted-foreground">
+            <Text className="min-w-0 flex-1 truncate text-xs">{message.preview}</Text>
+            {message.hasAttachments ? <Paperclip size={13} /> : null}
+            {message.pendingOperation ? <CloudUpload size={13} /> : null}
+          </Inline>
+        </Stack>
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="mr-2 size-8 self-center bg-transparent hover:bg-accent"
+        aria-label={starLabel}
+        onClick={onToggleFlag}
+      >
+        <Star size={15} className={message.flagged ? "fill-current text-primary" : undefined} />
+      </Button>
+    </Inline>
   );
 }
 

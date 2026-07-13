@@ -4,6 +4,7 @@ use std::{
 };
 
 use async_imap::{
+    extensions::idle::IdleResponse,
     types::{Flag, NameAttribute},
     Session,
 };
@@ -13,8 +14,9 @@ use futures_util::TryStreamExt;
 use mail_parser::{Address, Message, MessageParser, MimeHeaders};
 use nextmail_core::{
     CommandError, CommandResult, ConnectionSecurity, ImapAccountConfig, ImapSyncProvider,
-    MailSyncSink, MailboxRole, MessageAddress, RemoteAttachment, RemoteMailbox, RemoteMessage,
-    SyncNotice, SyncObserver, SyncPolicy,
+    InboxWatchOutcome, MailSyncSink, MailboxRole, MessageAddress, RemoteAttachment, RemoteMailbox,
+    RemoteMessage, RemoteMessageState, RemoteOperation, RemoteOperationKind,
+    RemoteOperationOutcome, SyncNotice, SyncObserver, SyncPolicy,
 };
 use rustls::{pki_types::ServerName, ClientConfig, RootCertStore};
 use tokio::{
@@ -108,6 +110,483 @@ impl ImapSyncProvider for AsyncImapProvider {
             }
         }
     }
+
+    async fn apply_operation(
+        &self,
+        account: &ImapAccountConfig,
+        operation: &RemoteOperation,
+    ) -> CommandResult<RemoteOperationOutcome> {
+        let stream = TcpStream::connect((account.host.as_str(), account.port))
+            .await
+            .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
+        match account.security {
+            ConnectionSecurity::None => {
+                let mut client = async_imap::Client::new(stream);
+                read_greeting(&mut client).await?;
+                apply_operation_session(login(client, account).await?, operation).await
+            }
+            ConnectionSecurity::Tls => {
+                let tls = connect_tls(&account.host, stream).await?;
+                let mut client = async_imap::Client::new(tls);
+                read_greeting(&mut client).await?;
+                apply_operation_session(login(client, account).await?, operation).await
+            }
+            ConnectionSecurity::StartTls => {
+                let mut client = async_imap::Client::new(stream);
+                read_greeting(&mut client).await?;
+                client
+                    .run_command_and_check_ok("STARTTLS", None)
+                    .await
+                    .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
+                let tls = connect_tls(&account.host, client.into_inner()).await?;
+                let client = async_imap::Client::new(tls);
+                apply_operation_session(login(client, account).await?, operation).await
+            }
+        }
+    }
+
+    async fn append_message(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        flags: &str,
+        raw: &[u8],
+    ) -> CommandResult<()> {
+        let stream = TcpStream::connect((account.host.as_str(), account.port))
+            .await
+            .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
+        match account.security {
+            ConnectionSecurity::None => {
+                let mut client = async_imap::Client::new(stream);
+                read_greeting(&mut client).await?;
+                append_message_session(login(client, account).await?, mailbox_name, flags, raw)
+                    .await
+            }
+            ConnectionSecurity::Tls => {
+                let tls = connect_tls(&account.host, stream).await?;
+                let mut client = async_imap::Client::new(tls);
+                read_greeting(&mut client).await?;
+                append_message_session(login(client, account).await?, mailbox_name, flags, raw)
+                    .await
+            }
+            ConnectionSecurity::StartTls => {
+                let mut client = async_imap::Client::new(stream);
+                read_greeting(&mut client).await?;
+                client
+                    .run_command_and_check_ok("STARTTLS", None)
+                    .await
+                    .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
+                let tls = connect_tls(&account.host, client.into_inner()).await?;
+                let client = async_imap::Client::new(tls);
+                append_message_session(login(client, account).await?, mailbox_name, flags, raw)
+                    .await
+            }
+        }
+    }
+
+    async fn replace_draft(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        draft_id: &str,
+        raw: &[u8],
+    ) -> CommandResult<RemoteOperationOutcome> {
+        let stream = TcpStream::connect((account.host.as_str(), account.port))
+            .await
+            .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
+        match account.security {
+            ConnectionSecurity::None => {
+                let mut client = async_imap::Client::new(stream);
+                read_greeting(&mut client).await?;
+                replace_draft_session(login(client, account).await?, mailbox_name, draft_id, raw)
+                    .await
+            }
+            ConnectionSecurity::Tls => {
+                let tls = connect_tls(&account.host, stream).await?;
+                let mut client = async_imap::Client::new(tls);
+                read_greeting(&mut client).await?;
+                replace_draft_session(login(client, account).await?, mailbox_name, draft_id, raw)
+                    .await
+            }
+            ConnectionSecurity::StartTls => {
+                let mut client = async_imap::Client::new(stream);
+                read_greeting(&mut client).await?;
+                client
+                    .run_command_and_check_ok("STARTTLS", None)
+                    .await
+                    .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
+                let tls = connect_tls(&account.host, client.into_inner()).await?;
+                let client = async_imap::Client::new(tls);
+                replace_draft_session(login(client, account).await?, mailbox_name, draft_id, raw)
+                    .await
+            }
+        }
+    }
+
+    async fn wait_for_inbox_change(
+        &self,
+        account: &ImapAccountConfig,
+        timeout: Duration,
+    ) -> CommandResult<InboxWatchOutcome> {
+        let stream = TcpStream::connect((account.host.as_str(), account.port))
+            .await
+            .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
+        match account.security {
+            ConnectionSecurity::None => {
+                let mut client = async_imap::Client::new(stream);
+                read_greeting(&mut client).await?;
+                wait_for_change_session(login(client, account).await?, timeout).await
+            }
+            ConnectionSecurity::Tls => {
+                let tls = connect_tls(&account.host, stream).await?;
+                let mut client = async_imap::Client::new(tls);
+                read_greeting(&mut client).await?;
+                wait_for_change_session(login(client, account).await?, timeout).await
+            }
+            ConnectionSecurity::StartTls => {
+                let mut client = async_imap::Client::new(stream);
+                read_greeting(&mut client).await?;
+                client
+                    .run_command_and_check_ok("STARTTLS", None)
+                    .await
+                    .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
+                let tls = connect_tls(&account.host, client.into_inner()).await?;
+                let client = async_imap::Client::new(tls);
+                wait_for_change_session(login(client, account).await?, timeout).await
+            }
+        }
+    }
+}
+
+async fn apply_operation_session<T>(
+    mut session: Session<T>,
+    operation: &RemoteOperation,
+) -> CommandResult<RemoteOperationOutcome>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let capabilities = session
+        .capabilities()
+        .await
+        .map_err(|_| CommandError::retryable("operation.capability_failed"))?;
+    let selected = if capabilities.has_str("CONDSTORE") {
+        session.select_condstore(&operation.source_mailbox).await
+    } else {
+        session.select(&operation.source_mailbox).await
+    }
+    .map_err(|_| CommandError::retryable("operation.mailbox_open_failed"))?;
+    if selected.uid_validity.unwrap_or_default() != operation.uid_validity {
+        return Err(CommandError::new("sync.uid_validity_changed"));
+    }
+    let uid = operation.uid.to_string();
+    let source_contains_uid = session
+        .uid_search(format!("UID {uid}"))
+        .await
+        .map_err(|_| CommandError::retryable("operation.message_check_failed"))?
+        .contains(&operation.uid);
+    if !source_contains_uid {
+        let _ = session.logout().await;
+        return if matches!(
+            operation.kind,
+            RemoteOperationKind::Move | RemoteOperationKind::Delete
+        ) {
+            Ok(RemoteOperationOutcome::default())
+        } else {
+            Err(CommandError::new("operation.message_missing"))
+        };
+    }
+    let mut cleanup_pending = false;
+    match operation.kind {
+        RemoteOperationKind::SetRead(value) => {
+            let action = if value { "+FLAGS" } else { "-FLAGS" };
+            store_flag_delta(
+                &mut session,
+                &uid,
+                operation.base_modseq,
+                capabilities.has_str("CONDSTORE"),
+                action,
+                "\\Seen",
+            )
+            .await?;
+        }
+        RemoteOperationKind::SetFlagged(value) => {
+            let action = if value { "+FLAGS" } else { "-FLAGS" };
+            store_flag_delta(
+                &mut session,
+                &uid,
+                operation.base_modseq,
+                capabilities.has_str("CONDSTORE"),
+                action,
+                "\\Flagged",
+            )
+            .await?;
+        }
+        RemoteOperationKind::Copy => {
+            let destination = operation
+                .destination_mailbox
+                .as_deref()
+                .ok_or_else(|| CommandError::new("operation.destination_required"))?;
+            session
+                .uid_copy(&uid, destination)
+                .await
+                .map_err(|_| CommandError::retryable("operation.copy_failed"))?;
+        }
+        RemoteOperationKind::Move => {
+            let destination = operation
+                .destination_mailbox
+                .as_deref()
+                .ok_or_else(|| CommandError::new("operation.destination_required"))?;
+            if capabilities.has_str("MOVE") {
+                session
+                    .uid_mv(&uid, destination)
+                    .await
+                    .map_err(|_| CommandError::retryable("operation.move_failed"))?;
+            } else {
+                session
+                    .uid_copy(&uid, destination)
+                    .await
+                    .map_err(|_| CommandError::retryable("operation.copy_failed"))?;
+                mark_deleted(&mut session, &uid).await?;
+                if capabilities.has_str("UIDPLUS") {
+                    session
+                        .uid_expunge(&uid)
+                        .await
+                        .map_err(|_| CommandError::retryable("operation.expunge_failed"))?
+                        .try_collect::<Vec<_>>()
+                        .await
+                        .map_err(|_| CommandError::retryable("operation.expunge_failed"))?;
+                } else {
+                    cleanup_pending = true;
+                }
+            }
+        }
+        RemoteOperationKind::Delete => {
+            mark_deleted(&mut session, &uid).await?;
+            if capabilities.has_str("UIDPLUS") {
+                session
+                    .uid_expunge(&uid)
+                    .await
+                    .map_err(|_| CommandError::retryable("operation.expunge_failed"))?
+                    .try_collect::<Vec<_>>()
+                    .await
+                    .map_err(|_| CommandError::retryable("operation.expunge_failed"))?;
+            } else {
+                cleanup_pending = true;
+            }
+        }
+    }
+    let _ = session.logout().await;
+    Ok(RemoteOperationOutcome { cleanup_pending })
+}
+
+async fn store_flag_delta<T>(
+    session: &mut Session<T>,
+    uid: &str,
+    base_modseq: Option<u64>,
+    condstore: bool,
+    action: &str,
+    flag: &str,
+) -> CommandResult<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let query = conditional_store_query(base_modseq.filter(|_| condstore), action, flag);
+    let updates = session
+        .uid_store(uid, query)
+        .await
+        .map_err(|_| CommandError::retryable("operation.store_failed"))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
+    if updates.iter().any(|update| update.uid.is_some()) {
+        return Ok(());
+    }
+    if !condstore {
+        return Err(CommandError::retryable("operation.store_failed"));
+    }
+    let latest = session
+        .uid_fetch(uid, "(UID FLAGS MODSEQ)")
+        .await
+        .map_err(|_| CommandError::retryable("operation.store_failed"))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
+    let latest_modseq = latest
+        .iter()
+        .find_map(|message| message.modseq)
+        .ok_or_else(|| CommandError::new("operation.message_missing"))?;
+    let retry_query = conditional_store_query(Some(latest_modseq), action, flag);
+    let retry_updates = session
+        .uid_store(uid, retry_query)
+        .await
+        .map_err(|_| CommandError::retryable("operation.store_failed"))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
+    if retry_updates.iter().any(|update| update.uid.is_some()) {
+        Ok(())
+    } else {
+        Err(CommandError::retryable("operation.flag_conflict"))
+    }
+}
+
+fn conditional_store_query(base_modseq: Option<u64>, action: &str, flag: &str) -> String {
+    match base_modseq {
+        Some(modseq) => format!("(UNCHANGEDSINCE {modseq}) {action} ({flag})"),
+        None => format!("{action} ({flag})"),
+    }
+}
+
+async fn mark_deleted<T>(session: &mut Session<T>, uid: &str) -> CommandResult<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    session
+        .uid_store(uid, "+FLAGS.SILENT (\\Deleted)")
+        .await
+        .map_err(|_| CommandError::retryable("operation.store_failed"))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
+    Ok(())
+}
+
+async fn append_message_session<T>(
+    mut session: Session<T>,
+    mailbox_name: &str,
+    flags: &str,
+    raw: &[u8],
+) -> CommandResult<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    if let Some(message_id) = MessageParser::default()
+        .parse(raw)
+        .and_then(|message| message.message_id().map(str::to_owned))
+        .filter(|value| {
+            !value.is_empty()
+                && !value
+                    .chars()
+                    .any(|character| matches!(character, '"' | '\\' | '\r' | '\n'))
+        })
+    {
+        session
+            .select(mailbox_name)
+            .await
+            .map_err(|_| CommandError::retryable("operation.mailbox_open_failed"))?;
+        let existing = session
+            .uid_search(format!("HEADER Message-ID \"{message_id}\""))
+            .await
+            .map_err(|_| CommandError::retryable("operation.sent_search_failed"))?;
+        if !existing.is_empty() {
+            let _ = session.logout().await;
+            return Ok(());
+        }
+    }
+    session
+        .append(mailbox_name, Some(flags), None, raw)
+        .await
+        .map_err(|_| CommandError::retryable("operation.append_failed"))?;
+    let _ = session.logout().await;
+    Ok(())
+}
+
+async fn replace_draft_session<T>(
+    mut session: Session<T>,
+    mailbox_name: &str,
+    draft_id: &str,
+    raw: &[u8],
+) -> CommandResult<RemoteOperationOutcome>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    if !draft_id
+        .chars()
+        .all(|value| value.is_ascii_alphanumeric() || value == '-')
+    {
+        return Err(CommandError::new("draft.id_invalid"));
+    }
+    let capabilities = session
+        .capabilities()
+        .await
+        .map_err(|_| CommandError::retryable("operation.capability_failed"))?;
+    session
+        .select(mailbox_name)
+        .await
+        .map_err(|_| CommandError::retryable("operation.mailbox_open_failed"))?;
+    let mut old_uids = session
+        .uid_search(format!("HEADER X-NextMail-Draft-ID \"{draft_id}\""))
+        .await
+        .map_err(|_| CommandError::retryable("operation.draft_search_failed"))?
+        .into_iter()
+        .collect::<Vec<_>>();
+    old_uids.sort_unstable();
+    session
+        .append(mailbox_name, Some("(\\Draft)"), None, raw)
+        .await
+        .map_err(|_| CommandError::retryable("operation.append_failed"))?;
+    let mut cleanup_pending = false;
+    if !old_uids.is_empty() {
+        let uid_set = old_uids
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        mark_deleted(&mut session, &uid_set).await?;
+        if capabilities.has_str("UIDPLUS") {
+            session
+                .uid_expunge(&uid_set)
+                .await
+                .map_err(|_| CommandError::retryable("operation.expunge_failed"))?
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(|_| CommandError::retryable("operation.expunge_failed"))?;
+        } else {
+            cleanup_pending = true;
+        }
+    }
+    let _ = session.logout().await;
+    Ok(RemoteOperationOutcome { cleanup_pending })
+}
+
+async fn wait_for_change_session<T>(
+    mut session: Session<T>,
+    timeout: Duration,
+) -> CommandResult<InboxWatchOutcome>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let capabilities = session
+        .capabilities()
+        .await
+        .map_err(|_| CommandError::retryable("sync.imap_capability_failed"))?;
+    if !capabilities.has_str("IDLE") {
+        let _ = session.logout().await;
+        return Ok(InboxWatchOutcome::Unsupported);
+    }
+    session
+        .examine("INBOX")
+        .await
+        .map_err(|_| CommandError::retryable("sync.mailbox_open_failed"))?;
+    let mut handle = session.idle();
+    handle
+        .init()
+        .await
+        .map_err(|_| CommandError::retryable("sync.idle_failed"))?;
+    let outcome = {
+        let (wait, _) = handle.wait_with_timeout(timeout);
+        wait.await
+            .map_err(|_| CommandError::retryable("sync.idle_failed"))?
+    };
+    let mut session = handle
+        .done()
+        .await
+        .map_err(|_| CommandError::retryable("sync.idle_failed"))?;
+    let _ = session.logout().await;
+    Ok(match outcome {
+        IdleResponse::NewData(_) => InboxWatchOutcome::Changed,
+        IdleResponse::Timeout | IdleResponse::ManualInterrupt => InboxWatchOutcome::Timeout,
+    })
 }
 
 async fn fetch_message_session<T>(
@@ -214,6 +693,11 @@ where
         .try_collect::<Vec<_>>()
         .await
         .map_err(|_| CommandError::retryable("sync.folder_list_failed"))?;
+    let capabilities = session
+        .capabilities()
+        .await
+        .map_err(|_| CommandError::retryable("sync.imap_capability_failed"))?;
+    let condstore = capabilities.has_str("CONDSTORE");
     let folder_total = folders.len() as u64;
 
     for (folder_index, folder) in folders.into_iter().enumerate() {
@@ -238,16 +722,19 @@ where
                     uid_next: 0,
                     total_count: 0,
                     unread_count: 0,
+                    highest_modseq: None,
                 },
             )
             .await?;
             continue;
         }
 
-        let selected = session
-            .examine(&name)
-            .await
-            .map_err(|_| CommandError::retryable("sync.mailbox_open_failed"))?;
+        let selected = if condstore {
+            session.select_condstore(&name).await
+        } else {
+            session.examine(&name).await
+        }
+        .map_err(|_| CommandError::retryable("sync.mailbox_open_failed"))?;
         let uid_validity = selected.uid_validity.unwrap_or_default();
         if uid_validity == 0 {
             return Err(CommandError::new("sync.uid_not_supported"));
@@ -269,6 +756,7 @@ where
                     uid_next: selected.uid_next.unwrap_or_default(),
                     total_count: selected.exists,
                     unread_count: unseen.len() as u32,
+                    highest_modseq: selected.highest_modseq,
                 },
             )
             .await?;
@@ -290,11 +778,13 @@ where
                 .map(u32::to_string)
                 .collect::<Vec<_>>()
                 .join(",");
+            let summary_query = if condstore {
+                "(UID FLAGS MODSEQ INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
+            } else {
+                "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
+            };
             let summaries = session
-                .uid_fetch(
-                    &uid_set,
-                    "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])",
-                )
+                .uid_fetch(&uid_set, summary_query)
                 .await
                 .map_err(|_| CommandError::retryable("sync.message_fetch_failed"))?
                 .try_collect::<Vec<_>>()
@@ -313,7 +803,7 @@ where
                     None
                 };
                 let header = summary.header().unwrap_or_default();
-                let message = parse_message(
+                let mut message = parse_message(
                     uid,
                     uid_validity,
                     summary.size.unwrap_or_default() as u64,
@@ -322,6 +812,7 @@ where
                     header,
                     raw,
                 )?;
+                message.modseq = summary.modseq;
                 sink.upsert_message(&account.account_slot_id, &mailbox.id, &message)
                     .await?;
                 highest_uid = highest_uid.max(uid);
@@ -346,6 +837,32 @@ where
                 total: body_total,
             });
         }
+        let flags_query = if condstore {
+            "(UID FLAGS MODSEQ)"
+        } else {
+            "(UID FLAGS)"
+        };
+        let states = session
+            .uid_fetch("1:*", flags_query)
+            .await
+            .map_err(|_| CommandError::retryable("sync.flags_fetch_failed"))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(|_| CommandError::retryable("sync.flags_fetch_failed"))?
+            .into_iter()
+            .filter_map(|item| {
+                let uid = item.uid?;
+                let flags = item.flags().collect::<Vec<_>>();
+                Some(RemoteMessageState {
+                    uid,
+                    unread: !flags.iter().any(|flag| matches!(flag, Flag::Seen)),
+                    flagged: flags.iter().any(|flag| matches!(flag, Flag::Flagged)),
+                    modseq: item.modseq,
+                })
+            })
+            .collect::<Vec<_>>();
+        sink.reconcile_mailbox(&mailbox.id, uid_validity, selected.highest_modseq, &states)
+            .await?;
         sink.complete_mailbox(&mailbox.id, highest_uid).await?;
         observer.notify(SyncNotice::MailboxChanged {
             mailbox_id: mailbox.id,
@@ -459,6 +976,7 @@ fn parse_message<'a>(
         remote_images_blocked: sanitized
             .as_ref()
             .is_some_and(|value| value.remote_images_blocked),
+        modseq: None,
     })
 }
 
@@ -617,6 +1135,18 @@ async fn connect_tls(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conditional_store_preserves_delta_semantics() {
+        assert_eq!(
+            conditional_store_query(Some(42), "+FLAGS.SILENT", "\\Seen"),
+            "(UNCHANGEDSINCE 42) +FLAGS.SILENT (\\Seen)"
+        );
+        assert_eq!(
+            conditional_store_query(None, "-FLAGS.SILENT", "\\Flagged"),
+            "-FLAGS.SILENT (\\Flagged)"
+        );
+    }
 
     #[test]
     fn parses_and_sanitizes_html_message() {

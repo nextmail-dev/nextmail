@@ -25,6 +25,7 @@ pub struct RemoteMailbox {
     pub uid_next: u32,
     pub total_count: u32,
     pub unread_count: u32,
+    pub highest_modseq: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -48,6 +49,15 @@ pub struct RemoteMessage {
     pub raw: Option<Vec<u8>>,
     pub attachments: Vec<RemoteAttachment>,
     pub remote_images_blocked: bool,
+    pub modseq: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RemoteMessageState {
+    pub uid: u32,
+    pub unread: bool,
+    pub flagged: bool,
+    pub modseq: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -63,6 +73,7 @@ pub struct RemoteAttachment {
 pub struct StoredMailbox {
     pub id: String,
     pub last_uid: u32,
+    pub highest_modseq: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -93,6 +104,45 @@ pub trait MailSyncSink: Send + Sync {
         mailbox_id: &str,
         received_after: Option<i64>,
     ) -> CommandResult<Vec<StoredMessageLocation>>;
+
+    async fn reconcile_mailbox(
+        &self,
+        mailbox_id: &str,
+        uid_validity: u32,
+        highest_modseq: Option<u64>,
+        states: &[RemoteMessageState],
+    ) -> CommandResult<()>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RemoteOperationKind {
+    SetRead(bool),
+    SetFlagged(bool),
+    Copy,
+    Move,
+    Delete,
+}
+
+#[derive(Clone, Debug)]
+pub struct RemoteOperation {
+    pub kind: RemoteOperationKind,
+    pub source_mailbox: String,
+    pub destination_mailbox: Option<String>,
+    pub uid: u32,
+    pub uid_validity: u32,
+    pub base_modseq: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RemoteOperationOutcome {
+    pub cleanup_pending: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InboxWatchOutcome {
+    Changed,
+    Timeout,
+    Unsupported,
 }
 
 #[derive(Clone, Debug)]
@@ -123,4 +173,32 @@ pub trait ImapSyncProvider: Send + Sync {
         uid: u32,
         expected_uid_validity: u32,
     ) -> CommandResult<RemoteMessage>;
+
+    async fn apply_operation(
+        &self,
+        account: &ImapAccountConfig,
+        operation: &RemoteOperation,
+    ) -> CommandResult<RemoteOperationOutcome>;
+
+    async fn append_message(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        flags: &str,
+        raw: &[u8],
+    ) -> CommandResult<()>;
+
+    async fn replace_draft(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        draft_id: &str,
+        raw: &[u8],
+    ) -> CommandResult<RemoteOperationOutcome>;
+
+    async fn wait_for_inbox_change(
+        &self,
+        account: &ImapAccountConfig,
+        timeout: std::time::Duration,
+    ) -> CommandResult<InboxWatchOutcome>;
 }

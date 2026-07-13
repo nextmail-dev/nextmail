@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use nextmail_core::{
     AttachmentSummary, CommandError, CommandResult, ContentAvailability, MailSyncSink, MailboxRole,
     MailboxSummary, MessageAddress, MessageDetail, MessageListItem, MessageListPage, RemoteMailbox,
-    RemoteMessage, StoredMailbox, StoredMessageLocation, SyncPolicy,
+    RemoteMessage, RemoteMessageState, StoredMailbox, StoredMessageLocation, SyncPolicy,
 };
 use sqlx::{
     migrate::Migrator,
@@ -56,11 +56,18 @@ impl MailRepository {
         account_slot_id: &str,
     ) -> CommandResult<Vec<MailboxSummary>> {
         let rows = sqlx::query(
-            "SELECT id, display_name, role, selectable, total_count, unread_count, revision \
-             FROM mailboxes WHERE account_slot_id = ? ORDER BY \
-             CASE role WHEN 'inbox' THEN 0 WHEN 'sent' THEN 1 WHEN 'drafts' THEN 2 \
-             WHEN 'archive' THEN 3 WHEN 'junk' THEN 4 WHEN 'trash' THEN 5 ELSE 6 END, \
-             remote_name COLLATE NOCASE",
+            "SELECT b.id, b.display_name, CASE WHEN o.role IS NOT NULL THEN o.role \
+                      WHEN EXISTS(SELECT 1 FROM mailbox_role_overrides x WHERE x.account_slot_id = b.account_slot_id AND x.role = b.role) \
+                      THEN 'other' ELSE b.role END AS role, b.selectable, \
+                    b.total_count, b.unread_count, b.revision \
+             FROM mailboxes b LEFT JOIN mailbox_role_overrides o ON o.mailbox_id = b.id \
+               AND o.account_slot_id = b.account_slot_id WHERE b.account_slot_id = ? ORDER BY \
+             CASE WHEN o.role = 'sent' THEN 1 WHEN o.role = 'drafts' THEN 2 WHEN o.role = 'archive' THEN 3 \
+             WHEN o.role = 'trash' THEN 5 WHEN b.role = 'inbox' THEN 0 \
+             WHEN EXISTS(SELECT 1 FROM mailbox_role_overrides x WHERE x.account_slot_id = b.account_slot_id AND x.role = b.role) THEN 6 \
+             WHEN b.role = 'sent' THEN 1 WHEN b.role = 'drafts' THEN 2 WHEN b.role = 'archive' THEN 3 \
+             WHEN b.role = 'junk' THEN 4 WHEN b.role = 'trash' THEN 5 ELSE 6 END, \
+             b.remote_name COLLATE NOCASE",
         )
         .bind(account_slot_id)
         .fetch_all(&self.pool)
@@ -103,10 +110,12 @@ impl MailRepository {
         let (cursor_date, cursor_id) = cursor.and_then(parse_cursor).unzip();
         let rows = sqlx::query(
             "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, \
-                    l.unread, l.flagged, m.has_attachments, m.body_availability \
+                    l.unread, l.flagged, m.has_attachments, m.body_availability, \
+                    EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
+                      AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
              FROM message_locations l JOIN messages m ON m.id = l.message_id \
              JOIN mailboxes b ON b.id = l.mailbox_id \
-             WHERE l.mailbox_id = ? AND b.account_slot_id = ? AND \
+             WHERE l.mailbox_id = ? AND b.account_slot_id = ? AND l.local_hidden = 0 AND \
                (? IS NULL OR l.internal_date < ? OR (l.internal_date = ? AND m.id < ?)) \
              ORDER BY l.internal_date DESC, m.id DESC LIMIT ?",
         )
@@ -144,6 +153,7 @@ impl MailRepository {
         &self,
         account_slot_id: &str,
         message_id: &str,
+        mailbox_id: Option<&str>,
     ) -> CommandResult<MessageDetail> {
         let row = sqlx::query(
             "SELECT id, subject, from_json, to_json, cc_json, received_at, body_availability, \
@@ -156,6 +166,24 @@ impl MailRepository {
         .await
         .map_err(|_| CommandError::new("storage.message_read_failed"))?
         .ok_or_else(|| CommandError::new("message.not_found"))?;
+
+        let location = sqlx::query(
+            "SELECT l.mailbox_id, l.unread, l.flagged, EXISTS(SELECT 1 FROM pending_operations o \
+               WHERE o.message_id = l.message_id AND o.source_mailbox_id = l.mailbox_id \
+               AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
+             FROM message_locations l JOIN mailboxes b ON b.id = l.mailbox_id \
+             WHERE l.message_id = ? AND b.account_slot_id = ? AND l.local_hidden = 0 \
+               AND (? IS NULL OR l.mailbox_id = ?) \
+             ORDER BY CASE b.role WHEN 'inbox' THEN 0 ELSE 1 END LIMIT 1",
+        )
+        .bind(message_id)
+        .bind(account_slot_id)
+        .bind(mailbox_id)
+        .bind(mailbox_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("storage.message_location_read_failed"))?
+        .ok_or_else(|| CommandError::new("message.remote_location_missing"))?;
 
         let body =
             sqlx::query("SELECT plain_text, safe_html FROM message_bodies WHERE message_id = ?")
@@ -196,6 +224,7 @@ impl MailRepository {
 
         Ok(MessageDetail {
             id: row.try_get("id").map_err(storage_read_error)?,
+            mailbox_id: location.try_get("mailbox_id").map_err(storage_read_error)?,
             subject: row.try_get("subject").map_err(storage_read_error)?,
             from: decode_addresses(row.try_get("from_json").map_err(storage_read_error)?)?,
             to: decode_addresses(row.try_get("to_json").map_err(storage_read_error)?)?,
@@ -219,6 +248,18 @@ impl MailRepository {
             revision: row
                 .try_get::<i64, _>("revision")
                 .map_err(storage_read_error)? as u64,
+            unread: location
+                .try_get::<i64, _>("unread")
+                .map_err(storage_read_error)?
+                != 0,
+            flagged: location
+                .try_get::<i64, _>("flagged")
+                .map_err(storage_read_error)?
+                != 0,
+            pending_operation: location
+                .try_get::<i64, _>("pending_operation")
+                .map_err(storage_read_error)?
+                != 0,
         })
     }
 
@@ -397,12 +438,13 @@ impl MailSyncSink for MailRepository {
         }
         sqlx::query(
             "INSERT INTO mailboxes(id, account_slot_id, remote_name, display_name, delimiter, role, selectable, \
-                    uid_validity, uid_next, total_count, unread_count, revision) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) \
+                    uid_validity, uid_next, highest_modseq, total_count, unread_count, revision) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) \
              ON CONFLICT(account_slot_id, remote_name) DO UPDATE SET \
              display_name = excluded.display_name, delimiter = excluded.delimiter, \
              role = excluded.role, selectable = excluded.selectable, \
              uid_validity = excluded.uid_validity, uid_next = excluded.uid_next, \
+             highest_modseq = COALESCE(excluded.highest_modseq, mailboxes.highest_modseq), \
              total_count = excluded.total_count, unread_count = excluded.unread_count, revision = revision + 1",
         )
         .bind(&id)
@@ -414,12 +456,17 @@ impl MailSyncSink for MailRepository {
         .bind(i64::from(mailbox.selectable))
         .bind(i64::from(mailbox.uid_validity))
         .bind(i64::from(mailbox.uid_next))
+        .bind(mailbox.highest_modseq.map(|value| value as i64))
         .bind(i64::from(mailbox.total_count))
         .bind(i64::from(mailbox.unread_count))
         .execute(&self.pool)
         .await
         .map_err(|_| CommandError::new("storage.mailbox_write_failed"))?;
-        Ok(StoredMailbox { id, last_uid })
+        Ok(StoredMailbox {
+            id,
+            last_uid,
+            highest_modseq: mailbox.highest_modseq,
+        })
     }
 
     async fn upsert_message(
@@ -499,9 +546,10 @@ impl MailSyncSink for MailRepository {
 
         sqlx::query(
             "INSERT INTO message_locations(id, message_id, mailbox_id, uid, uid_validity, flags_json, \
-                    unread, flagged, internal_date) VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?) \
+                    unread, flagged, internal_date, modseq) VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?, ?) \
              ON CONFLICT(mailbox_id, uid_validity, uid) DO UPDATE SET \
-             unread = excluded.unread, flagged = excluded.flagged, internal_date = excluded.internal_date",
+             unread = excluded.unread, flagged = excluded.flagged, internal_date = excluded.internal_date, \
+             modseq = excluded.modseq",
         )
         .bind(Uuid::new_v4().to_string())
         .bind(&message_id)
@@ -511,6 +559,7 @@ impl MailSyncSink for MailRepository {
         .bind(i64::from(message.unread))
         .bind(i64::from(message.flagged))
         .bind(message.received_at)
+        .bind(message.modseq.map(|value| value as i64))
         .execute(&self.pool)
         .await
         .map_err(|_| CommandError::new("storage.message_location_write_failed"))?;
@@ -593,6 +642,93 @@ impl MailSyncSink for MailRepository {
                 })
             })
             .collect()
+    }
+
+    async fn reconcile_mailbox(
+        &self,
+        mailbox_id: &str,
+        uid_validity: u32,
+        highest_modseq: Option<u64>,
+        states: &[RemoteMessageState],
+    ) -> CommandResult<()> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+        for state in states {
+            sqlx::query(
+                "UPDATE message_locations SET unread = ?, flagged = ?, modseq = ? \
+                 WHERE mailbox_id = ? AND uid_validity = ? AND uid = ? AND local_hidden = 0 \
+                 AND NOT EXISTS (SELECT 1 FROM pending_operations o WHERE \
+                   o.message_id = message_locations.message_id AND o.source_mailbox_id = message_locations.mailbox_id \
+                   AND o.kind IN ('set_read','set_flagged') AND o.status IN ('queued','running','retry_wait'))",
+            )
+            .bind(i64::from(state.unread))
+            .bind(i64::from(state.flagged))
+            .bind(state.modseq.map(|value| value as i64))
+            .bind(mailbox_id)
+            .bind(i64::from(uid_validity))
+            .bind(i64::from(state.uid))
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+        }
+        let remote_uids = states
+            .iter()
+            .map(|state| state.uid)
+            .collect::<std::collections::HashSet<_>>();
+        let local_rows = sqlx::query(
+            "SELECT id, message_id, uid FROM message_locations WHERE mailbox_id = ? AND uid_validity = ?",
+        )
+        .bind(mailbox_id)
+        .bind(i64::from(uid_validity))
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+        for row in local_rows {
+            let uid = row.try_get::<i64, _>("uid").map_err(storage_read_error)? as u32;
+            if remote_uids.contains(&uid) {
+                continue;
+            }
+            let message_id: String = row.try_get("message_id").map_err(storage_read_error)?;
+            let pending = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM pending_operations WHERE message_id = ? AND source_mailbox_id = ? \
+                 AND status IN ('queued','running','retry_wait')",
+            )
+            .bind(&message_id)
+            .bind(mailbox_id)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+            if pending == 0 {
+                let id: String = row.try_get("id").map_err(storage_read_error)?;
+                sqlx::query("DELETE FROM message_locations WHERE id = ?")
+                    .bind(id)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+            }
+        }
+        sqlx::query(
+            "UPDATE mailboxes SET highest_modseq = ?, total_count = (SELECT COUNT(*) FROM message_locations \
+             WHERE mailbox_id = ? AND local_hidden = 0), unread_count = (SELECT COUNT(*) FROM message_locations \
+             WHERE mailbox_id = ? AND local_hidden = 0 AND unread = 1), last_synced_at = ?, revision = revision + 1 \
+             WHERE id = ?",
+        )
+        .bind(highest_modseq.map(|value| value as i64))
+        .bind(mailbox_id)
+        .bind(mailbox_id)
+        .bind(now())
+        .bind(mailbox_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+        Ok(())
     }
 }
 
@@ -682,6 +818,10 @@ fn message_list_item_from_row(row: sqlx::sqlite::SqliteRow) -> CommandResult<Mes
             row.try_get("body_availability")
                 .map_err(storage_read_error)?,
         ),
+        pending_operation: row
+            .try_get::<i64, _>("pending_operation")
+            .map_err(storage_read_error)?
+            != 0,
     })
 }
 
@@ -785,6 +925,7 @@ mod tests {
                     uid_next: 2,
                     total_count: 1,
                     unread_count: 1,
+                    highest_modseq: None,
                 },
             )
             .await
@@ -816,6 +957,7 @@ mod tests {
                     raw: Some(b"Subject: Stored locally\r\n\r\nHello".to_vec()),
                     attachments: vec![],
                     remote_images_blocked: false,
+                    modseq: None,
                 },
             )
             .await
@@ -830,7 +972,7 @@ mod tests {
             .unwrap();
         assert_eq!(page.items.len(), 1);
         let detail = repository
-            .get_message_detail("slot", &page.items[0].id)
+            .get_message_detail("slot", &page.items[0].id, Some(&mailbox.id))
             .await
             .unwrap();
         assert_eq!(detail.plain_text.as_deref(), Some("Hello from disk"));
@@ -870,6 +1012,7 @@ mod tests {
                     raw: None,
                     attachments: vec![],
                     remote_images_blocked: false,
+                    modseq: None,
                 },
             )
             .await

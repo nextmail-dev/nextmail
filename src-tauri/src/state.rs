@@ -25,7 +25,11 @@ impl AppState {
             Arc::new(MailConnectionTester),
         ));
         let mail = Arc::new(MailRuntime::new(app.clone(), Arc::clone(&service)));
-        let composer = Arc::new(ComposerRuntime::new(app.clone(), Arc::clone(&service)));
+        let composer = Arc::new(ComposerRuntime::new(
+            app.clone(),
+            Arc::clone(&service),
+            Arc::clone(&mail),
+        ));
         Ok(Self {
             service,
             mail,

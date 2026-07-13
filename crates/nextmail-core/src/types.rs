@@ -257,6 +257,43 @@ pub struct MessageListItem {
     pub flagged: bool,
     pub has_attachments: bool,
     pub body_availability: ContentAvailability,
+    pub pending_operation: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingOperationKind {
+    SetRead,
+    SetFlagged,
+    Copy,
+    Move,
+    Delete,
+    AppendSent,
+    AppendDraft,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingOperationStatus {
+    Queued,
+    Running,
+    RetryWait,
+    NeedsReconcile,
+    Succeeded,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingOperationSummary {
+    pub id: String,
+    pub account_id: String,
+    pub message_id: Option<String>,
+    pub kind: PendingOperationKind,
+    pub status: PendingOperationStatus,
+    pub attempt_count: u32,
+    pub error_code: Option<String>,
+    pub cleanup_pending: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -280,6 +317,7 @@ pub struct AttachmentSummary {
 #[serde(rename_all = "camelCase")]
 pub struct MessageDetail {
     pub id: String,
+    pub mailbox_id: String,
     pub subject: String,
     pub from: Vec<MessageAddress>,
     pub to: Vec<MessageAddress>,
@@ -291,6 +329,9 @@ pub struct MessageDetail {
     pub attachments: Vec<AttachmentSummary>,
     pub remote_images_blocked: bool,
     pub revision: u64,
+    pub unread: bool,
+    pub flagged: bool,
+    pub pending_operation: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -334,6 +375,14 @@ pub enum DraftStatus {
     Editing,
     Queued,
     Sent,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageComposeAction {
+    Reply,
+    ReplyAll,
+    Forward,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

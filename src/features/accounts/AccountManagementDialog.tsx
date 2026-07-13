@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
-import type { SyncPolicy } from "@/app/types";
+import type { MailboxRole, SyncPolicy } from "@/app/types";
 import { Surface } from "@/components/ui/card";
 import { Alert } from "@/components/ui/alert";
 import { Modal } from "@/components/ui/dialog";
@@ -35,13 +35,23 @@ export function AccountManagementDialog({
     queryFn: () => api.getSyncProgress(accountId),
     enabled: open && Boolean(accountId),
   });
+  const mailboxesQuery = useQuery({
+    queryKey: ["mailboxes", accountId],
+    queryFn: () => api.listMailboxes(accountId),
+    enabled: open && Boolean(accountId),
+  });
   const policyMutation = useMutation({
     mutationFn: (syncPolicy: SyncPolicy) => api.setAccountSyncPolicy(accountId, syncPolicy),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
   });
+  const roleMutation = useMutation({
+    mutationFn: ({ role, mailboxId }: { role: MailboxRole; mailboxId: string | null }) =>
+      api.setMailboxRoleMapping(accountId, role, mailboxId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["mailboxes", accountId] }),
+  });
   const account = detailQuery.data;
-  const operationError = detailQuery.error ?? policyMutation.error;
+  const operationError = detailQuery.error ?? mailboxesQuery.error ?? policyMutation.error ?? roleMutation.error;
   const normalizedError = operationError ? normalizeCommandError(operationError) : null;
 
   return (
@@ -94,6 +104,28 @@ export function AccountManagementDialog({
               onValueChange={(value) => policyMutation.mutate(value as SyncPolicy)}
               disabled={policyMutation.isPending}
             />
+            <Stack gap="sm">
+              <LabelText>{t("accounts.folderMappings")}</LabelText>
+              {(["sent", "drafts", "trash", "archive"] as MailboxRole[]).map((role) => (
+                <SelectField
+                  key={role}
+                  label={t(`accounts.folderRole.${role}`)}
+                  value={mailboxesQuery.data?.find((mailbox) => mailbox.role === role)?.id ?? "__none__"}
+                  options={[
+                    { value: "__none__", label: t("accounts.folderUnassigned") },
+                    ...(mailboxesQuery.data ?? [])
+                      .filter((mailbox) => mailbox.selectable)
+                      .map((mailbox) => ({ value: mailbox.id, label: mailbox.name })),
+                  ]}
+                  onValueChange={(value) => roleMutation.mutate({
+                    role,
+                    mailboxId: value === "__none__" ? null : value,
+                  })}
+                  disabled={roleMutation.isPending}
+                />
+              ))}
+              <Text className="text-xs">{t("accounts.folderMappingsDescription")}</Text>
+            </Stack>
           </>
         ) : null}
       </Stack>

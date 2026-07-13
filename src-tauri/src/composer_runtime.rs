@@ -4,15 +4,15 @@ use lettre::{address::Envelope, Address};
 use nextmail_core::{
     AccountSummary, CommandError, CommandResult, ComposerBootstrap, DraftAttachmentSummary,
     DraftContent, DraftDetail, DraftListItem, DraftRecipientFields, DraftStatus,
-    LanguagePreference, MessageAddress, SendJobSummary,
+    LanguagePreference, MailboxRole, MessageAddress, MessageComposeAction, SendJobSummary,
 };
 use nextmail_protocols::{build_outgoing_message, OutgoingAttachment};
-use nextmail_storage::{MailRepository, SaveDraftRequest};
+use nextmail_storage::{CreateMessageActionDraftRequest, MailRepository, SaveDraftRequest};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::{Notify, OnceCell};
 
-use crate::{adapters::send_raw_smtp, application::AppService};
+use crate::{adapters::send_raw_smtp, application::AppService, mail_runtime::MailRuntime};
 
 const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_TOTAL_ATTACHMENT_BYTES: u64 = 100 * 1024 * 1024;
@@ -22,15 +22,17 @@ pub struct ComposerRuntime {
     service: Arc<AppService>,
     repository: OnceCell<Arc<MailRepository>>,
     wake_worker: Notify,
+    mail: Arc<MailRuntime>,
 }
 
 impl ComposerRuntime {
-    pub fn new(app: AppHandle, service: Arc<AppService>) -> Self {
+    pub fn new(app: AppHandle, service: Arc<AppService>, mail: Arc<MailRuntime>) -> Self {
         Self {
             app,
             service,
             repository: OnceCell::new(),
             wake_worker: Notify::new(),
+            mail,
         }
     }
 
@@ -53,7 +55,16 @@ impl ComposerRuntime {
                         .await;
                     match result {
                         Ok(()) => {
-                            let _ = repository.complete_send_job(&job.id).await;
+                            let sent_mailbox = repository
+                                .mailbox_for_role(&job.account_slot_id, MailboxRole::Sent)
+                                .await
+                                .ok()
+                                .flatten()
+                                .map(|(id, _)| id);
+                            let _ = repository
+                                .complete_send_job_and_queue_sent(&job.id, sent_mailbox.as_deref())
+                                .await;
+                            runtime.mail.wake();
                         }
                         Err(error) if error.retryable && job.attempt_count < 3 => {
                             let delay = 5_i64.saturating_mul(1_i64 << (job.attempt_count - 1));
@@ -119,6 +130,93 @@ impl ComposerRuntime {
             return Err(CommandError::new("draft.not_editable"));
         }
         self.show_composer_window(account_id, draft_id).await
+    }
+
+    pub async fn open_remote_draft(&self, account_id: &str, message_id: &str) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        let mut detail = self
+            .mail
+            .get_message_detail(account_id, message_id, None)
+            .await?;
+        if detail.body_availability != nextmail_core::ContentAvailability::Available {
+            detail = self
+                .mail
+                .request_message_body(account_id, message_id, None)
+                .await?;
+        }
+        for attachment in detail.attachments {
+            if attachment.availability != nextmail_core::ContentAvailability::Available {
+                self.mail
+                    .request_attachment(account_id, &attachment.id)
+                    .await?;
+            }
+        }
+        let draft = self
+            .repository()
+            .await?
+            .import_message_as_draft(account_id, &account.data_slot_id, message_id)
+            .await?;
+        self.show_composer_window(account_id, &draft.id).await
+    }
+
+    pub async fn open_message_action_composer(
+        &self,
+        account_id: &str,
+        message_id: &str,
+        action: MessageComposeAction,
+    ) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        let mut detail = self
+            .mail
+            .get_message_detail(account_id, message_id, None)
+            .await?;
+        if detail.body_availability != nextmail_core::ContentAvailability::Available {
+            detail = self
+                .mail
+                .request_message_body(account_id, message_id, None)
+                .await?;
+        }
+        if action == MessageComposeAction::Forward {
+            for attachment in &detail.attachments {
+                if attachment.availability != nextmail_core::ContentAvailability::Available {
+                    self.mail
+                        .request_attachment(account_id, &attachment.id)
+                        .await?;
+                }
+            }
+        }
+        let (original_message_label, wrote_label, from_label, to_label, subject_label) =
+            match self.service.get_preferences()?.language {
+                LanguagePreference::ZhCn => ("转发邮件", "写道：", "发件人", "收件人", "主题"),
+                LanguagePreference::EnUs => {
+                    ("Forwarded message", "wrote:", "From", "To", "Subject")
+                }
+            };
+        let draft = self
+            .repository()
+            .await?
+            .create_message_action_draft(CreateMessageActionDraftRequest {
+                account_id,
+                account_slot_id: &account.data_slot_id,
+                own_email: &account.email,
+                message_id,
+                action,
+                original_message_label,
+                wrote_label,
+                from_label,
+                to_label,
+                subject_label,
+            })
+            .await?;
+        if let Err(error) = self.show_composer_window(account_id, &draft.id).await {
+            let _ = self
+                .repository()
+                .await?
+                .delete_editing_draft(&account.data_slot_id, &draft.id)
+                .await;
+            return Err(error);
+        }
+        Ok(())
     }
 
     async fn show_composer_window(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {
@@ -285,6 +383,66 @@ impl ComposerRuntime {
             .await
     }
 
+    pub async fn queue_remote_draft(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        let repository = self.repository().await?;
+        let draft = repository
+            .get_draft(account_id, &account.data_slot_id, draft_id)
+            .await?;
+        let is_empty = draft.subject.trim().is_empty()
+            && draft.recipients.to.is_empty()
+            && draft.recipients.cc.is_empty()
+            && draft.recipients.bcc.is_empty()
+            && draft.content.plain_text.trim().is_empty()
+            && (draft.content.html.trim().is_empty() || draft.content.html.trim() == "<p></p>")
+            && draft.attachments.is_empty();
+        if is_empty {
+            return Ok(());
+        }
+        let Some((drafts_mailbox_id, _)) = repository
+            .mailbox_for_role(&account.data_slot_id, MailboxRole::Drafts)
+            .await?
+        else {
+            return Ok(());
+        };
+        let mut attachments = Vec::new();
+        for stored in repository.draft_attachments(draft_id).await? {
+            attachments.push(OutgoingAttachment {
+                file_name: stored.summary.file_name,
+                content_type: stored.summary.content_type,
+                bytes: repository.attachment_bytes(&stored.content_hash).await?,
+            });
+        }
+        let sender = MessageAddress {
+            name: nonempty(&account.display_name),
+            email: account.email,
+        };
+        let raw = build_outgoing_message(
+            &sender,
+            &draft.recipients,
+            &draft.subject,
+            &draft.content,
+            attachments,
+        )?;
+        let threading = repository
+            .draft_threading_headers(&account.data_slot_id, draft_id)
+            .await?;
+        let raw = add_threading_headers(raw, &threading)?;
+        let raw = add_draft_identity_headers(raw, draft_id, draft.revision)?;
+        let hash = repository.write_send_mime(&raw).await?;
+        repository
+            .queue_draft_append(
+                &account.data_slot_id,
+                &drafts_mailbox_id,
+                draft_id,
+                &hash,
+                draft.revision,
+            )
+            .await?;
+        self.mail.wake();
+        Ok(())
+    }
+
     pub async fn queue_send(
         &self,
         account_id: &str,
@@ -316,6 +474,10 @@ impl ComposerRuntime {
             &draft.content,
             attachments,
         )?;
+        let threading = repository
+            .draft_threading_headers(&account.data_slot_id, draft_id)
+            .await?;
+        let raw = add_threading_headers(raw, &threading)?;
         let hash = repository.write_send_mime(&raw).await?;
         let envelope = envelope_recipients(&draft.recipients);
         let job = repository
@@ -483,6 +645,76 @@ fn unix_timestamp() -> i64 {
         .as_secs() as i64
 }
 
+fn add_draft_identity_headers(
+    mut raw: Vec<u8>,
+    draft_id: &str,
+    revision: u64,
+) -> CommandResult<Vec<u8>> {
+    if !draft_id
+        .chars()
+        .all(|value| value.is_ascii_alphanumeric() || value == '-')
+    {
+        return Err(CommandError::new("draft.id_invalid"));
+    }
+    let separator = raw
+        .windows(4)
+        .position(|value| value == b"\r\n\r\n")
+        .ok_or_else(|| CommandError::new("send.mime_build_failed"))?;
+    let headers =
+        format!("X-NextMail-Draft-ID: {draft_id}\r\nX-NextMail-Draft-Revision: {revision}\r\n");
+    raw.splice(separator + 2..separator + 2, headers.bytes());
+    Ok(raw)
+}
+
+fn add_threading_headers(
+    mut raw: Vec<u8>,
+    threading: &nextmail_storage::DraftThreadingHeaders,
+) -> CommandResult<Vec<u8>> {
+    let Some(in_reply_to) = threading
+        .in_reply_to
+        .as_deref()
+        .and_then(normalize_message_id)
+    else {
+        return Ok(raw);
+    };
+    let mut references = threading
+        .references
+        .iter()
+        .filter_map(|value| normalize_message_id(value))
+        .collect::<Vec<_>>();
+    if references.last() != Some(&in_reply_to) {
+        references.push(in_reply_to.clone());
+    }
+    while references.join(" ").len() > 850 && references.len() > 1 {
+        references.remove(0);
+    }
+    let separator = raw
+        .windows(4)
+        .position(|value| value == b"\r\n\r\n")
+        .ok_or_else(|| CommandError::new("send.mime_build_failed"))?;
+    let headers = format!(
+        "In-Reply-To: {in_reply_to}\r\nReferences: {}\r\n",
+        references.join(" ")
+    );
+    raw.splice(separator + 2..separator + 2, headers.bytes());
+    Ok(raw)
+}
+
+fn normalize_message_id(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty()
+        || value.len() > 900
+        || value.chars().any(|character| character.is_control())
+    {
+        return None;
+    }
+    Some(if value.starts_with('<') && value.ends_with('>') {
+        value.to_owned()
+    } else {
+        format!("<{value}>")
+    })
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SendJobChangedEvent {
@@ -492,4 +724,38 @@ struct SendJobChangedEvent {
     status: nextmail_core::SendJobStatus,
     subject: String,
     revision: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{add_draft_identity_headers, add_threading_headers};
+    use nextmail_storage::DraftThreadingHeaders;
+
+    #[test]
+    fn adds_stable_draft_identity_before_the_message_body() {
+        let raw = add_draft_identity_headers(
+            b"From: sender@example.com\r\nSubject: Draft\r\n\r\nBody".to_vec(),
+            "2e630859-f215-4860-a4c4-9fc50fbb132d",
+            7,
+        )
+        .unwrap();
+        let value = String::from_utf8(raw).unwrap();
+        assert!(value.contains("X-NextMail-Draft-ID: 2e630859-f215-4860-a4c4-9fc50fbb132d\r\n"));
+        assert!(value.contains("X-NextMail-Draft-Revision: 7\r\n\r\nBody"));
+    }
+
+    #[test]
+    fn adds_safe_threading_headers_to_replies() {
+        let raw = add_threading_headers(
+            b"From: sender@example.com\r\nSubject: Reply\r\n\r\nBody".to_vec(),
+            &DraftThreadingHeaders {
+                in_reply_to: Some("original@example.com".into()),
+                references: vec!["root@example.com".into()],
+            },
+        )
+        .unwrap();
+        let value = String::from_utf8(raw).unwrap();
+        assert!(value.contains("In-Reply-To: <original@example.com>\r\n"));
+        assert!(value.contains("References: <root@example.com> <original@example.com>\r\n\r\nBody"));
+    }
 }

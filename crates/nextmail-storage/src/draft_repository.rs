@@ -1,6 +1,7 @@
 use nextmail_core::{
     CommandError, CommandResult, DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem,
-    DraftRecipientFields, DraftStatus, MessageAddress, SendJobStatus, SendJobSummary,
+    DraftRecipientFields, DraftStatus, MessageAddress, MessageComposeAction, SendJobStatus,
+    SendJobSummary,
 };
 use sqlx::Row;
 use uuid::Uuid;
@@ -32,6 +33,25 @@ pub struct SaveDraftRequest<'a> {
     pub subject: &'a str,
     pub content: &'a DraftContent,
     pub expected_revision: u64,
+}
+
+pub struct CreateMessageActionDraftRequest<'a> {
+    pub account_id: &'a str,
+    pub account_slot_id: &'a str,
+    pub own_email: &'a str,
+    pub message_id: &'a str,
+    pub action: MessageComposeAction,
+    pub original_message_label: &'a str,
+    pub wrote_label: &'a str,
+    pub from_label: &'a str,
+    pub to_label: &'a str,
+    pub subject_label: &'a str,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DraftThreadingHeaders {
+    pub in_reply_to: Option<String>,
+    pub references: Vec<String>,
 }
 
 impl MailRepository {
@@ -78,6 +98,283 @@ impl MailRepository {
         .execute(&self.pool)
         .await
         .map_err(|_| CommandError::new("draft.create_failed"))?;
+        self.get_draft(account_id, account_slot_id, &id).await
+    }
+
+    pub async fn create_message_action_draft(
+        &self,
+        request: CreateMessageActionDraftRequest<'_>,
+    ) -> CommandResult<DraftDetail> {
+        let CreateMessageActionDraftRequest {
+            account_id,
+            account_slot_id,
+            own_email,
+            message_id,
+            action,
+            original_message_label,
+            wrote_label,
+            from_label,
+            to_label,
+            subject_label,
+        } = request;
+        let message = sqlx::query(
+            "SELECT subject, from_json, to_json, cc_json, message_id, references_json \
+             FROM messages WHERE id = ? AND account_slot_id = ?",
+        )
+        .bind(message_id)
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("draft.create_from_message_failed"))?
+        .ok_or_else(|| CommandError::new("message.not_found"))?;
+        let from = decode_addresses(message.try_get("from_json").map_err(read_error)?)?;
+        let to = decode_addresses(message.try_get("to_json").map_err(read_error)?)?;
+        let cc = decode_addresses(message.try_get("cc_json").map_err(read_error)?)?;
+        let original_subject: String = message.try_get("subject").map_err(read_error)?;
+        let header_message_id: Option<String> =
+            message.try_get("message_id").map_err(read_error)?;
+        let mut references: Vec<String> = serde_json::from_str(
+            &message
+                .try_get::<String, _>("references_json")
+                .map_err(read_error)?,
+        )
+        .map_err(json_error)?;
+        if let Some(value) = header_message_id.as_ref() {
+            if !references.iter().any(|current| current == value) {
+                references.push(value.clone());
+            }
+        }
+        let body = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT plain_text FROM message_bodies WHERE message_id = ?",
+        )
+        .bind(message_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("draft.create_from_message_failed"))?
+        .flatten()
+        .unwrap_or_default();
+
+        let mut recipients = DraftRecipientFields::default();
+        match action {
+            MessageComposeAction::Reply => {
+                recipients.to = reply_recipients(&from, &to, own_email);
+            }
+            MessageComposeAction::ReplyAll => {
+                recipients.to = reply_recipients(&from, &to, own_email);
+                recipients.cc = unique_addresses(
+                    to.iter().cloned().chain(cc.iter().cloned()).collect(),
+                    own_email,
+                    &recipients.to,
+                );
+            }
+            MessageComposeAction::Forward => {}
+        }
+
+        let sender = format_addresses(&from);
+        let plain_text = match action {
+            MessageComposeAction::Reply | MessageComposeAction::ReplyAll => {
+                let quoted = body
+                    .lines()
+                    .map(|line| format!("> {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("\n\n{sender} {wrote_label}\n{quoted}")
+            }
+            MessageComposeAction::Forward => format!(
+                "\n\n---------- {original_message_label} ----------\n{from_label}: {sender}\n{to_label}: {}\n{subject_label}: {}\n\n{}",
+                format_addresses(&to),
+                original_subject,
+                body,
+            ),
+        };
+        let subject = prefixed_subject(&original_subject, action);
+        let id = Uuid::new_v4().to_string();
+        let timestamp = now();
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+        sqlx::query(
+            "INSERT INTO drafts(id, account_slot_id, related_message_id, in_reply_to, references_json, \
+             to_json, cc_json, subject, editor_json, html, plain_text, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(account_slot_id)
+        .bind(message_id)
+        .bind(match action {
+            MessageComposeAction::Forward => None,
+            _ => header_message_id,
+        })
+        .bind(serde_json::to_string(&references).map_err(json_error)?)
+        .bind(encode_addresses(&recipients.to)?)
+        .bind(encode_addresses(&recipients.cc)?)
+        .bind(subject)
+        .bind(editor_document_from_text(&plain_text)?)
+        .bind(format!("<p>{}</p>", escape_html(&plain_text).replace('\n', "<br>")))
+        .bind(plain_text)
+        .bind(timestamp)
+        .bind(timestamp)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+
+        if action == MessageComposeAction::Forward {
+            let attachments = sqlx::query(
+                "SELECT file_name, content_type, size, content_hash FROM attachments \
+                 WHERE message_id = ? AND content_hash IS NOT NULL ORDER BY part_index",
+            )
+            .bind(message_id)
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+            for (index, attachment) in attachments.into_iter().enumerate() {
+                sqlx::query(
+                    "INSERT INTO draft_attachments(id, draft_id, file_name, content_type, size, content_hash, sort_order, created_at) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(Uuid::new_v4().to_string())
+                .bind(&id)
+                .bind(attachment.try_get::<String, _>("file_name").map_err(read_error)?)
+                .bind(attachment.try_get::<String, _>("content_type").map_err(read_error)?)
+                .bind(attachment.try_get::<i64, _>("size").map_err(read_error)?)
+                .bind(attachment.try_get::<String, _>("content_hash").map_err(read_error)?)
+                .bind(index as i64)
+                .bind(timestamp)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+            }
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+        self.get_draft(account_id, account_slot_id, &id).await
+    }
+
+    pub async fn draft_threading_headers(
+        &self,
+        account_slot_id: &str,
+        draft_id: &str,
+    ) -> CommandResult<DraftThreadingHeaders> {
+        let row = sqlx::query(
+            "SELECT in_reply_to, references_json FROM drafts WHERE id = ? AND account_slot_id = ?",
+        )
+        .bind(draft_id)
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("draft.read_failed"))?
+        .ok_or_else(|| CommandError::new("draft.not_found"))?;
+        Ok(DraftThreadingHeaders {
+            in_reply_to: row.try_get("in_reply_to").map_err(read_error)?,
+            references: serde_json::from_str(
+                &row.try_get::<String, _>("references_json")
+                    .map_err(read_error)?,
+            )
+            .map_err(json_error)?,
+        })
+    }
+
+    pub async fn import_message_as_draft(
+        &self,
+        account_id: &str,
+        account_slot_id: &str,
+        message_id: &str,
+    ) -> CommandResult<DraftDetail> {
+        if let Some(existing) = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM drafts WHERE account_slot_id = ? AND source_message_id = ? AND status = 'editing'",
+        )
+        .bind(account_slot_id)
+        .bind(message_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("draft.import_failed"))?
+        {
+            return self.get_draft(account_id, account_slot_id, &existing).await;
+        }
+        let message = sqlx::query(
+            "SELECT subject, to_json, cc_json FROM messages WHERE id = ? AND account_slot_id = ?",
+        )
+        .bind(message_id)
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("draft.import_failed"))?
+        .ok_or_else(|| CommandError::new("message.not_found"))?;
+        let body =
+            sqlx::query("SELECT plain_text, safe_html FROM message_bodies WHERE message_id = ?")
+                .bind(message_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|_| CommandError::new("draft.import_failed"))?;
+        let plain_text = body
+            .as_ref()
+            .and_then(|row| row.try_get::<Option<String>, _>("plain_text").ok())
+            .flatten()
+            .unwrap_or_default();
+        let html = body
+            .as_ref()
+            .and_then(|row| row.try_get::<Option<String>, _>("safe_html").ok())
+            .flatten()
+            .unwrap_or_else(|| format!("<p>{}</p>", escape_html(&plain_text)));
+        let editor_json = editor_document_from_text(&plain_text)?;
+        let id = Uuid::new_v4().to_string();
+        let timestamp = now();
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CommandError::new("draft.import_failed"))?;
+        sqlx::query(
+            "INSERT INTO drafts(id, account_slot_id, source_message_id, to_json, cc_json, subject, \
+             editor_json, html, plain_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(account_slot_id)
+        .bind(message_id)
+        .bind(message.try_get::<String, _>("to_json").map_err(read_error)?)
+        .bind(message.try_get::<String, _>("cc_json").map_err(read_error)?)
+        .bind(message.try_get::<String, _>("subject").map_err(read_error)?)
+        .bind(editor_json)
+        .bind(html)
+        .bind(plain_text)
+        .bind(timestamp)
+        .bind(timestamp)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| CommandError::new("draft.import_failed"))?;
+        let attachments = sqlx::query(
+            "SELECT file_name, content_type, size, content_hash FROM attachments \
+             WHERE message_id = ? AND content_hash IS NOT NULL ORDER BY part_index",
+        )
+        .bind(message_id)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| CommandError::new("draft.import_failed"))?;
+        for (index, attachment) in attachments.into_iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO draft_attachments(id, draft_id, file_name, content_type, size, content_hash, sort_order, created_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(&id)
+            .bind(attachment.try_get::<String, _>("file_name").map_err(read_error)?)
+            .bind(attachment.try_get::<String, _>("content_type").map_err(read_error)?)
+            .bind(attachment.try_get::<i64, _>("size").map_err(read_error)?)
+            .bind(attachment.try_get::<String, _>("content_hash").map_err(read_error)?)
+            .bind(index as i64)
+            .bind(timestamp)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| CommandError::new("draft.import_failed"))?;
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| CommandError::new("draft.import_failed"))?;
         self.get_draft(account_id, account_slot_id, &id).await
     }
 
@@ -415,6 +712,14 @@ impl MailRepository {
     }
 
     pub async fn complete_send_job(&self, job_id: &str) -> CommandResult<()> {
+        self.complete_send_job_and_queue_sent(job_id, None).await
+    }
+
+    pub async fn complete_send_job_and_queue_sent(
+        &self,
+        job_id: &str,
+        sent_mailbox_id: Option<&str>,
+    ) -> CommandResult<()> {
         let timestamp = now();
         let mut transaction = self
             .pool
@@ -437,7 +742,29 @@ impl MailRepository {
         .bind(job_id)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("send.status_write_failed"))?;
+            .map_err(|_| CommandError::new("send.status_write_failed"))?;
+        if let Some(sent_mailbox_id) = sent_mailbox_id {
+            let job = sqlx::query("SELECT account_slot_id, mime_hash FROM send_jobs WHERE id = ?")
+                .bind(job_id)
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(|_| CommandError::new("send.status_write_failed"))?;
+            let account_slot_id: String = job.try_get("account_slot_id").map_err(read_error)?;
+            let mime_hash: String = job.try_get("mime_hash").map_err(read_error)?;
+            sqlx::query(
+                "INSERT INTO pending_operations(id, account_slot_id, kind, destination_mailbox_id, \
+                 payload_json, created_at, updated_at) VALUES (?, ?, 'append_sent', ?, ?, ?, ?)",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(account_slot_id)
+            .bind(sent_mailbox_id)
+            .bind(serde_json::json!({ "mimeHash": mime_hash, "sendJobId": job_id }).to_string())
+            .bind(timestamp)
+            .bind(timestamp)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| CommandError::new("send.status_write_failed"))?;
+        }
         transaction
             .commit()
             .await
@@ -536,6 +863,74 @@ fn decode_addresses(value: String) -> CommandResult<Vec<MessageAddress>> {
     serde_json::from_str(&value).map_err(json_error)
 }
 
+fn reply_recipients(
+    from: &[MessageAddress],
+    original_to: &[MessageAddress],
+    own_email: &str,
+) -> Vec<MessageAddress> {
+    let preferred = unique_addresses(from.to_vec(), own_email, &[]);
+    if preferred.is_empty() {
+        unique_addresses(original_to.to_vec(), own_email, &[])
+    } else {
+        preferred
+    }
+}
+
+fn unique_addresses(
+    values: Vec<MessageAddress>,
+    own_email: &str,
+    excluded: &[MessageAddress],
+) -> Vec<MessageAddress> {
+    let own_email = own_email.trim().to_ascii_lowercase();
+    let mut seen = excluded
+        .iter()
+        .map(|address| address.email.trim().to_ascii_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+    values
+        .into_iter()
+        .filter(|address| {
+            let email = address.email.trim().to_ascii_lowercase();
+            !email.is_empty() && email != own_email && seen.insert(email)
+        })
+        .collect()
+}
+
+fn format_addresses(values: &[MessageAddress]) -> String {
+    values
+        .iter()
+        .map(|address| {
+            address
+                .name
+                .as_deref()
+                .filter(|name| !name.trim().is_empty())
+                .map_or_else(
+                    || address.email.clone(),
+                    |name| format!("{name} <{}>", address.email),
+                )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn prefixed_subject(subject: &str, action: MessageComposeAction) -> String {
+    let trimmed = subject.trim();
+    match action {
+        MessageComposeAction::Reply | MessageComposeAction::ReplyAll
+            if trimmed.to_ascii_lowercase().starts_with("re:") =>
+        {
+            trimmed.to_owned()
+        }
+        MessageComposeAction::Forward
+            if trimmed.to_ascii_lowercase().starts_with("fwd:")
+                || trimmed.to_ascii_lowercase().starts_with("fw:") =>
+        {
+            trimmed.to_owned()
+        }
+        MessageComposeAction::Reply | MessageComposeAction::ReplyAll => format!("Re: {trimmed}"),
+        MessageComposeAction::Forward => format!("Fwd: {trimmed}"),
+    }
+}
+
 fn draft_status(value: String) -> DraftStatus {
     match value.as_str() {
         "queued" => DraftStatus::Queued,
@@ -561,10 +956,140 @@ fn json_error(_: serde_json::Error) -> CommandError {
     CommandError::new("storage.json_failed")
 }
 
+fn editor_document_from_text(value: &str) -> CommandResult<String> {
+    let content = value
+        .split("\n\n")
+        .map(|paragraph| {
+            if paragraph.is_empty() {
+                serde_json::json!({ "type": "paragraph" })
+            } else {
+                let mut lines = Vec::new();
+                for (index, line) in paragraph.split('\n').enumerate() {
+                    if index > 0 {
+                        lines.push(serde_json::json!({ "type": "hardBreak" }));
+                    }
+                    if !line.is_empty() {
+                        lines.push(serde_json::json!({ "type": "text", "text": line }));
+                    }
+                }
+                serde_json::json!({
+                    "type": "paragraph",
+                    "content": lines
+                })
+            }
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string(&serde_json::json!({ "type": "doc", "content": content }))
+        .map_err(json_error)
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\n', "<br>")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{create_account_slot, initialize_content_database};
+
+    #[tokio::test]
+    async fn imports_a_server_message_as_an_editable_local_draft() {
+        let directory = tempfile::tempdir().unwrap();
+        initialize_content_database(directory.path()).await.unwrap();
+        create_account_slot(directory.path(), "slot", 1)
+            .await
+            .unwrap();
+        let repository = MailRepository::open(directory.path()).await.unwrap();
+        sqlx::query(
+            "INSERT INTO messages(id, account_slot_id, subject, to_json, cc_json, received_at) \
+             VALUES ('message', 'slot', 'Imported', '[{\"name\":null,\"email\":\"to@example.com\"}]', '[]', 1)",
+        )
+        .execute(&repository.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO message_bodies(message_id, plain_text, safe_html, updated_at) \
+             VALUES ('message', 'First paragraph\n\nSecond paragraph', '<p>First paragraph</p><p>Second paragraph</p>', 1)",
+        )
+        .execute(&repository.pool)
+        .await
+        .unwrap();
+
+        let draft = repository
+            .import_message_as_draft("account", "slot", "message")
+            .await
+            .unwrap();
+        assert_eq!(draft.subject, "Imported");
+        assert_eq!(draft.recipients.to[0].email, "to@example.com");
+        assert!(draft.content.editor_json.contains("Second paragraph"));
+        assert_eq!(draft.status, DraftStatus::Editing);
+    }
+
+    #[tokio::test]
+    async fn creates_reply_all_with_deduplicated_recipients_and_thread_headers() {
+        let directory = tempfile::tempdir().unwrap();
+        initialize_content_database(directory.path()).await.unwrap();
+        create_account_slot(directory.path(), "slot", 1)
+            .await
+            .unwrap();
+        let repository = MailRepository::open(directory.path()).await.unwrap();
+        sqlx::query(
+            "INSERT INTO messages(id, account_slot_id, subject, from_json, to_json, cc_json, \
+             message_id, references_json, received_at) VALUES ( \
+             'message', 'slot', 'Topic', \
+             '[{\"name\":\"Sender\",\"email\":\"sender@example.com\"}]', \
+             '[{\"name\":null,\"email\":\"me@example.com\"},{\"name\":null,\"email\":\"other@example.com\"}]', \
+             '[{\"name\":null,\"email\":\"sender@example.com\"}]', \
+             'child@example.com', '[\"root@example.com\"]', 1)",
+        )
+        .execute(&repository.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO message_bodies(message_id, plain_text, safe_html, updated_at) \
+             VALUES ('message', 'Original body', '<p>Original body</p>', 1)",
+        )
+        .execute(&repository.pool)
+        .await
+        .unwrap();
+
+        let draft = repository
+            .create_message_action_draft(CreateMessageActionDraftRequest {
+                account_id: "account",
+                account_slot_id: "slot",
+                own_email: "me@example.com",
+                message_id: "message",
+                action: MessageComposeAction::ReplyAll,
+                original_message_label: "Forwarded message",
+                wrote_label: "wrote:",
+                from_label: "From",
+                to_label: "To",
+                subject_label: "Subject",
+            })
+            .await
+            .unwrap();
+        assert_eq!(draft.subject, "Re: Topic");
+        assert_eq!(draft.recipients.to.len(), 1);
+        assert_eq!(draft.recipients.to[0].email, "sender@example.com");
+        assert_eq!(draft.recipients.cc.len(), 1);
+        assert_eq!(draft.recipients.cc[0].email, "other@example.com");
+        assert!(draft.content.plain_text.contains("> Original body"));
+        assert!(draft.content.editor_json.contains("hardBreak"));
+        let threading = repository
+            .draft_threading_headers("slot", &draft.id)
+            .await
+            .unwrap();
+        assert_eq!(threading.in_reply_to.as_deref(), Some("child@example.com"));
+        assert_eq!(
+            threading.references,
+            vec!["root@example.com", "child@example.com"]
+        );
+    }
 
     #[tokio::test]
     async fn discards_only_completely_empty_drafts() {

@@ -5,8 +5,9 @@ use crate::{
         AccountDraft, AccountManagementDetail, AccountSummary, AppAbout, AppearancePreferences,
         AttachmentSummary, BootstrapStatus, ComposerBootstrap, ConnectionTestResult,
         DataDirectoryValidation, DiscoveredAccountConfig, DraftAttachmentSummary, DraftContent,
-        DraftDetail, DraftListItem, DraftRecipientFields, MailboxSummary, MessageDetail,
-        MessageListPage, SendJobSummary, SyncPolicy, SyncProgress,
+        DraftDetail, DraftListItem, DraftRecipientFields, MailboxRole, MailboxSummary,
+        MessageComposeAction, MessageDetail, MessageListPage, PendingOperationSummary,
+        SendJobSummary, SyncPolicy, SyncProgress,
     },
     error::CommandResult,
     state::AppState,
@@ -123,16 +124,149 @@ pub async fn get_message_detail(
     state: State<'_, AppState>,
     account_id: String,
     message_id: String,
+    mailbox_id: Option<String>,
 ) -> CommandResult<MessageDetail> {
     state
         .mail
-        .get_message_detail(&account_id, &message_id)
+        .get_message_detail(&account_id, &message_id, mailbox_id.as_deref())
         .await
 }
 
 #[tauri::command]
 pub fn get_sync_progress(state: State<'_, AppState>, account_id: String) -> SyncProgress {
     state.mail.get_sync_progress(&account_id)
+}
+
+#[tauri::command]
+pub fn sync_now(state: State<'_, AppState>, account_id: String) -> CommandResult<()> {
+    state.mail.sync_now(&account_id)
+}
+
+#[tauri::command]
+pub async fn set_message_read(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+    message_ids: Vec<String>,
+    read: bool,
+) -> CommandResult<()> {
+    state
+        .mail
+        .set_message_read(&account_id, &mailbox_id, &message_ids, read)
+        .await
+}
+
+#[tauri::command]
+pub async fn set_message_flagged(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+    message_ids: Vec<String>,
+    flagged: bool,
+) -> CommandResult<()> {
+    state
+        .mail
+        .set_message_flagged(&account_id, &mailbox_id, &message_ids, flagged)
+        .await
+}
+
+#[tauri::command]
+pub async fn move_messages(
+    state: State<'_, AppState>,
+    account_id: String,
+    source_mailbox_id: String,
+    destination_mailbox_id: String,
+    message_ids: Vec<String>,
+) -> CommandResult<()> {
+    state
+        .mail
+        .transfer_messages(
+            &account_id,
+            &source_mailbox_id,
+            &destination_mailbox_id,
+            &message_ids,
+            false,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn copy_messages(
+    state: State<'_, AppState>,
+    account_id: String,
+    source_mailbox_id: String,
+    destination_mailbox_id: String,
+    message_ids: Vec<String>,
+) -> CommandResult<()> {
+    state
+        .mail
+        .transfer_messages(
+            &account_id,
+            &source_mailbox_id,
+            &destination_mailbox_id,
+            &message_ids,
+            true,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn delete_messages(
+    state: State<'_, AppState>,
+    account_id: String,
+    source_mailbox_id: String,
+    message_ids: Vec<String>,
+) -> CommandResult<()> {
+    state
+        .mail
+        .delete_messages(&account_id, &source_mailbox_id, &message_ids)
+        .await
+}
+
+#[tauri::command]
+pub async fn archive_messages(
+    state: State<'_, AppState>,
+    account_id: String,
+    source_mailbox_id: String,
+    message_ids: Vec<String>,
+) -> CommandResult<()> {
+    state
+        .mail
+        .archive_messages(&account_id, &source_mailbox_id, &message_ids)
+        .await
+}
+
+#[tauri::command]
+pub async fn set_mailbox_role_mapping(
+    state: State<'_, AppState>,
+    account_id: String,
+    role: MailboxRole,
+    mailbox_id: Option<String>,
+) -> CommandResult<()> {
+    state
+        .mail
+        .set_mailbox_role_mapping(&account_id, role, mailbox_id.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn list_pending_operation_status(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> CommandResult<Vec<PendingOperationSummary>> {
+    state.mail.list_pending_operation_status(&account_id).await
+}
+
+#[tauri::command]
+pub async fn retry_pending_operation(
+    state: State<'_, AppState>,
+    account_id: String,
+    operation_id: String,
+) -> CommandResult<()> {
+    state
+        .mail
+        .retry_pending_operation(&account_id, &operation_id)
+        .await
 }
 
 #[tauri::command]
@@ -172,10 +306,11 @@ pub async fn request_message_body(
     state: State<'_, AppState>,
     account_id: String,
     message_id: String,
+    mailbox_id: Option<String>,
 ) -> CommandResult<MessageDetail> {
     state
         .mail
-        .request_message_body(&account_id, &message_id)
+        .request_message_body(&account_id, &message_id, mailbox_id.as_deref())
         .await
 }
 
@@ -216,6 +351,31 @@ pub async fn open_existing_composer(
     state
         .composer
         .open_existing_composer(&account_id, &draft_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn open_remote_draft(
+    state: State<'_, AppState>,
+    account_id: String,
+    message_id: String,
+) -> CommandResult<()> {
+    state
+        .composer
+        .open_remote_draft(&account_id, &message_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn open_message_action_composer(
+    state: State<'_, AppState>,
+    account_id: String,
+    message_id: String,
+    action: MessageComposeAction,
+) -> CommandResult<()> {
+    state
+        .composer
+        .open_message_action_composer(&account_id, &message_id, action)
         .await
 }
 
@@ -296,6 +456,18 @@ pub async fn delete_draft(
     draft_id: String,
 ) -> CommandResult<()> {
     state.composer.delete_draft(&account_id, &draft_id).await
+}
+
+#[tauri::command]
+pub async fn queue_remote_draft(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft_id: String,
+) -> CommandResult<()> {
+    state
+        .composer
+        .queue_remote_draft(&account_id, &draft_id)
+        .await
 }
 
 #[tauri::command]

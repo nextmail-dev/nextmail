@@ -113,6 +113,7 @@ export interface MessageListItem {
   flagged: boolean;
   hasAttachments: boolean;
   bodyAvailability: ContentAvailability;
+  pendingOperation: boolean;
 }
 
 export interface MessageListPage {
@@ -130,6 +131,7 @@ export interface AttachmentSummary {
 
 export interface MessageDetail {
   id: string;
+  mailboxId: string;
   subject: string;
   from: MessageAddress[];
   to: MessageAddress[];
@@ -141,6 +143,23 @@ export interface MessageDetail {
   attachments: AttachmentSummary[];
   remoteImagesBlocked: boolean;
   revision: number;
+  unread: boolean;
+  flagged: boolean;
+  pendingOperation: boolean;
+}
+
+export type PendingOperationKind = "set_read" | "set_flagged" | "copy" | "move" | "delete" | "append_sent" | "append_draft";
+export type PendingOperationStatus = "queued" | "running" | "retry_wait" | "needs_reconcile" | "succeeded" | "failed";
+
+export interface PendingOperationSummary {
+  id: string;
+  accountId: string;
+  messageId: string | null;
+  kind: PendingOperationKind;
+  status: PendingOperationStatus;
+  attemptCount: number;
+  errorCode: string | null;
+  cleanupPending: boolean;
 }
 
 export interface AccountManagementDetail {
@@ -166,6 +185,7 @@ export interface DraftRecipientFields {
 }
 
 export type DraftStatus = "editing" | "queued" | "sent";
+export type MessageComposeAction = "reply" | "reply_all" | "forward";
 
 export interface DraftAttachmentSummary {
   id: string;
