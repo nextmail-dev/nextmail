@@ -1,4 +1,11 @@
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use lettre::{address::Envelope, Address};
 use nextmail_core::{
@@ -23,6 +30,7 @@ pub struct ComposerRuntime {
     repository: OnceCell<Arc<MailRepository>>,
     wake_worker: Notify,
     mail: Arc<MailRuntime>,
+    started: AtomicBool,
 }
 
 impl ComposerRuntime {
@@ -33,13 +41,19 @@ impl ComposerRuntime {
             repository: OnceCell::new(),
             wake_worker: Notify::new(),
             mail,
+            started: AtomicBool::new(false),
         }
     }
 
     pub fn start(self: &Arc<Self>) {
+        if self.started.swap(true, Ordering::AcqRel) {
+            self.wake_worker.notify_one();
+            return;
+        }
         let runtime = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
             let Ok(repository) = runtime.repository().await else {
+                runtime.started.store(false, Ordering::Release);
                 return;
             };
             let _ = repository.recover_interrupted_send_jobs().await;

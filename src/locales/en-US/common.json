@@ -325,6 +325,7 @@
     "sync.imap_connection_failed": "NextMail could not connect to the IMAP server. Check your network and try again.",
     "sync.imap_authentication_failed": "IMAP authentication has expired. Reauthentication will be available in account management.",
     "sync.message_body_fetch_failed": "The message body could not be downloaded. Check your network and try again.",
+    "sync.message_parse_failed": "The message could not be parsed. NextMail will retry during a later synchronization.",
     "sync.uid_validity_changed": "The server rebuilt this mail folder. Wait for the next synchronization to finish.",
     "sync.message_not_found": "This message is no longer available on the server.",
     "sync.idle_failed": "Real-time mail monitoring disconnected. NextMail will reconnect automatically.",

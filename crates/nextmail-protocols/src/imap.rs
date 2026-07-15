@@ -629,27 +629,34 @@ where
         .try_collect::<Vec<_>>()
         .await
         .map_err(|_| CommandError::retryable("sync.message_body_fetch_failed"))?;
-    let fetched = messages
-        .pop()
-        .filter(|message| message.uid == Some(uid))
-        .ok_or_else(|| CommandError::new("sync.message_not_found"))?;
-    let raw = fetched
-        .body()
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| CommandError::new("sync.message_body_missing"))?;
-    let received_at = fetched
-        .internal_date()
-        .map(|value| value.timestamp())
-        .unwrap_or_default();
-    parse_message(
+    let (raw, received_at, unread, flagged, size) = {
+        let fetched = messages
+            .pop()
+            .filter(|message| message.uid == Some(uid))
+            .ok_or_else(|| CommandError::new("sync.message_not_found"))?;
+        let raw = fetched
+            .body()
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| CommandError::new("sync.message_body_missing"))?;
+        let received_at = fetched
+            .internal_date()
+            .map(|value| value.timestamp())
+            .unwrap_or_default();
+        let (unread, flagged) = message_flag_state(fetched.flags());
+        let size = fetched.size.unwrap_or(raw.len() as u32) as u64;
+        (raw, received_at, unread, flagged, size)
+    };
+    parse_message_in_background(MessageParseInput {
         uid,
         uid_validity,
-        fetched.size.unwrap_or(raw.len() as u32) as u64,
+        size,
         received_at,
-        fetched.flags(),
-        &[],
-        Some(raw),
-    )
+        unread,
+        flagged,
+        header: Vec::new(),
+        raw: Some(raw),
+    })
+    .await
 }
 
 async fn read_greeting<T>(client: &mut async_imap::Client<T>) -> CommandResult<()>
@@ -710,22 +717,27 @@ where
         let display_name = decode_modified_utf7(&name);
         let role = mailbox_role(&display_name, folder.attributes());
         if !selectable {
-            sink.upsert_mailbox(
-                &account.account_slot_id,
-                &RemoteMailbox {
-                    name,
-                    display_name,
-                    delimiter: folder.delimiter().map(str::to_owned),
-                    role,
-                    selectable: false,
-                    uid_validity: 0,
-                    uid_next: 0,
-                    total_count: 0,
-                    unread_count: 0,
-                    highest_modseq: None,
-                },
-            )
-            .await?;
+            let mailbox = sink
+                .upsert_mailbox(
+                    &account.account_slot_id,
+                    &RemoteMailbox {
+                        name,
+                        display_name,
+                        delimiter: folder.delimiter().map(str::to_owned),
+                        role,
+                        selectable: false,
+                        uid_validity: 0,
+                        uid_next: 0,
+                        total_count: 0,
+                        unread_count: 0,
+                        highest_modseq: None,
+                    },
+                )
+                .await?;
+            observer.notify(SyncNotice::MailboxChanged {
+                mailbox_id: mailbox.id,
+                revision: 0,
+            });
             continue;
         }
 
@@ -760,6 +772,10 @@ where
                 },
             )
             .await?;
+        observer.notify(SyncNotice::MailboxChanged {
+            mailbox_id: mailbox.id.clone(),
+            revision: 0,
+        });
         let mut uids = session
             .uid_search("ALL")
             .await
@@ -792,33 +808,51 @@ where
                 .map_err(|_| CommandError::retryable("sync.message_fetch_failed"))?;
 
             for summary in summaries {
-                let Some(uid) = summary.uid else { continue };
-                let received_at = summary
-                    .internal_date()
-                    .map(|value| value.timestamp())
-                    .unwrap_or_default();
-                let raw = if should_download_body(account.sync_policy.clone(), received_at) {
-                    fetch_raw(&mut session, uid).await?
-                } else {
-                    None
+                let (uid, received_at, raw, unread, flagged, header, size, modseq) = {
+                    let Some(uid) = summary.uid else { continue };
+                    let received_at = summary
+                        .internal_date()
+                        .map(|value| value.timestamp())
+                        .unwrap_or_default();
+                    let raw = if should_download_body(account.sync_policy.clone(), received_at) {
+                        fetch_raw(&mut session, uid).await?
+                    } else {
+                        None
+                    };
+                    let (unread, flagged) = message_flag_state(summary.flags());
+                    (
+                        uid,
+                        received_at,
+                        raw,
+                        unread,
+                        flagged,
+                        summary.header().unwrap_or_default().to_vec(),
+                        summary.size.unwrap_or_default() as u64,
+                        summary.modseq,
+                    )
                 };
-                let header = summary.header().unwrap_or_default();
-                let mut message = parse_message(
+                let mut message = parse_message_in_background(MessageParseInput {
                     uid,
                     uid_validity,
-                    summary.size.unwrap_or_default() as u64,
+                    size,
                     received_at,
-                    summary.flags(),
+                    unread,
+                    flagged,
                     header,
                     raw,
-                )?;
-                message.modseq = summary.modseq;
+                })
+                .await?;
+                message.modseq = modseq;
                 sink.upsert_message(&account.account_slot_id, &mailbox.id, &message)
                     .await?;
                 highest_uid = highest_uid.max(uid);
                 completed += 1;
                 observer.notify(SyncNotice::Summaries { completed, total });
             }
+            observer.notify(SyncNotice::MailboxChanged {
+                mailbox_id: mailbox.id.clone(),
+                revision: 0,
+            });
         }
 
         let pending_bodies = sink
@@ -894,6 +928,7 @@ where
         .and_then(|message| message.body().map(ToOwned::to_owned)))
 }
 
+#[cfg(test)]
 fn parse_message<'a>(
     uid: u32,
     uid_validity: u32,
@@ -903,18 +938,55 @@ fn parse_message<'a>(
     header: &[u8],
     raw: Option<Vec<u8>>,
 ) -> CommandResult<RemoteMessage> {
-    let parsed = raw
+    let (unread, flagged) = message_flag_state(flags);
+    parse_message_with_state(MessageParseInput {
+        uid,
+        uid_validity,
+        size,
+        received_at,
+        unread,
+        flagged,
+        header: header.to_vec(),
+        raw,
+    })
+}
+
+fn message_flag_state<'a>(flags: impl Iterator<Item = Flag<'a>>) -> (bool, bool) {
+    let flags = flags.collect::<Vec<_>>();
+    (
+        !flags.iter().any(|flag| matches!(flag, Flag::Seen)),
+        flags.iter().any(|flag| matches!(flag, Flag::Flagged)),
+    )
+}
+
+struct MessageParseInput {
+    uid: u32,
+    uid_validity: u32,
+    size: u64,
+    received_at: i64,
+    unread: bool,
+    flagged: bool,
+    header: Vec<u8>,
+    raw: Option<Vec<u8>>,
+}
+
+async fn parse_message_in_background(input: MessageParseInput) -> CommandResult<RemoteMessage> {
+    tokio::task::spawn_blocking(move || parse_message_with_state(input))
+        .await
+        .map_err(|_| CommandError::new("sync.message_parse_failed"))?
+}
+
+fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMessage> {
+    let parsed = input
+        .raw
         .as_deref()
         .and_then(|value| MessageParser::default().parse(value));
     let parsed_headers = if parsed.is_none() {
-        MessageParser::default().parse_headers(header)
+        MessageParser::default().parse_headers(&input.header)
     } else {
         None
     };
     let message = parsed.as_ref().or(parsed_headers.as_ref());
-    let flags = flags.collect::<Vec<_>>();
-    let unread = !flags.iter().any(|flag| matches!(flag, Flag::Seen));
-    let flagged = flags.iter().any(|flag| matches!(flag, Flag::Flagged));
     let plain_text = parsed
         .as_ref()
         .and_then(|message| message.body_text(0))
@@ -933,8 +1005,8 @@ fn parse_message<'a>(
         .map(|value| value.into_owned())
         .unwrap_or_default();
     Ok(RemoteMessage {
-        uid,
-        uid_validity,
+        uid: input.uid,
+        uid_validity: input.uid_validity,
         subject: message
             .and_then(|message| message.subject())
             .unwrap_or_default()
@@ -954,11 +1026,11 @@ fn parse_message<'a>(
         received_at: message
             .and_then(|message| message.date())
             .map(|value| value.to_timestamp())
-            .unwrap_or(received_at),
+            .unwrap_or(input.received_at),
         preview,
-        unread,
-        flagged,
-        size,
+        unread: input.unread,
+        flagged: input.flagged,
+        size: input.size,
         message_id: message
             .and_then(|message| message.message_id())
             .map(str::to_owned),
@@ -971,7 +1043,7 @@ fn parse_message<'a>(
             .map(str::to_owned),
         plain_text,
         safe_html: sanitized.as_ref().map(|value| value.document.clone()),
-        raw,
+        raw: input.raw,
         attachments,
         remote_images_blocked: sanitized
             .as_ref()

@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
+import { afterFirstPaint } from "@/app/startup";
 import type { AccountSummary } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,15 @@ export function MainShell({ accounts }: MainShellProps) {
   const visibleFolderWidth = folderPaneCollapsed ? 72 : folderPaneWidth;
   const selectedMailbox = mailboxesQuery.data?.find((mailbox) => mailbox.id === selectedMailboxId);
   const receiving = !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
+
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    return afterFirstPaint(() => {
+      void api.startBackgroundServices()
+        .then(() => queryClient.invalidateQueries({ queryKey: ["sync-progress", selectedAccountId] }))
+        .catch((error) => setComposeError(normalizeCommandError(error).code));
+    });
+  }, [queryClient, selectedAccountId]);
 
   useEffect(() => {
     if (selectedAccountId && accounts.some((account) => account.id === selectedAccountId)) return;

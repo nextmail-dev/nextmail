@@ -53,6 +53,8 @@ export const api = {
     invoke<AccountSummary>("save_password_account", { draft }),
   completeOnboarding: () =>
     invoke<BootstrapStatus>("complete_onboarding"),
+  startBackgroundServices: () =>
+    invoke<void>("start_background_services"),
   listAccountSummaries: () =>
     invoke<AccountSummary[]>("list_account_summaries"),
   getAppAbout: () => invoke<AppAbout>("get_app_about"),

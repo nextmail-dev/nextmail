@@ -15,3 +15,10 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <App />
   </React.StrictMode>,
 );
+
+const startupShell = document.getElementById("startup-shell");
+if (startupShell) {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => startupShell.remove());
+  });
+}

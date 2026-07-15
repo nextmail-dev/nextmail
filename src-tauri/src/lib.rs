@@ -17,8 +17,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let state = state::AppState::from_handle(app.handle())?;
-            state.mail.start();
-            state.composer.start();
             app.manage(state);
             Ok(())
         })
@@ -34,6 +32,7 @@ pub fn run() {
             commands::test_account_connections,
             commands::save_password_account,
             commands::complete_onboarding,
+            commands::start_background_services,
             commands::list_account_summaries,
             commands::get_app_about,
             commands::quit_app,

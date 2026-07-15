@@ -92,10 +92,13 @@ pub async fn save_password_account(
 
 #[tauri::command]
 pub fn complete_onboarding(state: State<'_, AppState>) -> CommandResult<BootstrapStatus> {
-    let status = state.service.complete_onboarding()?;
+    state.service.complete_onboarding()
+}
+
+#[tauri::command]
+pub fn start_background_services(state: State<'_, AppState>) {
     state.mail.start();
     state.composer.start();
-    Ok(status)
 }
 
 #[tauri::command]

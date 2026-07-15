@@ -29,6 +29,7 @@
 - `changes/0020-folder-tree-reader-preferences-and-ui-fixes.md`：IMAP 文件夹树、远程图片阅读偏好、HTML 样式保真与界面细节修复。
 - `changes/0021-mailbox-tree-scrollbar-and-list-date.md`：文件夹展开交互、邮件列表固定滚动槽与日期显示规则。
 - `changes/0022-windows-cjk-typography-calibration.md`：Windows 中文小字号、字重、灰阶对比与平台渲染校准。
+- `changes/0023-startup-responsive-progressive-sync.md`：首帧优先启动、后台服务延后、可见启动同步与渐进式本地视图刷新。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。
 - `adr/0004-durable-imap-operation-queue.md`：持久化 IMAP 待办、冲突重放与安全 EXPUNGE 降级。

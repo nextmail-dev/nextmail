@@ -325,6 +325,7 @@
     "sync.imap_connection_failed": "无法连接 IMAP 服务器，请检查网络后重试。",
     "sync.imap_authentication_failed": "IMAP 认证已失效，请稍后在账户管理中重新认证。",
     "sync.message_body_fetch_failed": "无法下载邮件正文，请检查网络后重试。",
+    "sync.message_parse_failed": "邮件内容解析失败，NextMail 将在后续同步中重试。",
     "sync.uid_validity_changed": "服务器已重建此邮件文件夹，请等待下一次同步完成。",
     "sync.message_not_found": "服务器上已找不到这封邮件。",
     "sync.idle_failed": "邮件实时监听已断开，NextMail 将自动重连。",

@@ -55,6 +55,14 @@ impl MailRuntime {
             self.wake_supervisor.notify_one();
             return;
         }
+        if let Some(account) = self
+            .service
+            .list_account_summaries()
+            .ok()
+            .and_then(|accounts| accounts.into_iter().next())
+        {
+            self.update_progress(&account.id, SyncPhase::Connecting, 0, 0, None);
+        }
         let runtime = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
             runtime.supervisor_loop().await;

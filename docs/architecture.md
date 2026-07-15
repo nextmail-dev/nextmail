@@ -4,6 +4,8 @@
 
 NextMail 使用单个 Tauri 进程。React 仅通过稳定的 Tauri Command DTO 读取本地视图或提交业务命令，不直接连接 SQLite、邮件服务器、文件系统或系统凭据库。
 
+主窗口启动遵循“首帧和本地视图优先”顺序：Tauri `setup` 只装配状态，不启动邮件同步或发件 Worker；React 首先显示随 HTML 内嵌的中性加载层，再读取 Bootstrap、外观配置和 SQLite 本地视图。主工作区完成至少一个绘制周期后，通过幂等业务命令启动后台服务。同步不会作为进入主界面的前置条件，文件夹完成事件持续失效对应查询，使新文件夹、邮件摘要和正文随着 SQLite 落库逐步出现。
+
 Rust 代码使用 Cargo Workspace 分为：
 
 - `crates/nextmail-core`：不依赖 Tauri、数据库和协议库的领域 DTO、稳定错误与 ports。
@@ -58,11 +60,13 @@ Rust 代码使用 Cargo Workspace 分为：
 ## IMAP 同步与离线操作
 
 - 单账户 `AccountSupervisor` 常驻 Rust 端。启动先返回 SQLite 本地视图，再执行网络同步；Inbox 使用独立 IDLE 会话，服务器不支持时回退轮询。
+- Supervisor 只在主工作区完成首帧后启动；启动同步在内存中预先进入 `connecting` 状态，进度查询即使错过最早事件也能读到当前阶段。运行时启动和发件 Worker 启动均为幂等操作，可安全承受 React Strict Mode 或窗口状态变化导致的重复通知。
 - 同步按 UIDVALIDITY/UID 定位邮件，拉取新 UID，并对账当前 UID 集合、Flags 和 MODSEQ。UIDVALIDITY 改变时重建文件夹位置，不使用消息序号作为持久身份。
 - 用户修改在 SQLite 事务中同时更新本地投影和 `pending_operations`。Worker 按顺序执行，`running` 状态可在重启后恢复。
 - Flags 以增量意图写回；CONDSTORE 可用时使用条件 STORE 并在冲突后基于最新 MODSEQ 重放一次。
 - MOVE、UIDPLUS、CONDSTORE 和 IDLE 全部在自有 Adapter 内做 Capability 分支。缺失 UIDPLUS 时不执行可能影响其他邮件的宽泛 EXPUNGE。
 - React 事件只收到账户、文件夹、消息或操作 ID 与修订状态，并通过 TanStack Query 重新读取本地视图。
+- 网络读取仍在异步 IMAP 会话中完成；MIME 解码、正文预览、附件分析和 HTML 清洗在顺序提交的 Tokio blocking worker 中执行，避免大邮件解析占用异步调度线程。文件夹元数据落库后立即发布 `mailbox-changed`，其后每批最多 100 封摘要落库再次发布，既不等待整个文件夹，也不等待整个账户同步结束。
 - Supervisor 区分“仅执行待办”和“执行同步”：本地 Flags、移动、复制、删除及 APPEND 只唤醒待办 Worker，不再先完整同步。首次启动和手动收取发布可见进度；IDLE/定时/轮询同步静默落库并只通知数据变化。
 - 支持 IDLE 时由服务器变化即时唤醒，并以 5 分钟全文件夹对账兜底；无 IDLE 时每 60 秒轮询。网络错误退避范围为 2 秒到 5 分钟。
 
