@@ -11,7 +11,7 @@ use tempfile::NamedTempFile;
 use crate::{
     domain::{
         AccountsFile, AppearancePreferences, BootstrapConfig, DataDirectoryMarker,
-        LanguagePreference,
+        LanguagePreference, ReadingPreferences,
     },
     error::{CommandError, CommandResult},
 };
@@ -53,6 +53,10 @@ impl AppPaths {
 
     pub fn preferences_file(&self) -> PathBuf {
         self.config_dir.join("preferences.json")
+    }
+
+    pub fn reading_preferences_file(&self) -> PathBuf {
+        self.config_dir.join("reading-preferences.json")
     }
 }
 
@@ -132,6 +136,34 @@ impl PreferencesStore {
     }
 }
 
+#[derive(Clone)]
+pub struct ReadingPreferencesStore {
+    path: PathBuf,
+}
+
+impl ReadingPreferencesStore {
+    pub fn new(paths: &AppPaths) -> Self {
+        Self {
+            path: paths.reading_preferences_file(),
+        }
+    }
+
+    pub fn load(&self) -> CommandResult<ReadingPreferences> {
+        Ok(
+            read_optional_json(&self.path, "storage.reading_preferences_corrupt")?
+                .unwrap_or_default(),
+        )
+    }
+
+    pub fn save(&self, value: &ReadingPreferences) -> CommandResult<()> {
+        write_json_atomic(
+            &self.path,
+            value,
+            "storage.reading_preferences_write_failed",
+        )
+    }
+}
+
 pub fn read_data_marker(data_dir: &Path) -> CommandResult<Option<DataDirectoryMarker>> {
     read_optional_json(
         &data_dir.join(DATA_MARKER_FILENAME),
@@ -202,5 +234,25 @@ mod tests {
 
         assert_eq!(loaded.accent_color, updated.accent_color);
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn reading_preferences_default_to_privacy_first_and_round_trip() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let paths = AppPaths {
+            config_dir: directory.path().to_owned(),
+            default_data_dir: directory.path().join("data"),
+        };
+        let store = ReadingPreferencesStore::new(&paths);
+
+        assert_eq!(
+            store.load().expect("default preferences"),
+            ReadingPreferences::default()
+        );
+        let preferences = ReadingPreferences {
+            auto_load_remote_images: true,
+        };
+        store.save(&preferences).expect("save reading preferences");
+        assert_eq!(store.load().expect("load reading preferences"), preferences);
     }
 }

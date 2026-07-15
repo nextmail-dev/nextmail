@@ -47,7 +47,7 @@ function prepareFrameDocument(source: string, allowRemoteImages: boolean, dark: 
     ? source.replace("img-src data:;", "img-src data: http: https:;")
     : source;
   const themeStyle = dark
-    ? `<style id="nextmail-reader-theme">html,body{background:#181818!important;color:#e8e8e8!important}body :where(p,div,span,td,th,li,blockquote,h1,h2,h3,h4,h5,h6){color:inherit!important;background-color:transparent!important}a{color:#8ab4f8!important}hr{border-color:#3a3a3a!important}</style>`
+    ? `<style id="nextmail-reader-theme">html{color-scheme:dark}html,body{background:#181818!important;color:#e8e8e8}a{color:#8ab4f8}hr{border-color:#3a3a3a}</style>`
     : `<style id="nextmail-reader-theme">html,body{background:#fff!important;color:#202124}</style>`;
   document = document.includes("</head>")
     ? document.replace("</head>", `${themeStyle}</head>`)

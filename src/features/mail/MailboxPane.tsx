@@ -1,6 +1,7 @@
 import {
   Archive,
   ChevronDown,
+  ChevronRight,
   FilePenLine,
   Folder,
   Inbox,
@@ -21,6 +22,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Inline, Stack } from "@/components/ui/layout";
+import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,9 +66,22 @@ export function MailboxPane({
 }: MailboxPaneProps) {
   const { t } = useTranslation();
   const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
   const activeSync = progress && !["idle", "complete", "failed"].includes(progress.phase);
   const percentage = progress?.total ? (progress.completed / progress.total) * 100 : 8;
   const normalizedError = error ? normalizeCommandError(error) : null;
+  const mailboxItems = flattenMailboxHierarchy(mailboxes);
+  const visibleMailboxItems = mailboxItems.filter((item) =>
+    item.ancestorIds.every((ancestorId) => !collapsedFolderIds.has(ancestorId)));
+
+  function toggleFolder(mailboxId: string) {
+    setCollapsedFolderIds((current) => {
+      const next = new Set(current);
+      if (next.has(mailboxId)) next.delete(mailboxId);
+      else next.add(mailboxId);
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!pendingDeleteDraftId) return;
@@ -162,34 +177,69 @@ export function MailboxPane({
         <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
       ) : null}
       {mailboxes.length ? (
-        <Stack className={collapsed ? "min-h-0 w-full flex-1 overflow-auto" : "min-h-0 flex-1 overflow-auto"} gap="xs">
-          {mailboxes.map((mailbox) => {
+        <OverlayScrollArea
+          className={collapsed ? "-mr-1.5 min-h-0 w-full flex-1" : "-mr-3 min-h-0 flex-1"}
+          contentClassName="gap-1.5"
+          viewportClassName={collapsed ? "pr-1.5" : "pr-3"}
+        >
+          {visibleMailboxItems.map(({ mailbox, depth, displayName, hasChildren }) => {
             const selected = mailbox.id === selectedMailboxId;
-            const label = mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`);
+            const label = mailbox.role === "other" ? displayName : t(`mailboxNames.${mailbox.role}`);
+            const folderCollapsed = collapsedFolderIds.has(mailbox.id);
+            if (!collapsed) {
+              return (
+                <Inline
+                  key={mailbox.id}
+                  className={selected
+                    ? "h-10 w-full gap-0 rounded-md bg-card pr-2 text-foreground shadow-[0_6px_20px_rgb(15_23_42/0.06)]"
+                    : "h-10 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5"}
+                  style={{ paddingInlineStart: `${4 + depth * 16}px` }}
+                >
+                  {hasChildren ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 shrink-0 rounded-none bg-transparent p-0 hover:bg-transparent hover:text-foreground"
+                      aria-label={t(folderCollapsed ? "mail.expandFolder" : "mail.collapseFolder", { folder: label })}
+                      aria-expanded={!folderCollapsed}
+                      onClick={() => toggleFolder(mailbox.id)}
+                    >
+                      {folderCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                    </Button>
+                  ) : (
+                    <Inline className="size-6 shrink-0" aria-hidden="true" />
+                  )}
+                  <Button
+                    variant="ghost"
+                    className="h-10 min-w-0 flex-1 justify-start rounded-md bg-transparent px-1.5 text-inherit hover:bg-transparent hover:text-foreground"
+                    aria-label={label}
+                    onClick={() => onSelect(mailbox.id)}
+                  >
+                    <MailboxIcon role={mailbox.role} />
+                    <Text className="min-w-0 flex-1 truncate text-left text-[13px] text-inherit">{label}</Text>
+                    {mailbox.unreadCount ? (
+                      <Text className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold leading-none text-primary-foreground">{mailbox.unreadCount}</Text>
+                    ) : null}
+                  </Button>
+                </Inline>
+              );
+            }
             return (
               <Button
                 key={mailbox.id}
                 variant="ghost"
-                className={collapsed
-                  ? selected
-                    ? "mx-auto size-11 flex-none justify-center bg-card p-0 text-foreground shadow-[0_6px_20px_rgb(15_23_42/0.06)] hover:bg-card"
-                    : "mx-auto size-11 flex-none justify-center p-0"
-                  : selected
-                    ? "h-10 w-full justify-start bg-card px-3 text-foreground shadow-[0_6px_20px_rgb(15_23_42/0.06)] hover:bg-card"
-                    : "h-10 w-full justify-start px-3"}
+                className={selected
+                  ? "mx-auto size-11 flex-none justify-center bg-card p-0 text-foreground shadow-[0_6px_20px_rgb(15_23_42/0.06)] hover:bg-card"
+                  : "mx-auto size-11 flex-none justify-center p-0"}
                 aria-label={label}
-                title={collapsed ? label : undefined}
+                title={label}
                 onClick={() => onSelect(mailbox.id)}
               >
                 <MailboxIcon role={mailbox.role} />
-                {collapsed ? null : <Text className="min-w-0 flex-1 truncate text-left text-[13px] text-inherit">{label}</Text>}
-                {mailbox.unreadCount && !collapsed ? (
-                  <Text className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold leading-none text-primary-foreground">{mailbox.unreadCount}</Text>
-                ) : null}
               </Button>
             );
           })}
-        </Stack>
+        </OverlayScrollArea>
       ) : (
         <EmptyState className="mt-6 flex-1 items-center p-4 text-center" icon={<Inbox size={21} />} title={t("mail.noFolders")} />
       )}
@@ -207,6 +257,51 @@ export function MailboxPane({
       </Button>
     </Stack>
   );
+}
+
+export interface MailboxHierarchyItem {
+  mailbox: MailboxSummary;
+  depth: number;
+  displayName: string;
+  ancestorIds: string[];
+  hasChildren: boolean;
+}
+
+export function flattenMailboxHierarchy(mailboxes: MailboxSummary[]): MailboxHierarchyItem[] {
+  const nodes = mailboxes.map((mailbox, index) => ({ mailbox, index, children: [] as number[] }));
+  const byPath = new Map<string, number>();
+  const keyFor = (mailbox: MailboxSummary, name = mailbox.name) => `${mailbox.delimiter ?? ""}\u0000${name}`;
+  nodes.forEach((node, index) => byPath.set(keyFor(node.mailbox), index));
+
+  const roots: number[] = [];
+  nodes.forEach((node, index) => {
+    const delimiter = node.mailbox.delimiter;
+    const boundary = delimiter ? node.mailbox.name.lastIndexOf(delimiter) : -1;
+    const parentIndex = boundary > 0
+      ? byPath.get(keyFor(node.mailbox, node.mailbox.name.slice(0, boundary)))
+      : undefined;
+    if (parentIndex === undefined || parentIndex === index) roots.push(index);
+    else nodes[parentIndex].children.push(index);
+  });
+
+  const result: MailboxHierarchyItem[] = [];
+  const visit = (index: number, depth: number, ancestorIds: string[]) => {
+    const node = nodes[index];
+    const delimiter = node.mailbox.delimiter;
+    const boundary = depth > 0 && delimiter ? node.mailbox.name.lastIndexOf(delimiter) : -1;
+    result.push({
+      mailbox: node.mailbox,
+      depth,
+      displayName: boundary >= 0 ? node.mailbox.name.slice(boundary + delimiter!.length) : node.mailbox.name,
+      ancestorIds,
+      hasChildren: node.children.length > 0,
+    });
+    node.children.sort((left, right) => nodes[left].index - nodes[right].index);
+    node.children.forEach((child) => visit(child, depth + 1, [...ancestorIds, node.mailbox.id]));
+  };
+  roots.sort((left, right) => nodes[left].index - nodes[right].index);
+  roots.forEach((root) => visit(root, 0, []));
+  return result;
 }
 
 function MailboxIcon({ role }: { role: MailboxRole }) {

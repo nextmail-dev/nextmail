@@ -142,6 +142,9 @@ export function MainShell({ accounts }: MainShellProps) {
 
   useEffect(() => {
     document.documentElement.style.setProperty("--shell-sidebar-width", `${visibleFolderWidth}px`);
+    return () => {
+      document.documentElement.style.removeProperty("--shell-sidebar-width");
+    };
   }, [visibleFolderWidth]);
 
   const folderPaneMax = Math.max(220, Math.min(350, windowWidth - messagePaneWidth - 372));

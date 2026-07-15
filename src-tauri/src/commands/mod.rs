@@ -7,7 +7,7 @@ use crate::{
         DataDirectoryValidation, DiscoveredAccountConfig, DraftAttachmentSummary, DraftContent,
         DraftDetail, DraftListItem, DraftRecipientFields, MailboxRole, MailboxSummary,
         MessageComposeAction, MessageDetail, MessageListPage, PendingOperationSummary,
-        SendJobSummary, SyncPolicy, SyncProgress,
+        ReadingPreferences, SendJobSummary, SyncPolicy, SyncProgress,
     },
     error::CommandResult,
     state::AppState,
@@ -47,6 +47,22 @@ pub fn set_appearance_preferences(
 ) -> CommandResult<AppearancePreferences> {
     let preferences = state.service.set_preferences(preferences)?;
     let _ = app.emit("appearance-preferences-changed", &preferences);
+    Ok(preferences)
+}
+
+#[tauri::command]
+pub fn get_reading_preferences(state: State<'_, AppState>) -> CommandResult<ReadingPreferences> {
+    state.service.get_reading_preferences()
+}
+
+#[tauri::command]
+pub fn set_reading_preferences(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    preferences: ReadingPreferences,
+) -> CommandResult<ReadingPreferences> {
+    let preferences = state.service.set_reading_preferences(preferences)?;
+    let _ = app.emit("reading-preferences-changed", &preferences);
     Ok(preferences)
 }
 

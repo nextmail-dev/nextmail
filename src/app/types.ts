@@ -34,6 +34,10 @@ export interface AppearancePreferences {
   language: LanguagePreference;
 }
 
+export interface ReadingPreferences {
+  autoLoadRemoteImages: boolean;
+}
+
 export interface ServerConfig {
   host: string;
   port: number;
@@ -90,6 +94,7 @@ export interface MailboxSummary {
   id: string;
   accountId: string;
   name: string;
+  delimiter: string | null;
   role: MailboxRole;
   selectable: boolean;
   totalCount: number;

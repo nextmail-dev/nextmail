@@ -9,9 +9,11 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { UnreadDot } from "@/components/ui/icon-tile";
 import { Inline, Stack } from "@/components/ui/layout";
+import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SearchField } from "@/components/ui/search-field";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, Text } from "@/components/ui/typography";
+import { formatMessageListTimestamp } from "./messageDate";
 
 interface MessageListPaneProps {
   accountId: string;
@@ -83,13 +85,13 @@ export function MessageListPane({
         />
       </Stack>
       {items.length ? (
-        <Stack className="min-h-0 flex-1 overflow-auto" gap="none">
+        <OverlayScrollArea className="min-h-0 flex-1" viewportClassName="pr-3">
           {items.map((message) => (
             <MessageRow
               key={message.id}
               message={message}
               selected={message.id === selectedMessageId}
-              locale={i18n.language}
+              yesterdayLabel={t("mail.yesterday")}
               noSubject={t("mail.noSubject")}
               starLabel={message.flagged ? t("mail.removeStar") : t("mail.addStar")}
               onClick={() => {
@@ -104,7 +106,7 @@ export function MessageListPane({
               {t("mail.loadMore")}
             </Button>
           ) : null}
-        </Stack>
+        </OverlayScrollArea>
       ) : query.isPending ? (
         <Stack className="m-auto items-center"><Spinner size={22} /></Stack>
       ) : query.isError || operation.isError ? (
@@ -123,7 +125,7 @@ export function MessageListPane({
 function MessageRow({
   message,
   selected,
-  locale,
+  yesterdayLabel,
   noSubject,
   starLabel,
   onClick,
@@ -131,14 +133,14 @@ function MessageRow({
 }: {
   message: MessageListItem;
   selected: boolean;
-  locale: string;
+  yesterdayLabel: string;
   noSubject: string;
   starLabel: string;
   onClick: () => void;
   onToggleFlag: () => void;
 }) {
   const sender = message.from[0];
-  const date = new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(message.receivedAt * 1000));
+  const date = formatMessageListTimestamp(message.receivedAt, yesterdayLabel);
   return (
     <Inline className={selected
       ? "group relative gap-0 bg-selection before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:rounded-r-full before:bg-primary"

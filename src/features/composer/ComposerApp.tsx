@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Paperclip, Send, Trash2, X } from "lucide-react";
+import { ChevronDown, Paperclip, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -247,7 +247,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   return (
     <AppShell className="flex min-h-0 flex-col overflow-hidden">
       <Inline className="h-14 shrink-0 bg-card px-3">
-        <Button loading={sending} onClick={() => void sendMessage()} disabled={!editable || saveState === "saving"}>
+        <Button className="shadow-none" loading={sending} onClick={() => void sendMessage()} disabled={!editable || saveState === "saving"}>
           <Send size={16} />{t("composer.send")}
         </Button>
         <Button variant="ghost" onClick={() => void addAttachments()} disabled={!editable}>
@@ -257,9 +257,6 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         <Text className="text-xs" aria-live="polite">
           {saveState === "saving" ? t("composer.saving") : saveState === "failed" ? t("composer.saveFailed") : t("composer.saved")}
         </Text>
-        <Button variant="ghost" size="icon" aria-label={t("common.close")} disabled={sending || Boolean(sendJob)} onClick={() => void getCurrentWindow().close()}>
-          <X size={17} />
-        </Button>
       </Inline>
 
       <Page className="flex min-h-0 flex-1 flex-col">

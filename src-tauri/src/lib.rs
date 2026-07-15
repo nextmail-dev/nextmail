@@ -28,6 +28,8 @@ pub fn run() {
             commands::initialize_data_directory,
             commands::get_preferences,
             commands::set_appearance_preferences,
+            commands::get_reading_preferences,
+            commands::set_reading_preferences,
             commands::discover_account_config,
             commands::test_account_connections,
             commands::save_password_account,

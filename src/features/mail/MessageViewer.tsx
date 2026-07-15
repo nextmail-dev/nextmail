@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Modal } from "@/components/ui/dialog";
 import { Inline, Stack } from "@/components/ui/layout";
+import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, LabelText, Text } from "@/components/ui/typography";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -43,6 +44,10 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
   const queryClient = useQueryClient();
   const [rawSource, setRawSource] = useState<string | null>(null);
   const [remoteImagesAllowed, setRemoteImagesAllowed] = useState(false);
+  const readingPreferences = useQuery({
+    queryKey: ["reading-preferences"],
+    queryFn: api.getReadingPreferences,
+  });
 
   useEffect(() => setRemoteImagesAllowed(false), [messageId]);
   const query = useQuery({
@@ -90,6 +95,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
   }
 
   const message = query.data;
+  const allowRemoteImages = remoteImagesAllowed || readingPreferences.data?.autoLoadRemoteImages === true;
   const operationError = bodyMutation.error ?? rawMutation.error ?? attachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
   const normalizedOperationError = operationError ? normalizeCommandError(operationError) : null;
   const date = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(message.receivedAt * 1000));
@@ -170,7 +176,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
         {message.pendingOperation ? (
           <Inline className="text-muted-foreground"><CloudUpload size={14} /><Text className="text-xs">{t("mail.pendingSync")}</Text></Inline>
         ) : null}
-        {message.remoteImagesBlocked && !remoteImagesAllowed ? (
+        {message.remoteImagesBlocked && !allowRemoteImages ? (
           <Alert tone="warning" title={t("mail.remoteImagesBlocked")}>
             <Inline className="flex-wrap justify-between">
               <Text className="text-xs text-current">{t("mail.remoteImagesBlockedDescription")}</Text>
@@ -185,7 +191,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
 
       <Stack className="min-h-0 flex-1" gap="none">
         {message.safeHtml ? (
-          <SafeMailFrame document={message.safeHtml} title={message.subject || t("mail.messageBody")} allowRemoteImages={remoteImagesAllowed} />
+          <SafeMailFrame document={message.safeHtml} title={message.subject || t("mail.messageBody")} allowRemoteImages={allowRemoteImages} />
         ) : message.plainText ? (
           <Text className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-8 py-5 text-sm leading-[1.75] text-foreground">{message.plainText}</Text>
         ) : (
@@ -254,12 +260,22 @@ function MailboxActionMenu({ icon, label, mailboxes, onSelect }: {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" disabled={!mailboxes.length} aria-label={label} title={label}>{icon}</Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-h-72 overflow-auto">
-        {mailboxes.map((mailbox) => (
-          <DropdownMenuItem key={mailbox.id} onSelect={() => onSelect(mailbox.id)}>
-            {mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`)}
-          </DropdownMenuItem>
-        ))}
+      <DropdownMenuContent align="end" className="overflow-hidden">
+        <OverlayScrollArea
+          className="-mr-1.5"
+          viewportClassName="pr-1.5"
+          trackClassName="right-0"
+          style={{
+            height: `${Math.min(276, mailboxes.length * 36)}px`,
+            maxHeight: "calc(var(--radix-dropdown-menu-content-available-height) - 12px)",
+          }}
+        >
+          {mailboxes.map((mailbox) => (
+            <DropdownMenuItem key={mailbox.id} onSelect={() => onSelect(mailbox.id)}>
+              {mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`)}
+            </DropdownMenuItem>
+          ))}
+        </OverlayScrollArea>
       </DropdownMenuContent>
     </DropdownMenu>
   );

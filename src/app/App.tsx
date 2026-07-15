@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "./i18n";
 import { api, normalizeCommandError } from "./api";
 import { applyAppearance, useAppearanceStore } from "./appearance";
-import type { AppearancePreferences } from "./types";
+import type { AppearancePreferences, ReadingPreferences } from "./types";
 import { AccountStep } from "../features/onboarding/AccountStep";
 import { DataDirectoryStep } from "../features/onboarding/DataDirectoryStep";
 import { MainShell } from "../features/mail/MainShell";
@@ -45,6 +45,8 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <WindowTitlebar kind={kind} title={kind === "main" ? "" : "NextMail"} />
       <AppearanceEventBridge />
+      <ReadingPreferencesEventBridge />
+      <ScrollActivityBridge />
       <div className="h-full pt-[var(--titlebar-height)]">
         <WindowContentBoundary kind={kind}>
           {composer && accountId && draftId ? (
@@ -110,6 +112,45 @@ function AppearanceEventBridge() {
     });
     return () => { void unlisten.then((dispose) => dispose()); };
   }, [appearance.setPreferences, queryCache]);
+  return null;
+}
+
+function ReadingPreferencesEventBridge() {
+  const queryCache = useQueryClient();
+  useEffect(() => {
+    const unlisten = listen<ReadingPreferences>("reading-preferences-changed", (event) => {
+      queryCache.setQueryData(["reading-preferences"], event.payload);
+    });
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, [queryCache]);
+  return null;
+}
+
+function ScrollActivityBridge() {
+  useEffect(() => {
+    const timers = new Map<Element, number>();
+    const markActive = (event: Event) => {
+      const target = event.target instanceof Element
+        ? event.target
+        : document.scrollingElement;
+      if (!target) return;
+      target.classList.add("is-scrolling");
+      const previous = timers.get(target);
+      if (previous !== undefined) window.clearTimeout(previous);
+      timers.set(target, window.setTimeout(() => {
+        target.classList.remove("is-scrolling");
+        timers.delete(target);
+      }, 700));
+    };
+    window.addEventListener("scroll", markActive, true);
+    return () => {
+      window.removeEventListener("scroll", markActive, true);
+      timers.forEach((timer, target) => {
+        window.clearTimeout(timer);
+        target.classList.remove("is-scrolling");
+      });
+    };
+  }, []);
   return null;
 }
 

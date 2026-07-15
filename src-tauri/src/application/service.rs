@@ -12,12 +12,12 @@ use crate::{
         cleanup_initialized_files, create_account_slot, delete_account_slot,
         discover_account_config, initialize_content_database, read_data_marker, write_data_marker,
         AccountsStore, AppPaths, BootstrapStore, ConnectionTester, CredentialStore,
-        PreferencesStore, CONTENT_DATABASE_FILENAME, DATA_MARKER_FILENAME,
+        PreferencesStore, ReadingPreferencesStore, CONTENT_DATABASE_FILENAME, DATA_MARKER_FILENAME,
     },
     domain::{
         AccountDraft, AccountRecord, AccountSummary, AppearancePreferences, BootstrapConfig,
         BootstrapStage, BootstrapStatus, ConnectionTestResult, DataDirectoryMarker,
-        DataDirectoryValidation, DiscoveredAccountConfig,
+        DataDirectoryValidation, DiscoveredAccountConfig, ReadingPreferences,
     },
     error::{CommandError, CommandResult},
 };
@@ -27,6 +27,7 @@ pub struct AppService {
     bootstrap: BootstrapStore,
     accounts: AccountsStore,
     preferences: PreferencesStore,
+    reading_preferences: ReadingPreferencesStore,
     credentials: Arc<dyn CredentialStore>,
     connection_tester: Arc<dyn ConnectionTester>,
 }
@@ -41,6 +42,7 @@ impl AppService {
             bootstrap: BootstrapStore::new(&paths),
             accounts: AccountsStore::new(&paths),
             preferences: PreferencesStore::new(&paths),
+            reading_preferences: ReadingPreferencesStore::new(&paths),
             paths,
             credentials,
             connection_tester,
@@ -146,6 +148,18 @@ impl AppService {
             return Err(CommandError::new("preferences.accent_invalid"));
         }
         self.preferences.save(&preferences)?;
+        Ok(preferences)
+    }
+
+    pub fn get_reading_preferences(&self) -> CommandResult<ReadingPreferences> {
+        self.reading_preferences.load()
+    }
+
+    pub fn set_reading_preferences(
+        &self,
+        preferences: ReadingPreferences,
+    ) -> CommandResult<ReadingPreferences> {
+        self.reading_preferences.save(&preferences)?;
         Ok(preferences)
     }
 

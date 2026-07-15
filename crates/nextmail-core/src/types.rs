@@ -63,6 +63,12 @@ impl Default for AppearancePreferences {
     }
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingPreferences {
+    pub auto_load_remote_images: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionSecurity {
@@ -230,6 +236,7 @@ pub struct MailboxSummary {
     pub id: String,
     pub account_id: String,
     pub name: String,
+    pub delimiter: Option<String>,
     pub role: MailboxRole,
     pub selectable: bool,
     pub total_count: u32,

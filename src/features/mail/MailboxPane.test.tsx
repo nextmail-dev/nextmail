@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import i18n from "../../app/i18n";
 import type { DraftListItem, MailboxSummary } from "../../app/types";
-import { MailboxPane } from "./MailboxPane";
+import { flattenMailboxHierarchy, MailboxPane } from "./MailboxPane";
 
 const draft: DraftListItem = {
   id: "draft-one",
@@ -56,6 +56,7 @@ describe("MailboxPane draft actions", () => {
       id: "inbox",
       accountId: "account-one",
       name: "INBOX",
+      delimiter: null,
       role: "inbox",
       selectable: true,
       totalCount: 3,
@@ -83,6 +84,53 @@ describe("MailboxPane draft actions", () => {
     expect(compose).toHaveClass("mx-auto", "size-11", "p-0");
     expect(mailbox).toHaveClass("mx-auto", "size-11", "p-0");
     expect(mailbox.querySelector("svg")).toHaveClass("size-[18px]", "shrink-0");
+  });
+
+  it("builds nested folders from the server delimiter instead of guessing separators", () => {
+    const mailboxes: MailboxSummary[] = [
+      { id: "child", accountId: "account-one", name: "Other/Archive", delimiter: "/", role: "other", selectable: true, totalCount: 1, unreadCount: 0, revision: 1 },
+      { id: "root", accountId: "account-one", name: "Other", delimiter: "/", role: "other", selectable: false, totalCount: 0, unreadCount: 0, revision: 1 },
+      { id: "literal", accountId: "account-one", name: "News/2026", delimiter: ".", role: "other", selectable: true, totalCount: 1, unreadCount: 0, revision: 1 },
+    ];
+
+    const items = flattenMailboxHierarchy(mailboxes);
+    expect(items.map(({ mailbox, depth, displayName }) => [mailbox.id, depth, displayName])).toEqual([
+      ["root", 0, "Other"],
+      ["child", 1, "Archive"],
+      ["literal", 0, "News/2026"],
+    ]);
+  });
+
+  it("keeps parent folders selectable and lets their children collapse", () => {
+    const onSelect = vi.fn();
+    const mailboxes: MailboxSummary[] = [
+      { id: "root", accountId: "account-one", name: "Other", delimiter: "/", role: "other", selectable: false, totalCount: 2, unreadCount: 0, revision: 1 },
+      { id: "child", accountId: "account-one", name: "Other/Archive", delimiter: "/", role: "other", selectable: true, totalCount: 1, unreadCount: 0, revision: 1 },
+    ];
+    render(
+      <MailboxPane
+        mailboxes={mailboxes}
+        selectedMailboxId=""
+        onSelect={onSelect}
+        onCompose={vi.fn()}
+        drafts={[]}
+        onOpenDraft={vi.fn()}
+        onDeleteDraft={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    const parent = screen.getByRole("button", { name: /^Other$/ });
+    expect(parent).toBeEnabled();
+    fireEvent.click(parent);
+    expect(onSelect).toHaveBeenCalledWith("root");
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Other" }));
+    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Expand Other" }));
+    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
   });
 
   it("places receive beside the folder heading and settings at the pane bottom", () => {

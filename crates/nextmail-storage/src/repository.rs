@@ -56,7 +56,7 @@ impl MailRepository {
         account_slot_id: &str,
     ) -> CommandResult<Vec<MailboxSummary>> {
         let rows = sqlx::query(
-            "SELECT b.id, b.display_name, CASE WHEN o.role IS NOT NULL THEN o.role \
+            "SELECT b.id, b.display_name, b.delimiter, CASE WHEN o.role IS NOT NULL THEN o.role \
                       WHEN EXISTS(SELECT 1 FROM mailbox_role_overrides x WHERE x.account_slot_id = b.account_slot_id AND x.role = b.role) \
                       THEN 'other' ELSE b.role END AS role, b.selectable, \
                     b.total_count, b.unread_count, b.revision \
@@ -80,6 +80,7 @@ impl MailRepository {
                     id: row.try_get("id").map_err(storage_read_error)?,
                     account_id: account_id.to_owned(),
                     name: row.try_get("display_name").map_err(storage_read_error)?,
+                    delimiter: row.try_get("delimiter").map_err(storage_read_error)?,
                     role: role_from_db(row.try_get("role").map_err(storage_read_error)?),
                     selectable: row
                         .try_get::<i64, _>("selectable")

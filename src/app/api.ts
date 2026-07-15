@@ -26,6 +26,7 @@ import type {
   PendingOperationSummary,
   MailboxRole,
   MessageComposeAction,
+  ReadingPreferences,
 } from "./types";
 
 export const api = {
@@ -40,6 +41,10 @@ export const api = {
     invoke<AppearancePreferences>("set_appearance_preferences", {
       preferences,
     }),
+  getReadingPreferences: () =>
+    invoke<ReadingPreferences>("get_reading_preferences"),
+  setReadingPreferences: (preferences: ReadingPreferences) =>
+    invoke<ReadingPreferences>("set_reading_preferences", { preferences }),
   discoverAccountConfig: (email: string) =>
     invoke<DiscoveredAccountConfig>("discover_account_config", { email }),
   testAccountConnections: (draft: AccountDraft) =>

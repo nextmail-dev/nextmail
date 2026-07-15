@@ -15,10 +15,11 @@ import { useTranslation } from "react-i18next";
 import { api, normalizeCommandError } from "@/app/api";
 import { applyAppearance, useAppearanceStore } from "@/app/appearance";
 import i18n from "@/app/i18n";
-import type { AppearancePreferences, LanguagePreference, ThemePreference } from "@/app/types";
+import type { AppearancePreferences, LanguagePreference, ReadingPreferences, ThemePreference } from "@/app/types";
 import { AccountManagementPanel } from "@/features/accounts/AccountManagementDialog";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AppShell, Page, Stack } from "@/components/ui/layout";
 import { SelectField } from "@/components/ui/select";
@@ -52,11 +53,16 @@ export function SettingsApp() {
   const appearance = useAppearanceStore();
   const [category, setCategory] = useState<SettingsCategory>("general");
   const preferencesQuery = useQuery({ queryKey: ["preferences"], queryFn: api.getPreferences });
+  const readingPreferencesQuery = useQuery({ queryKey: ["reading-preferences"], queryFn: api.getReadingPreferences });
   const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.listAccountSummaries });
   const aboutQuery = useQuery({ queryKey: ["about"], queryFn: api.getAppAbout });
   const mutation = useMutation({
     mutationFn: api.setAppearancePreferences,
     onSuccess: (preferences) => queryClient.setQueryData(["preferences"], preferences),
+  });
+  const readingMutation = useMutation({
+    mutationFn: api.setReadingPreferences,
+    onSuccess: (preferences) => queryClient.setQueryData(["reading-preferences"], preferences),
   });
   const accountId = accountsQuery.data?.[0]?.id ?? "";
 
@@ -81,11 +87,19 @@ export function SettingsApp() {
     });
   }
 
-  if (preferencesQuery.isPending || accountsQuery.isPending) {
+  function updateReadingPreferences(preferences: ReadingPreferences) {
+    const previous = readingPreferencesQuery.data;
+    queryClient.setQueryData(["reading-preferences"], preferences);
+    readingMutation.mutate(preferences, {
+      onError: () => queryClient.setQueryData(["reading-preferences"], previous),
+    });
+  }
+
+  if (preferencesQuery.isPending || readingPreferencesQuery.isPending || accountsQuery.isPending) {
     return <AppShell className="grid place-items-center bg-card"><Spinner size={24} /></AppShell>;
   }
-  if (preferencesQuery.isError || accountsQuery.isError || !preferencesQuery.data) {
-    const error = normalizeCommandError(preferencesQuery.error ?? accountsQuery.error);
+  if (preferencesQuery.isError || readingPreferencesQuery.isError || accountsQuery.isError || !preferencesQuery.data || !readingPreferencesQuery.data) {
+    const error = normalizeCommandError(preferencesQuery.error ?? readingPreferencesQuery.error ?? accountsQuery.error);
     return (
       <AppShell className="grid place-items-center bg-card p-8">
         <Alert tone="danger" title={t("errors.title")}>
@@ -127,9 +141,12 @@ export function SettingsApp() {
         <SettingsContent
           category={category}
           preferences={preferences}
+          readingPreferences={readingPreferencesQuery.data}
+          readingError={readingMutation.error}
           accountId={accountId}
           version={aboutQuery.data?.version ?? "0.1.0"}
           onChange={updatePreferences}
+          onReadingChange={updateReadingPreferences}
         />
       </Page>
     </AppShell>
@@ -139,15 +156,21 @@ export function SettingsApp() {
 function SettingsContent({
   category,
   preferences,
+  readingPreferences,
+  readingError,
   accountId,
   version,
   onChange,
+  onReadingChange,
 }: {
   category: SettingsCategory;
   preferences: AppearancePreferences;
+  readingPreferences: ReadingPreferences;
+  readingError: unknown;
   accountId: string;
   version: string;
   onChange: (preferences: AppearancePreferences) => void;
+  onReadingChange: (preferences: ReadingPreferences) => void;
 }) {
   const { t } = useTranslation();
   if (category === "general") {
@@ -200,6 +223,26 @@ function SettingsContent({
         ) : (
           <EmptyState icon={<CircleUserRound size={24} />} title={t("settings.noAccount")} />
         )}
+      </SettingsSection>
+    );
+  }
+  if (category === "reading") {
+    const error = readingError ? normalizeCommandError(readingError) : null;
+    return (
+      <SettingsSection category={category}>
+        <Stack className="rounded-lg bg-muted/60 p-5" gap="sm">
+          <Checkbox
+            checked={readingPreferences.autoLoadRemoteImages}
+            label={t("settings.autoLoadRemoteImages")}
+            onCheckedChange={(autoLoadRemoteImages) => onReadingChange({ autoLoadRemoteImages })}
+          />
+          <Text className="pl-[28px] text-xs">{t("settings.autoLoadRemoteImagesDescription")}</Text>
+        </Stack>
+        {error ? (
+          <Alert tone="danger" title={t("errors.title")}>
+            {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+          </Alert>
+        ) : null}
       </SettingsSection>
     );
   }

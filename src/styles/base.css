@@ -8,7 +8,7 @@
 
 :root {
   --titlebar-height: 34px;
-  --shell-sidebar-width: 250px;
+  --shell-sidebar-width: 300px;
 }
 
 * {
@@ -50,19 +50,51 @@ body {
 }
 
 ::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
+  background-color: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
+  min-height: 32px;
   border: 3px solid transparent;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--muted-foreground) 35%, transparent);
+  background-color: transparent;
   background-clip: padding-box;
+}
+
+.is-scrolling::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--muted-foreground) 42%, transparent);
+  background-clip: padding-box;
+}
+
+.is-scrolling {
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 42%, transparent) transparent;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.native-scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.native-scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 button,

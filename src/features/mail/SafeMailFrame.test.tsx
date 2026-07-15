@@ -22,6 +22,7 @@ describe("SafeMailFrame", () => {
     const frame = screen.getByTitle("Remote");
     expect(frame.getAttribute("srcdoc")).toContain("img-src data: http: https:;");
     expect(frame.getAttribute("srcdoc")).toContain("background:#181818");
+    expect(frame.getAttribute("srcdoc")).not.toContain("background-color:transparent!important");
     document.documentElement.removeAttribute("data-theme");
   });
 });
