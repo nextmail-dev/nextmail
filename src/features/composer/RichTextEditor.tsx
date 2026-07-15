@@ -180,7 +180,7 @@ function ColorMenu({ label, icon, disabled, background, onSelect }: {
               style={color ? { backgroundColor: color } : undefined}
               aria-hidden="true"
             />
-            <Text className="text-[13px] text-foreground">
+            <Text className="text-[length:var(--ui-font-control)] text-foreground">
               {color ? color.toUpperCase() : t("composer.colorDefault")}
             </Text>
           </DropdownMenuItem>

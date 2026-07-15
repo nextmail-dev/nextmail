@@ -118,8 +118,8 @@ export function MailboxPane({
                   >
                     <FilePenLine className="mt-0.5 shrink-0" size={15} />
                     <Stack gap="xs" className="min-w-0 py-0.5">
-                      <Text className="truncate text-[13px] leading-5 text-foreground">{draft.subject || t("mail.noSubject")}</Text>
-                      <Text className="truncate text-[11px] leading-4">
+                      <Text className="truncate text-[length:var(--ui-font-control)] leading-5 text-foreground">{draft.subject || t("mail.noSubject")}</Text>
+                      <Text className="truncate text-[length:var(--ui-font-caption)] leading-4">
                         {draft.recipients.map((recipient) => recipient.name || recipient.email).join(", ") || t("composer.noRecipients")}
                       </Text>
                     </Stack>
@@ -150,7 +150,7 @@ export function MailboxPane({
       </Inline>
       <Inline className={collapsed ? "w-full justify-center" : "w-full px-2 pt-1"}>
         {collapsed ? null : (
-          <LabelText className="min-w-0 flex-1 text-[11px] tracking-[0.09em] text-muted-foreground uppercase">
+          <LabelText className="min-w-0 flex-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">
             {t("mail.folders")}
           </LabelText>
         )}
@@ -216,7 +216,7 @@ export function MailboxPane({
                     onClick={() => onSelect(mailbox.id)}
                   >
                     <MailboxIcon role={mailbox.role} />
-                    <Text className="min-w-0 flex-1 truncate text-left text-[13px] text-inherit">{label}</Text>
+                    <Text className="min-w-0 flex-1 truncate text-left text-[length:var(--ui-font-control)] text-inherit">{label}</Text>
                     {mailbox.unreadCount ? (
                       <Text className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold leading-none text-primary-foreground">{mailbox.unreadCount}</Text>
                     ) : null}
@@ -253,7 +253,7 @@ export function MailboxPane({
         onClick={onOpenSettings}
       >
         <Settings className="size-[18px] shrink-0" strokeWidth={1.8} />
-        {collapsed ? null : <Text className="text-[13px] text-inherit">{t("mail.settings")}</Text>}
+        {collapsed ? null : <Text className="text-[length:var(--ui-font-control)] text-inherit">{t("mail.settings")}</Text>}
       </Button>
     </Stack>
   );

@@ -39,7 +39,7 @@ export function SelectField({
       <SelectPrimitive.Root value={value} onValueChange={onValueChange} disabled={disabled}>
         <SelectPrimitive.Trigger
           className={cn(
-            "flex h-10 w-full min-w-36 items-center justify-between gap-3 rounded-md border-0 bg-muted px-3 text-[13px] outline-none transition-[background-color,box-shadow] focus:bg-card focus:ring-3 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50",
+            "text-[length:var(--ui-font-control)] flex h-10 w-full min-w-36 items-center justify-between gap-3 rounded-md border-0 bg-muted px-3 outline-none transition-[background-color,box-shadow] focus:bg-card focus:ring-3 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-50",
             compact && "h-8 min-w-32 bg-muted px-2.5",
             triggerClassName,
           )}
@@ -59,7 +59,7 @@ export function SelectField({
             <SelectPrimitive.Viewport>
               {options.map((option) => (
                 <SelectPrimitive.Item
-                  className="relative flex h-8 cursor-default items-center rounded-xs py-0 pr-8 pl-2.5 text-[13px] outline-none select-none focus:bg-accent focus:text-accent-foreground"
+                  className="text-[length:var(--ui-font-control)] relative flex h-8 cursor-default items-center rounded-xs py-0 pr-8 pl-2.5 outline-none select-none focus:bg-accent focus:text-accent-foreground"
                   value={option.value}
                   key={option.value}
                 >

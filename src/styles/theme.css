@@ -117,3 +117,17 @@
     --warning-foreground: #f3c477;
   }
 }
+
+:root[data-platform="windows"]:not([data-theme="dark"]) {
+  --muted-foreground: #697586;
+}
+
+:root[data-platform="windows"][data-theme="dark"] {
+  --muted-foreground: #a7abb4;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-platform="windows"][data-theme="system"] {
+    --muted-foreground: #a7abb4;
+  }
+}

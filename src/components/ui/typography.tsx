@@ -14,7 +14,7 @@ export function Text({ className, ...props }: HTMLAttributes<HTMLParagraphElemen
 export function LabelText({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
   return (
     <p
-      className={cn("m-0 text-[13px] font-semibold tracking-[0.01em] text-foreground", className)}
+      className={cn("m-0 text-[length:var(--ui-font-control)] font-semibold tracking-[0.01em] text-foreground", className)}
       {...props}
     />
   );
@@ -61,4 +61,3 @@ export function Heading({ className, level = 1, ...props }: HeadingProps) {
     />
   );
 }
-

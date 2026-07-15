@@ -72,7 +72,7 @@ function AccountIdentity({ account, collapsed = false }: { account?: AccountSumm
       {collapsed ? null : (
         <Stack className="min-w-0 flex-1" gap="xs">
           <Text className="truncate text-sm font-semibold leading-none text-foreground">{label}</Text>
-          <Text className="truncate text-[11px] leading-none">{account.email}</Text>
+          <Text className="truncate text-[length:var(--ui-font-caption)] leading-none">{account.email}</Text>
         </Stack>
       )}
     </Inline>

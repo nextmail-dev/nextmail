@@ -14,14 +14,14 @@ export function ProgressSteps({ label, items, activeIndex }: ProgressStepsProps)
       {items.map((item, index) => (
         <div
           className={cn(
-            "flex items-center gap-3 text-[13px] font-semibold text-muted-foreground/70",
+            "text-[length:var(--ui-font-control)] flex items-center gap-3 font-semibold text-muted-foreground/70",
             index <= activeIndex && "text-foreground",
           )}
           key={item}
         >
           <span
             className={cn(
-              "flex size-6 items-center justify-center rounded-sm border-0 bg-muted text-[11px]",
+              "text-[length:var(--ui-font-caption)] flex size-6 items-center justify-center rounded-sm border-0 bg-muted",
               index <= activeIndex && "bg-primary text-primary-foreground",
             )}
           >

@@ -16,7 +16,7 @@ export function SearchField({ className, clearLabel, value, onValueChange, ...pr
       <Search size={16} aria-hidden="true" />
       <input
         type="search"
-        className="min-w-0 flex-1 appearance-none border-none bg-transparent text-[13px] text-foreground outline-none shadow-none placeholder:text-muted-foreground/70 [&::-webkit-search-cancel-button]:hidden"
+        className="text-[length:var(--ui-font-control)] min-w-0 flex-1 appearance-none border-none bg-transparent text-foreground outline-none shadow-none placeholder:text-muted-foreground/70 [&::-webkit-search-cancel-button]:hidden"
         value={value}
         onChange={(event) => onValueChange(event.currentTarget.value)}
         {...props}

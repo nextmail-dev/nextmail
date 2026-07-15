@@ -14,11 +14,10 @@ export function Brand() {
       </IconTile>
       <Stack gap="xs">
         <strong className="text-base tracking-tight">{t("app.name")}</strong>
-        <Text className="max-w-52 text-[11px] leading-snug text-muted-foreground/80">
+        <Text className="max-w-52 text-[length:var(--ui-font-caption)] leading-snug text-muted-foreground/80">
           {t("app.tagline")}
         </Text>
       </Stack>
     </Inline>
   );
 }
-

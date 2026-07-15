@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
+import { detectDesktopPlatform } from "@/app/platform";
 
 export type WindowKind = "main" | "composer" | "settings";
 
@@ -15,7 +16,7 @@ interface WindowTitlebarProps {
 export function WindowTitlebar({ kind, title }: WindowTitlebarProps) {
   const { t } = useTranslation();
   const isMac = useMemo(
-    () => /Macintosh|Mac OS X/i.test(window.navigator.userAgent),
+    () => detectDesktopPlatform() === "macos",
     [],
   );
   const appWindow = getCurrentWindow();

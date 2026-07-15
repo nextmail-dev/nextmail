@@ -36,7 +36,7 @@ export function DropdownMenuItem({
   return (
     <DropdownMenuPrimitive.Item
       className={cn(
-        "relative flex h-9 cursor-default items-center gap-2 rounded-xs px-2.5 text-[13px] outline-none select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
+        "text-[length:var(--ui-font-control)] relative flex h-9 cursor-default items-center gap-2 rounded-xs px-2.5 outline-none select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
         inset && "pl-8",
         className,
       )}
@@ -54,7 +54,7 @@ export function DropdownMenuCheckboxItem({
   return (
     <DropdownMenuPrimitive.CheckboxItem
       className={cn(
-        "relative flex h-9 cursor-default items-center rounded-xs py-0 pr-2.5 pl-8 text-[13px] outline-none select-none focus:bg-accent focus:text-accent-foreground",
+        "text-[length:var(--ui-font-control)] relative flex h-9 cursor-default items-center rounded-xs py-0 pr-2.5 pl-8 outline-none select-none focus:bg-accent focus:text-accent-foreground",
         className,
       )}
       checked={checked}
@@ -86,7 +86,7 @@ export function DropdownMenuLabel({
 }: ComponentProps<typeof DropdownMenuPrimitive.Label>) {
   return (
     <DropdownMenuPrimitive.Label
-      className={cn("px-2.5 py-2 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase", className)}
+      className={cn("text-[length:var(--ui-font-caption)] px-2.5 py-2 font-semibold tracking-wide text-muted-foreground uppercase", className)}
       {...props}
     />
   );
@@ -100,7 +100,7 @@ export function DropdownMenuSubTrigger({
   return (
     <DropdownMenuPrimitive.SubTrigger
       className={cn(
-        "flex h-9 cursor-default items-center gap-2 rounded-xs px-2.5 text-[13px] outline-none focus:bg-accent data-[state=open]:bg-accent",
+        "text-[length:var(--ui-font-control)] flex h-9 cursor-default items-center gap-2 rounded-xs px-2.5 outline-none focus:bg-accent data-[state=open]:bg-accent",
         className,
       )}
       {...props}

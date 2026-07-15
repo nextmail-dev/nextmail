@@ -5,7 +5,7 @@ import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 import { Stack } from "./layout";
 
-const alertVariants = cva("flex items-start gap-3 rounded-md border-0 px-3.5 py-3 text-[13px]", {
+const alertVariants = cva("text-[length:var(--ui-font-control)] flex items-start gap-3 rounded-md border-0 px-3.5 py-3", {
   variants: {
     tone: {
       info: "bg-primary/8 text-primary",

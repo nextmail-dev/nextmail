@@ -293,7 +293,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
             {attachments.map((attachment) => (
               <Inline key={attachment.id} className="rounded-md border-0 bg-card px-2.5 py-1.5 shadow-xs">
                 <Paperclip size={14} /><Text className="max-w-56 truncate text-xs text-foreground">{attachment.fileName}</Text>
-                <Text className="text-[11px]">{formatBytes(attachment.size)}</Text>
+                <Text className="text-[length:var(--ui-font-caption)]">{formatBytes(attachment.size)}</Text>
                 {editable ? (
                   <Button variant="ghost" size="icon" className="size-6" aria-label={t("composer.removeAttachment")} onClick={() => void removeAttachment(attachment)}>
                     <Trash2 size={13} />

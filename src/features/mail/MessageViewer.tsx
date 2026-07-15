@@ -130,7 +130,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
             <Text className="text-xs">{t("mail.toRecipients", { recipients: formatAddresses(message.to) })}</Text>
           </Stack>
           <Stack className="shrink-0 items-end" gap="sm">
-            <Text className="text-[11px]">{date}</Text>
+            <Text className="text-[length:var(--ui-font-caption)]">{date}</Text>
             <Inline className="gap-0.5" role="toolbar" aria-label={t("mail.messageActions") }>
               <IconAction label={message.flagged ? t("mail.removeStar") : t("mail.addStar")} onClick={() => messageOperation.mutate({ kind: "flag" })}>
                 <Star size={18} className={message.flagged ? "fill-current text-[#f2b84b]" : undefined} />
@@ -287,7 +287,7 @@ function AttachmentButton({ attachment, loading, onClick }: { attachment: Attach
     <Button variant="secondary" loading={loading} disabled={attachment.availability === "available"} title={attachment.availability === "available" ? t("mail.attachmentReady") : undefined} onClick={onClick}>
       <Download size={14} />
       {attachment.fileName}
-      <Text className="text-[11px]">{formatBytes(attachment.size)}</Text>
+      <Text className="text-[length:var(--ui-font-caption)]">{formatBytes(attachment.size)}</Text>
       {attachment.availability === "available" ? t("mail.downloaded") : null}
     </Button>
   );

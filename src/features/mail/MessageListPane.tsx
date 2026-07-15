@@ -154,9 +154,9 @@ function MessageRow({
           <Inline className="w-full">
             {message.unread ? <UnreadDot /> : null}
             <Text className="min-w-0 flex-1 truncate font-semibold text-foreground">{sender?.name || sender?.email || "—"}</Text>
-            <Text className="shrink-0 text-[11px]">{date}</Text>
+            <Text className="shrink-0 text-[length:var(--ui-font-caption)]">{date}</Text>
           </Inline>
-          <Text className="truncate text-[13px] font-medium text-foreground">{message.subject || noSubject}</Text>
+          <Text className="truncate text-[length:var(--ui-font-control)] font-medium text-foreground">{message.subject || noSubject}</Text>
           <Inline className="w-full text-muted-foreground">
             <Text className="min-w-0 flex-1 truncate text-xs">{message.preview}</Text>
             {message.hasAttachments ? <Paperclip size={13} /> : null}

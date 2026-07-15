@@ -9,6 +9,13 @@
 :root {
   --titlebar-height: 34px;
   --shell-sidebar-width: 300px;
+  --ui-font-caption: 11px;
+  --ui-font-control: 13px;
+}
+
+:root[data-platform="windows"] {
+  --ui-font-caption: 12px;
+  --ui-font-control: 14px;
 }
 
 * {
@@ -34,6 +41,12 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-platform="windows"] body {
+  font-synthesis: weight;
+  text-rendering: auto;
+  -webkit-font-smoothing: auto;
 }
 
 .window-titlebar {
