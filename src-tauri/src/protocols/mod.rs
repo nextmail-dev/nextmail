@@ -6,7 +6,7 @@ pub use compose::*;
 pub use html::*;
 pub use imap::*;
 
-use nextmail_core::{CommandError, CommandResult};
+use crate::core::{CommandError, CommandResult};
 
 pub fn extract_attachment(raw: &[u8], part_index: u32) -> CommandResult<Vec<u8>> {
     let message = mail_parser::MessageParser::default()

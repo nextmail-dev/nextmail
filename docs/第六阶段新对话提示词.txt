@@ -1,0 +1,294 @@
+你现在接手的是 NextMail 桌面邮件客户端项目，请把本提示词视为当前对话的完整实施约束和交接背景。
+
+工作目录：E:\Workspace\Rust\nextmail
+
+当前任务：直接实施已经确认的第六阶段“多账户”。完整、有效且已经确认的阶段计划位于：
+
+docs/iterations/0006-multi-account.md
+
+不要重新从头规划第六阶段，也不要停留在建议或伪代码层面。先检查工作区和现有实现、完整阅读下面列出的文档，然后按照既定计划渐进实施、补充正式测试和文档。只有发现计划与当前代码存在实质冲突，或者出现会改变产品行为、安全边界、数据语义的额外细节时，才向我确认。
+
+一、开始前必须阅读
+
+1. docs/iterations/0006-multi-account.md
+2. docs/plans/master-plan.md
+3. docs/architecture.md
+4. docs/README.md
+5. docs/changes/0023-startup-responsive-progressive-sync.md
+6. docs/adr/0003-durable-send-pipeline.md
+7. docs/adr/0004-durable-imap-operation-queue.md
+8. docs/adr/0005-platform-window-chrome.md
+9. docs/adr/0006-single-tauri-rust-crate.md
+10. docs/changes/0024-single-tauri-rust-crate.md
+11. src-tauri/Cargo.toml、package.json 和 AGENTS.md
+12. 开始修改前执行 git status，确认并保留用户已有的任何未提交变更，不要覆盖、回滚或重置它们
+
+当前已验收提交：
+
+- f51a4cd perf: defer sync until first paint
+- 295326e feat: calibrate Windows CJK typography
+- 32d2cfe feat: refine mail workspace and reader preferences
+- da7e1fd fix: polish desktop mail workspace
+- a03cc7b fix: align sidebar actions and resize handles
+- 56f29a6 feat: refactor desktop shell and mail workspace
+- d607bee feat: basic reply and forward
+
+上述提交代表当前有效基线。不要重复实现已经完成的阶段，也不要撤销现有 UI、同步、写信、安全渲染或启动性能改进。
+
+二、产品与平台基线
+
+- 产品名为 NextMail，是 Tauri 2 + React 19/TypeScript + Rust 的跨平台桌面多协议邮件客户端。
+- 首发验收平台：Windows 10 22H2+ x64、macOS 12+ Intel/Apple Silicon。
+- Linux 不做深度适配，也不是当前验收平台。
+- 当前已完成并验收：首次启动、单账户 IMAP 本地阅读、SMTP 写信/草稿、完整 IMAP 同步语义、回复/回复全部/转发、跨平台窗口壳、现代 SaaS UI、独立设置窗口、远程图片偏好、文件夹树和启动响应优化。
+- 当前阶段只实现多账户 IMAP + SMTP 密码账户。
+- 本阶段不要实现 POP3、OAuth、统一收件箱、跨账户搜索、账户拖动排序、身份/别名、联系人、模板/签名扩展、托盘、通知聚合或后续阶段内容。
+
+三、不可破坏的总体架构边界
+
+- React 不得直接连接 SQLite、邮件服务器、任意文件系统或系统凭据库。
+- 所有网络、数据库、凭据、文件存储、安全渲染和后台 Worker 均位于 Rust。
+- React 只读取 Rust 返回的本地数据视图；所有写操作通过稳定业务命令完成。
+- 同步必须先落 SQLite，再发送只含账户、文件夹、消息 ID 和修订号的窄事件；前端收到事件后失效对应 TanStack Query，不通过事件推送完整邮件正文或账户配置。
+- 第三方协议类型不得泄漏到领域层、公共 DTO 或前端。禁止暴露 SQLx、async-imap、lettre、Tauri 内部类型。
+- 命令统一使用稳定错误 code、本地化参数和可选重试语义。不得向 UI、日志或错误详情暴露密码、Token、服务器原始响应、系统凭据引用或内部数据路径。
+- 功能依赖优先使用 MIT、Apache、BSD、ISC 等宽松许可证。新增其他许可证前必须向我确认；不得引入商业组件、Pro、Cloud 或付费扩展。
+
+Rust 当前只有 `src-tauri` 一个 Cargo package：
+
+- `src-tauri/src/core`：领域 DTO、稳定错误、ports，不依赖 Tauri、SQLx 或具体协议库。
+- `src-tauri/src/storage`：SQLx Repository 和内容寻址文件存储；迁移位于 `src-tauri/migrations`。
+- `src-tauri/src/protocols`：IMAP/SMTP/MIME/HTML 清洗及后续协议 Adapter。
+- `src-tauri/src/application`、`adapters`、`commands` 与运行时模块：Tauri Command/Event、Keyring、应用服务、窗口和后台运行时装配。
+
+唯一的 `Cargo.toml`、`Cargo.lock` 和 `target` 均位于 `src-tauri`。不要在仓库根目录重新创建 Cargo Workspace、Cargo manifest、lockfile、`target` 或 `crates/`。继续按照依赖方向拆分，不要把所有多账户逻辑堆进单个文件，也不要为了形式把每个小功能拆成新的 crate。
+
+四、数据、凭据和安全约定
+
+用户选择的可迁移数据目录包含：
+
+- content.sqlite
+- raw/
+- attachments/
+- cache/
+- .nextmail-data.json
+
+数据目录外的系统应用配置区保存：
+
+- 当前数据目录路径
+- 账户邮箱地址、显示名称、服务器、端口、TLS、认证方式
+- account_id 到匿名 data_slot_id 的映射
+- 主题、语言、窗口、本机阅读偏好、最近选择账户等本机设置
+
+密码只进入 Windows Credential Manager/macOS Keychain。不得降级为明文文件、SQLite、localStorage、sessionStorage 或前端 Zustand 持久化。
+
+必须继续满足：
+
+- 数据目录中不能新增账户邮箱、服务器、端口、密码、Token 或本机账户映射。
+- 邮件正文和邮件头天然可能包含邮箱地址，这不等同于账户配置泄漏。
+- 所有 Repository 访问必须用 account_id 解析到 data_slot_id，并验证消息、文件夹、附件、草稿、发件任务和待办操作属于该账户。
+- 跨账户传入其他账户的 ID 必须返回 not_found，不能读取或修改数据。
+- 不得清空、迁移、删除或重建我的真实数据目录，除非我明确要求。
+- 不要读取、打印、固化或提交我的真实密码、邮箱凭据、服务器响应和系统凭据内容。
+
+账户连接安全：
+
+- IMAP/SMTP 支持 TLS、STARTTLS 和明确确认后的非加密连接。
+- TLS 严格校验系统信任链，不提供常规“忽略证书错误”。
+- IMAP 测试只登录并读取 Capability，不修改邮箱。
+- SMTP 测试只连接和认证，不发送测试邮件。
+- IMAP 和 SMTP 都通过后才能保存账户或配置更新。
+- 任何保存步骤失败都必须进行补偿，不留下可见半成品账户或明文秘密。
+
+邮件安全：
+
+- MIME 和 RFC 2047 继续使用启用 full_encoding 的 mail-parser，不另写脆弱的字符集解析器。
+- HTML 邮件继续在 Rust 白名单清洗并在 sandbox iframe 中显示；不得为了多账户功能放宽 scripts、forms、same-origin、top-navigation 或危险 URL 限制。
+- 远程图片默认阻止，是否自动加载继续使用现有本机阅读偏好。
+
+五、前端与 UI 约定
+
+- 当前 UI 是现代、清爽、非拟物的 SaaS 风格，保持现有视觉基线，不在第六阶段重新设计。
+- Windows 使用自绘窗口控制；macOS 保留原生交通灯和 Overlay 标题栏。不得伪造 macOS 窗口按钮。
+- 主窗口保持沉浸式账户/文件夹栏、邮件列表、阅读器三栏结构；不恢复横跨窗口的旧顶部工具栏。
+- 设置保持独立窗口，并在“账户”分类中实现多账户管理。
+- 前端采用 shadcn 源码归属模式和 Radix 无样式交互原语；不得引入 shadcn 默认皮肤、Radix Themes 或商业 UI 库。
+- Tailwind v4 只服务设计系统和布局；颜色、圆角、阴影、动效、字号继续使用语义令牌。
+- 业务页面原则上消费 src/components/ui 中封装组件，不直接使用裸 input、select 或浏览器原生样式控件。语义 HTML 和可访问性需要的原生元素应封装在基础组件中。
+- 不要把所有组件写入一个 index.tsx；组件继续拆分到独立文件。
+- 不要把所有样式堆进 global.css；遵守现有 styles 结构和 Tailwind 规则。
+- 所有 UI 必须是生产级文案，不能显示任务说明、开发备注、调试字段、内部路径或仅适合开发者的信息。
+- 所有交互支持键盘、焦点、标签、ARIA 和基础对比度。
+- 保持系统/浅色/深色三种主题、强调色和中英文语言包。
+- 新增所有生产文案时必须同时维护 zh-CN 和 en-US；缺失文案回退英文。
+- 字体继续随应用打包，不依赖系统已安装字体；保留现有 Windows 中文字体视觉校准。
+- 单账户时不显示账户切换下拉；两个及以上账户才显示现有下拉切换器。
+- 不增加统一收件箱。导航始终以账户为第一层。
+
+六、启动与后台同步约定（必须保留）
+
+当前已经实现并验收“首帧优先”：
+
+- Tauri setup 只装配 AppState，不抢跑邮件同步和发件 Worker。
+- 主工作区完成至少一个绘制周期后，通过 start_background_services 启动后台服务。
+- 启动先显示本地 SQLite 数据，不等待网络。
+- 启动同步显示进度；自动 IDLE/轮询和后台同步保持无感，不展示进度条。
+- 文件夹元数据落库后立即通知前端；其后每批最多 100 封摘要落库后刷新列表，实现渐进显示。
+- MIME 解码、预览、附件分析和 HTML 清洗在顺序提交的 Tokio blocking worker 中执行，避免阻塞异步调度线程。
+
+第六阶段把单一 MailRuntime 改为 Supervisor Registry 时，必须保留以上行为：
+
+- UI 首帧前不得启动所有账户同步。
+- 首帧后恢复所有账户的后台 Supervisor。
+- 当前账户的启动/手动同步可以展示进度；非当前账户的后台同步不得打断阅读或弹出进度。
+- 切换账户只读取目标账户本地 SQLite 视图，不等待网络连接。
+- 同步继续先落库、后发窄事件，并逐批呈现。
+- React Strict Mode 或重复启动命令不得创建重复 Supervisor/SendWorker。
+
+七、第六阶段已经确认的产品决策
+
+必须完整遵循 docs/iterations/0006-multi-account.md。下面是不能自行改变的摘要：
+
+账户身份与重复：
+
+- account_id 是本机配置稳定 ID；data_slot_id 是可迁移数据目录中的匿名隔离 ID，二者不能混用。
+- 同一邮箱可用于不同服务器或用户名。
+- 完全相同的邮箱地址、IMAP 主机、端口和登录用户名组合不得重复添加。
+- 账户按创建时间保持稳定，本阶段不做拖动排序。
+- 最近选择账户保存在系统应用配置区；丢失时回退到第一个账户。
+
+账户移除：
+
+- 移除账户会停止该账户后台任务、关闭对应写信窗口、删除本机账户配置并清理系统凭据。
+- 匿名数据槽、邮件、附件和普通草稿默认保留，不做破坏性数据删除。
+- 有正在发送的任务或仍需写回服务器的 pending operation 时阻止移除，并给出清晰原因。
+- 仅有普通本地草稿不阻止移除。
+- 凭据清理失败不恢复已经移除的账户；保存不含邮箱和秘密的清理引用并在后续重试。
+
+编辑和重新认证：
+
+- 编辑连接可以预填邮箱、名称和服务器配置，永远不回填密码。
+- 配置或密码变更必须重新通过 IMAP 和 SMTP 双测试后才原子生效。
+- 凭据缺失或服务端明确认证失败才进入 reauth_required。
+- 网络、TLS 和临时服务错误不能误判为 reauth_required。
+- reauth_required 停止无意义的自动认证重试，但本地邮件保持可读；重新认证成功后无需重启即可恢复。
+
+Supervisor Registry：
+
+- SupervisorRegistry 维护 account_id -> AccountSupervisor。
+- 每个账户独立拥有唤醒、退避、启动同步状态、待办重放和 IDLE 生命周期。
+- 共享 MailRepository/SQLite 连接池，依靠 account_slot_id 隔离，不为每个账户重复打开数据库连接池。
+- 全局最多两个主动 IMAP 同步/写操作；同一账户保持串行。
+- IDLE 等待不占用主动同步名额。
+- 手动收取当前账户有较高优先级，但必须公平轮转，不能让后台账户长期饥饿。
+- 新增、更新、重新认证和移除账户都在运行期协调，不要求重启应用。
+- 移除时取消该账户 IDLE/退避，协议步骤最多等待 10 秒有界收尾；迟到事件通过账户代次丢弃。
+
+发件：
+
+- 账户内 FIFO，账户间公平调度。
+- 全局最多同时发送两封；同一账户一次一封。
+- 一个账户的超时、断网或认证失败不能阻塞其他账户。
+- 每个 send_job 继续绑定创建时的 account_slot_id 和不可变 MIME。
+
+配置事务：
+
+- accounts.json 升级为并发安全的多账户集合，增加单调修订号和待清理凭据引用。
+- 账户配置变更使用进程内串行写锁和原子文件替换。
+- 新增仍使用“连接验证 -> 匿名数据槽 -> 凭据 -> 配置”的补偿事务。
+- 更新密码时先写新临时凭据引用，再原子切换配置，最后清理旧引用；失败时旧配置和旧 Supervisor 必须继续可用。
+
+公共能力：
+
+- AccountRuntimeState：starting、ready、syncing、offline、retrying、reauth_required、removing、stopped。
+- AccountRuntimeSummary 包含 account_id、state、可选 error_code/retry_at 和 revision。
+- 实现添加、获取编辑草稿、更新连接、重新认证、移除影响、移除账户、运行状态列表和最近账户选择命令。
+- 事件保持窄边界：accounts-changed、account-runtime-status-changed、account-removing。
+- 事件不携带服务器配置、凭据或完整邮件数据。
+
+前端行为：
+
+- 切换账户立即清理文件夹、邮件选择和当前搜索，读取目标账户本地视图并保存最近选择。
+- 非当前账户事件只失效该账户缓存，不切换页面、不打断阅读、不显示进度条。
+- 账户菜单显示名称、邮箱和简洁运行状态；需要认证时明确提示。
+- 设置“账户”分类提供账户列表、添加、同步策略、文件夹映射、编辑、重新认证和移除。
+- 添加账户复用首次启动的发现、手动配置、双认证和非加密警告逻辑，不复制两套容易漂移的表单。
+- 移除当前账户后安全切换到剩余账户。
+- 移除最后一个账户后显示正式“添加账户”状态，但不能重新要求选择数据目录。
+
+八、开发与协作约定
+
+- 不做我指令之外的功能，不提前实现下一阶段。
+- 对当前阶段内可从代码和计划确定的普通实现细节，使用合理判断直接完成，不要为了微小细节频繁停下来询问。
+- 如果新增行为会改变数据删除语义、安全边界、账户事务、协议兼容性或产品范围，必须先向我确认。
+- 开始工具操作前给出简短进度说明；持续工作时不要长时间无反馈。
+- 先搜索和理解现有模块，再修改；优先使用 rg/rg --files。
+- 编辑文件使用 apply_patch；不要用脚本或 shell 写文件绕过补丁。
+- 保留用户已有未提交变更，不使用 git reset --hard、git checkout -- 或其他破坏性操作。
+- 不初始化新的 Git 仓库，不配置远程、不 push、不创建 PR/Release，除非我明确要求。
+- 每轮实现完成后先交给我使用 pnpm tauri dev 手动验收。
+- 未经我验收并明确说“提交”，不要自行 git commit。
+- 提交中不要包含临时 debug 文案、探针、日志、截图或诊断代码。
+
+依赖与工具：
+
+- Node.js 依赖统一用 pnpm。
+- 如果未来确实需要 Python 工具，统一用 uv；当前项目原则上不引入 Python 运行时。
+- 尽可能复用现有依赖和组件；新增依赖前检查许可证、维护状态、体积和是否真的必要。
+
+测试与构建：
+
+- 正式 Rust 单元/集成测试、前端单元/组件测试应长期保留，不要在测试完成后删除正式测试代码。
+- 临时探针、真实账户数据、临时凭据、临时目录、日志、截图和 coverage 需要清理。
+- dist、`src-tauri/target`、node_modules/.vite 等正常构建缓存和生成物默认保留，不要每轮清理，否则会导致 Rust 依赖重新构建。
+- 不要替我运行完整 pnpm build、cargo build、pnpm tauri build 或 Tauri bundle；我会使用 pnpm tauri dev 进行桌面联调。
+- Cargo 命令统一从 `src-tauri` 执行；自动验证优先运行与变更相关的 pnpm exec tsc --noEmit、pnpm test、定向 cargo test、cargo fmt --check 和定向 cargo clippy。
+- 不连接真实账户做自动测试，不向真实邮箱写入测试数据。协议测试使用测试 Adapter、进程内服务或临时数据目录。
+- 测试失败必须修复根因，不要放宽断言、关闭 lint 或用 allow 掩盖新问题。
+
+文档：
+
+- 每一次功能性变动都必须同步更新 docs。
+- 维护 docs/architecture.md、当前阶段文档和 docs/changes 下的新变更记录，并更新 docs/README.md 索引。
+- 出现需要长期保留理由的架构或安全取舍时新增 ADR；单纯实现细节不滥建 ADR。
+- 文档必须反映当前真实实现，不能把未实现能力写成已完成。
+
+九、建议的实施方式
+
+第六阶段计划已经确认，可以按文档中的八步实施顺序推进。为了降低一次性改动风险，可以在同一阶段内部形成可验证的垂直批次，但不要要求我逐个批准普通内部批次：
+
+1. 账户配置集合、修订号、串行原子更新、重复检测和凭据清理队列。
+2. 共享账户表单与添加/编辑/重新认证/移除用例。
+3. Supervisor Registry、账户级生命周期、共享 Repository 和主动网络并发限制。
+4. 多账户公平发件。
+5. Repository/Command 数据隔离审计。
+6. 主窗口账户查询、切换持久化和事件失效。
+7. 设置窗口账户管理 UI。
+8. 中英文、正式测试、文档和最终自检。
+
+在跨层字段或命令变动时，要一次性贯通领域类型、配置存储、Rust 用例、Command DTO、前端 API/types/query/UI、双语文案和测试，不要只改一层留下半成品。
+
+十、完成标准与交付方式
+
+完成时应达到 docs/iterations/0006-multi-account.md 的全部自动验证和手动验收标准，尤其是：
+
+- 可在设置中添加至少两个 IMAP/SMTP 密码账户。
+- 添加后无需重启即可开始后台同步。
+- 切换账户即时显示各自本地邮件，不等待网络。
+- 多账户同步、已读/星标/移动/草稿/发件不串数据。
+- 一个账户失败不影响其他账户。
+- 认证失效与普通网络错误正确区分。
+- 编辑配置失败时旧配置继续工作。
+- 移除安全停止后台任务并清理本机配置/凭据，但保留匿名本地数据。
+- 数据目录、SQLite、事件、日志和前端持久化中不出现账户密码或 Token。
+- 单账户 UI 不多出无意义下拉，多账户切换器和设置账户管理是生产级交互。
+- 保留现有快速启动、首帧后后台同步和渐进式列表刷新。
+
+实施完成后：
+
+1. 说明实际完成内容和关键取舍。
+2. 列出执行过的定向自动验证及结果，明确没有运行完整构建。
+3. 给出需要我在 pnpm tauri dev 中手动验证的重点步骤。
+4. 不要自行提交，等待我验收；只有我明确说“提交”后再创建 Git commit。
+
+现在请开始：检查工作区，完整阅读指定文档和当前实现，然后直接实施第六阶段多账户计划。

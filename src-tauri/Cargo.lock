@@ -2793,21 +2793,26 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 name = "nextmail"
 version = "0.1.0"
 dependencies = [
+ "ammonia",
  "async-imap",
  "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "futures-util",
  "hickory-resolver",
  "keyring",
  "lettre",
+ "mail-builder",
+ "mail-parser",
  "mime_guess",
- "nextmail-core",
- "nextmail-protocols",
- "nextmail-storage",
  "quick-xml 0.38.4",
  "reqwest 0.12.28",
  "rustls",
  "rustls-native-certs",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
  "sys-locale",
  "tauri",
  "tauri-build",
@@ -2815,50 +2820,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-rustls",
- "uuid",
-]
-
-[[package]]
-name = "nextmail-core"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "nextmail-protocols"
-version = "0.1.0"
-dependencies = [
- "ammonia",
- "async-imap",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "futures-util",
- "mail-builder",
- "mail-parser",
- "nextmail-core",
- "rustls",
- "rustls-native-certs",
- "tokio",
- "tokio-rustls",
-]
-
-[[package]]
-name = "nextmail-storage"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "mime_guess",
- "nextmail-core",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlx",
- "tempfile",
- "tokio",
  "uuid",
 ]
 

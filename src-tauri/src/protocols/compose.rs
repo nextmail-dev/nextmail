@@ -1,10 +1,10 @@
+use crate::core::{
+    CommandError, CommandResult, DraftContent, DraftRecipientFields, MessageAddress,
+};
 use chrono::Local;
 use mail_builder::{
     headers::{address::Address, raw::Raw},
     MessageBuilder,
-};
-use nextmail_core::{
-    CommandError, CommandResult, DraftContent, DraftRecipientFields, MessageAddress,
 };
 
 #[derive(Clone, Debug)]

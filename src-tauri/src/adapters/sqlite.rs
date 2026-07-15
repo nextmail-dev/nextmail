@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-pub use nextmail_storage::{
+pub use crate::storage::{
     create_account_slot, delete_account_slot, initialize_content_database,
     CONTENT_DATABASE_FILENAME,
 };

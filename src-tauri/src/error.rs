@@ -1,1 +1,1 @@
-pub use nextmail_core::{CommandError, CommandResult};
+pub use crate::core::{CommandError, CommandResult};

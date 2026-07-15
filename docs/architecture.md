@@ -6,12 +6,14 @@ NextMail 使用单个 Tauri 进程。React 仅通过稳定的 Tauri Command DTO 
 
 主窗口启动遵循“首帧和本地视图优先”顺序：Tauri `setup` 只装配状态，不启动邮件同步或发件 Worker；React 首先显示随 HTML 内嵌的中性加载层，再读取 Bootstrap、外观配置和 SQLite 本地视图。主工作区完成至少一个绘制周期后，通过幂等业务命令启动后台服务。同步不会作为进入主界面的前置条件，文件夹完成事件持续失效对应查询，使新文件夹、邮件摘要和正文随着 SQLite 落库逐步出现。
 
-Rust 代码使用 Cargo Workspace 分为：
+Rust 代码只使用 `src-tauri` 下的单一 Cargo package，避免仓库根目录和 Tauri 目录各自产生一套 `Cargo.lock` 与 `target`：
 
-- `crates/nextmail-core`：不依赖 Tauri、数据库和协议库的领域 DTO、稳定错误与 ports。
-- `crates/nextmail-storage`：SQLx Repository、嵌入式迁移和内容寻址文件存储。
-- `crates/nextmail-protocols`：IMAP 同步与写操作、MIME 解析/生成和 HTML 清洗；后续继续承载 POP3 Adapter。
-- `src-tauri`：首次启动用例、Keyring、自动发现、Command/Event 和 Worker 装配。
+- `src-tauri/src/core`：不依赖 Tauri、数据库和具体协议库的领域 DTO、稳定错误与 ports。
+- `src-tauri/src/storage`：SQLx Repository、内容寻址文件存储；嵌入式迁移位于 `src-tauri/migrations`。
+- `src-tauri/src/protocols`：IMAP 同步与写操作、MIME 解析/生成和 HTML 清洗；后续继续承载 POP3 Adapter。
+- `src-tauri/src/application`、`adapters`、`commands` 与运行时模块：首次启动用例、Keyring、自动发现、Command/Event、窗口和 Worker 装配。
+
+仓库根目录不放置 Cargo manifest、lockfile 或 Rust 构建目录。唯一的 `Cargo.toml`、`Cargo.lock` 和 `target` 均由 `src-tauri` 管理。
 
 协议库类型不得越过 Adapter。命令错误只返回稳定错误码、可本地化参数和是否可重试，不返回密码、服务器原始响应或内部堆栈。
 
@@ -23,16 +25,16 @@ Rust 代码使用 Cargo Workspace 分为：
 - `main`、`composer-*`、`settings` 继续使用独立 Capability。窗口控制只开放启动拖动、最小化、切换最大化和关闭；写信窗口因发送成功需要绕过关闭拦截，额外保留 `allow-destroy`。
 - 设置使用单例 `settings` WebView。重复打开只聚焦已有窗口；偏好变化由 Rust 持久化后发布窄事件，各窗口更新主题和语言，不共享 React 内存状态。
 
-### Rust 包拆分策略
+### Rust 模块拆分策略
 
-第二阶段已经引入 Cargo Workspace。包边界服务于独立依赖与测试隔离，不按每个页面或小功能创建 crate：
+NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src-tauri` package 内保持清晰模块：
 
-- `crates/nextmail-core`：纯 Rust 的领域模型、用例接口和稳定错误。
-- `crates/nextmail-protocols`：IMAP、POP3、SMTP 与 MIME Adapter。
-- `crates/nextmail-storage`：SQLite、原始邮件、附件和索引存储。
-- `src-tauri`：窗口、Capability、系统集成和 Command/Event 薄壳。
+- `core`：纯 Rust 的领域模型、用例接口和稳定错误。
+- `protocols`：IMAP、POP3、SMTP、MIME 和 HTML 安全 Adapter。
+- `storage`：SQLite、原始邮件、附件和索引存储。
+- Tauri 宿主模块：窗口、Capability、系统集成、Command/Event 和运行时装配。
 
-依赖方向保持为宿主和 Adapter 指向核心，核心不得依赖 Tauri、SQLx 或具体协议库。
+依赖方向仍保持为宿主和 Adapter 指向核心，核心不得依赖 Tauri、SQLx 或具体协议库。协议库与 SQLx 类型不得越过模块边界；模块级单元测试、公共 DTO 审查和受控可见性用于维持原有隔离。除非未来出现独立发布、独立版本或被其他二进制复用的实际需求，不再为形式上的分层创建 Cargo Workspace 或子 crate。
 
 ## 存储边界
 

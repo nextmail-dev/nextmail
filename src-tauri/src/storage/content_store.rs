@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use nextmail_core::{CommandError, CommandResult};
+use crate::core::{CommandError, CommandResult};
 use sha2::{Digest, Sha256};
 use tokio::fs;
 use uuid::Uuid;

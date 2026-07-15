@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::{CommandResult, ConnectionSecurity, MailboxRole, MessageAddress, SyncPolicy};
+use super::{CommandResult, ConnectionSecurity, MailboxRole, MessageAddress, SyncPolicy};
 
 #[derive(Clone, Debug)]
 pub struct ImapAccountConfig {

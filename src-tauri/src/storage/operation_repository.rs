@@ -1,4 +1,4 @@
-use nextmail_core::{
+use crate::core::{
     CommandError, CommandResult, MailboxRole, PendingOperationKind, PendingOperationStatus,
     PendingOperationSummary,
 };
@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::{now, MailRepository};
+use super::{now, MailRepository};
 
 #[derive(Clone, Debug)]
 pub struct PendingOperationWork {
@@ -858,10 +858,10 @@ fn storage_read_error(_: sqlx::Error) -> CommandError {
 
 #[cfg(test)]
 mod tests {
-    use nextmail_core::{MailSyncSink, MailboxRole, MessageAddress, RemoteMailbox, RemoteMessage};
+    use crate::core::{MailSyncSink, MailboxRole, MessageAddress, RemoteMailbox, RemoteMessage};
 
     use super::*;
-    use crate::{create_account_slot, initialize_content_database};
+    use crate::storage::{create_account_slot, initialize_content_database};
 
     async fn seeded_repository() -> (tempfile::TempDir, MailRepository, String, String, String) {
         let directory = tempfile::tempdir().unwrap();

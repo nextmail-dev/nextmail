@@ -12,6 +12,7 @@ NextMail 是面向 Windows 10 22H2+ x64 和 macOS 12+ Intel/Apple Silicon 的桌
 - 同步先落本地数据库，再发送只含 ID 和修订号的事件通知前端失效查询。
 - 邮件协议、存储、凭据、安全渲染、后台 Worker 和系统集成都在 Rust 侧。
 - 领域与应用层不暴露 SQLx、协议库或 Tauri 类型。
+- Rust 只使用 `src-tauri` 下的单一 Cargo package；`core`、`storage`、`protocols` 等职责通过内部模块隔离，仓库根目录不再维护 Cargo Workspace、lockfile 或 `target`。
 - 功能依赖优先使用 MIT、Apache、BSD、ISC 等宽松许可证，其他许可证需单独确认。
 
 前端基线为 React 19、TypeScript、Vite、TanStack Query、Zustand、react-i18next、Tailwind CSS 和基于 shadcn 结构自建的组件层。交互原语采用 Radix Primitives，编辑器使用开源 Tiptap/ProseMirror。

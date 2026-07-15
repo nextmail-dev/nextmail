@@ -1,4 +1,4 @@
-use nextmail_core::{
+use crate::core::{
     CommandError, CommandResult, DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem,
     DraftRecipientFields, DraftStatus, MessageAddress, MessageComposeAction, SendJobStatus,
     SendJobSummary,
@@ -6,7 +6,7 @@ use nextmail_core::{
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::{repository::now, MailRepository};
+use super::{repository::now, MailRepository};
 
 #[derive(Clone, Debug)]
 pub struct StoredDraftAttachment {
@@ -995,7 +995,7 @@ fn escape_html(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{create_account_slot, initialize_content_database};
+    use crate::storage::{create_account_slot, initialize_content_database};
 
     #[tokio::test]
     async fn imports_a_server_message_as_an_editable_local_draft() {

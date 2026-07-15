@@ -1,1 +1,1 @@
-pub use nextmail_core::*;
+pub use crate::core::*;

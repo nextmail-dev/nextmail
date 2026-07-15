@@ -7,14 +7,14 @@ use std::{
     time::Duration,
 };
 
-use nextmail_core::{
+use crate::core::{
     AccountManagementDetail, AttachmentSummary, CommandError, CommandResult, ImapAccountConfig,
     ImapSyncProvider, InboxWatchOutcome, MailSyncSink, MailboxRole, MailboxSummary, MessageDetail,
     MessageListPage, PendingOperationKind, PendingOperationSummary, RemoteOperation,
     RemoteOperationKind, SyncNotice, SyncObserver, SyncPhase, SyncPolicy, SyncProgress,
 };
-use nextmail_protocols::AsyncImapProvider;
-use nextmail_storage::MailRepository;
+use crate::protocols::AsyncImapProvider;
+use crate::storage::MailRepository;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{Mutex, Notify, OnceCell};
@@ -481,7 +481,7 @@ impl MailRuntime {
                     .ok_or_else(|| CommandError::new("message.raw_unavailable"))?
             }
         };
-        let content = nextmail_protocols::extract_attachment(&raw, part_index)?;
+        let content = crate::protocols::extract_attachment(&raw, part_index)?;
         repository
             .store_attachment_content(attachment_id, &content)
             .await
@@ -844,9 +844,7 @@ struct PendingOperationChangedEvent {
     status: String,
 }
 
-fn remote_operation(
-    work: &nextmail_storage::PendingOperationWork,
-) -> CommandResult<RemoteOperation> {
+fn remote_operation(work: &crate::storage::PendingOperationWork) -> CommandResult<RemoteOperation> {
     let value = work
         .payload
         .get("value")

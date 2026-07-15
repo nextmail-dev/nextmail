@@ -30,10 +30,13 @@
 - `changes/0021-mailbox-tree-scrollbar-and-list-date.md`：文件夹展开交互、邮件列表固定滚动槽与日期显示规则。
 - `changes/0022-windows-cjk-typography-calibration.md`：Windows 中文小字号、字重、灰阶对比与平台渲染校准。
 - `changes/0023-startup-responsive-progressive-sync.md`：首帧优先启动、后台服务延后、可见启动同步与渐进式本地视图刷新。
+- `changes/0024-single-tauri-rust-crate.md`：撤销根 Cargo Workspace，将核心、协议、存储、迁移和唯一构建缓存收敛到 `src-tauri`。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
+- `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。
 - `adr/0004-durable-imap-operation-queue.md`：持久化 IMAP 待办、冲突重放与安全 EXPUNGE 降级。
 - `adr/0005-platform-window-chrome.md`：Windows 自绘控制与 macOS 原生交通灯覆盖式标题栏的分平台决策。
+- `adr/0006-single-tauri-rust-crate.md`：使用单一 `src-tauri` Cargo package，并以内部模块维持 Rust 业务边界。
 - `third-party-notices.md`：当前随应用分发的字体及其来源与许可证说明。
 
 当架构或安全决策出现需要长期解释的取舍时，在 `adr/` 中新增 ADR；单纯实现细节不创建 ADR。

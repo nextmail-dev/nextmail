@@ -3,6 +3,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use crate::core::{
+    CommandError, CommandResult, ConnectionSecurity, ImapAccountConfig, ImapSyncProvider,
+    InboxWatchOutcome, MailSyncSink, MailboxRole, MessageAddress, RemoteAttachment, RemoteMailbox,
+    RemoteMessage, RemoteMessageState, RemoteOperation, RemoteOperationKind,
+    RemoteOperationOutcome, SyncNotice, SyncObserver, SyncPolicy,
+};
 use async_imap::{
     extensions::idle::IdleResponse,
     types::{Flag, NameAttribute},
@@ -12,12 +18,6 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::TryStreamExt;
 use mail_parser::{Address, Message, MessageParser, MimeHeaders};
-use nextmail_core::{
-    CommandError, CommandResult, ConnectionSecurity, ImapAccountConfig, ImapSyncProvider,
-    InboxWatchOutcome, MailSyncSink, MailboxRole, MessageAddress, RemoteAttachment, RemoteMailbox,
-    RemoteMessage, RemoteMessageState, RemoteOperation, RemoteOperationKind,
-    RemoteOperationOutcome, SyncNotice, SyncObserver, SyncPolicy,
-};
 use rustls::{pki_types::ServerName, ClientConfig, RootCertStore};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -25,7 +25,7 @@ use tokio::{
 };
 use tokio_rustls::TlsConnector;
 
-use crate::sanitize_mail_html;
+use super::sanitize_mail_html;
 
 const FETCH_BATCH_SIZE: usize = 100;
 

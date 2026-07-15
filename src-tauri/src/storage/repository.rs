@@ -4,12 +4,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use async_trait::async_trait;
-use nextmail_core::{
+use crate::core::{
     AttachmentSummary, CommandError, CommandResult, ContentAvailability, MailSyncSink, MailboxRole,
     MailboxSummary, MessageAddress, MessageDetail, MessageListItem, MessageListPage, RemoteMailbox,
     RemoteMessage, RemoteMessageState, StoredMailbox, StoredMessageLocation, SyncPolicy,
 };
+use async_trait::async_trait;
 use sqlx::{
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
@@ -17,7 +17,7 @@ use sqlx::{
 };
 use uuid::Uuid;
 
-use crate::ContentStore;
+use super::ContentStore;
 
 pub const CONTENT_DATABASE_FILENAME: &str = "content.sqlite";
 

@@ -2,10 +2,13 @@ mod adapters;
 mod application;
 mod commands;
 mod composer_runtime;
+pub mod core;
 mod domain;
 mod error;
 mod mail_runtime;
+pub mod protocols;
 mod state;
+pub mod storage;
 
 use tauri::Manager;
 

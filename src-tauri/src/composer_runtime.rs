@@ -7,14 +7,14 @@ use std::{
     time::Duration,
 };
 
-use lettre::{address::Envelope, Address};
-use nextmail_core::{
+use crate::core::{
     AccountSummary, CommandError, CommandResult, ComposerBootstrap, DraftAttachmentSummary,
     DraftContent, DraftDetail, DraftListItem, DraftRecipientFields, DraftStatus,
     LanguagePreference, MailboxRole, MessageAddress, MessageComposeAction, SendJobSummary,
 };
-use nextmail_protocols::{build_outgoing_message, OutgoingAttachment};
-use nextmail_storage::{CreateMessageActionDraftRequest, MailRepository, SaveDraftRequest};
+use crate::protocols::{build_outgoing_message, OutgoingAttachment};
+use crate::storage::{CreateMessageActionDraftRequest, MailRepository, SaveDraftRequest};
+use lettre::{address::Envelope, Address};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::{Notify, OnceCell};
@@ -152,14 +152,14 @@ impl ComposerRuntime {
             .mail
             .get_message_detail(account_id, message_id, None)
             .await?;
-        if detail.body_availability != nextmail_core::ContentAvailability::Available {
+        if detail.body_availability != crate::core::ContentAvailability::Available {
             detail = self
                 .mail
                 .request_message_body(account_id, message_id, None)
                 .await?;
         }
         for attachment in detail.attachments {
-            if attachment.availability != nextmail_core::ContentAvailability::Available {
+            if attachment.availability != crate::core::ContentAvailability::Available {
                 self.mail
                     .request_attachment(account_id, &attachment.id)
                     .await?;
@@ -184,7 +184,7 @@ impl ComposerRuntime {
             .mail
             .get_message_detail(account_id, message_id, None)
             .await?;
-        if detail.body_availability != nextmail_core::ContentAvailability::Available {
+        if detail.body_availability != crate::core::ContentAvailability::Available {
             detail = self
                 .mail
                 .request_message_body(account_id, message_id, None)
@@ -192,7 +192,7 @@ impl ComposerRuntime {
         }
         if action == MessageComposeAction::Forward {
             for attachment in &detail.attachments {
-                if attachment.availability != nextmail_core::ContentAvailability::Available {
+                if attachment.availability != crate::core::ContentAvailability::Available {
                     self.mail
                         .request_attachment(account_id, &attachment.id)
                         .await?;
@@ -690,7 +690,7 @@ fn add_draft_identity_headers(
 
 fn add_threading_headers(
     mut raw: Vec<u8>,
-    threading: &nextmail_storage::DraftThreadingHeaders,
+    threading: &crate::storage::DraftThreadingHeaders,
 ) -> CommandResult<Vec<u8>> {
     let Some(in_reply_to) = threading
         .in_reply_to
@@ -743,7 +743,7 @@ struct SendJobChangedEvent {
     account_id: String,
     draft_id: String,
     job_id: String,
-    status: nextmail_core::SendJobStatus,
+    status: crate::core::SendJobStatus,
     subject: String,
     revision: u64,
 }
@@ -751,7 +751,7 @@ struct SendJobChangedEvent {
 #[cfg(test)]
 mod tests {
     use super::{add_draft_identity_headers, add_threading_headers};
-    use nextmail_storage::DraftThreadingHeaders;
+    use crate::storage::DraftThreadingHeaders;
 
     #[test]
     fn adds_stable_draft_identity_before_the_message_body() {
