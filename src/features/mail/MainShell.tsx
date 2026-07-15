@@ -158,7 +158,7 @@ export function MainShell({ accounts }: MainShellProps) {
   return (
     <AppShell
       className="grid overflow-hidden bg-card"
-      style={{ gridTemplateColumns: `${visibleFolderWidth}px 6px minmax(0,1fr)` }}
+      style={{ gridTemplateColumns: `${visibleFolderWidth}px 1px minmax(0,1fr)` }}
     >
       <Page className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] bg-sidebar">
         <AccountSwitcher
@@ -212,7 +212,7 @@ export function MainShell({ accounts }: MainShellProps) {
         collapseLabel={t("mail.collapseFolderPane")}
         expandLabel={t("mail.expandFolderPane")}
       />
-      <Page className="grid min-h-0 bg-card" style={{ gridTemplateColumns: `${messagePaneWidth}px 6px minmax(360px,1fr)` }}>
+      <Page className="grid min-h-0 bg-card" style={{ gridTemplateColumns: `${messagePaneWidth}px 1px minmax(360px,1fr)` }}>
         <Page className="flex min-h-0 flex-col bg-card">
           <MessageListPane
             accountId={selectedAccountId}

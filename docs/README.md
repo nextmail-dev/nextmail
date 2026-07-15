@@ -25,6 +25,7 @@
 - `changes/0016-ui-refactor-regressions.md`：折叠侧栏尺寸、无痕拖拽条和设置白屏/关闭回归修复。
 - `changes/0017-settings-window-lifecycle-fix.md`：设置窗口异步创建生命周期修复。
 - `changes/0018-sidebar-actions-and-resize-affordance.md`：侧栏收取/设置入口归位及主题自适应拖拽提示。
+- `changes/0019-desktop-polish-and-local-send-time.md`：成功通知层级、发件本机时区、连续分栏与紧凑窗口控制区修复。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。
 - `adr/0004-durable-imap-operation-queue.md`：持久化 IMAP 待办、冲突重放与安全 EXPUNGE 降级。

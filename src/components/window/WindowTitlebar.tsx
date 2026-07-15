@@ -79,7 +79,7 @@ function WindowControl({
     <button
       type="button"
       className={cn(
-        "grid h-full w-11 place-items-center border-0 bg-transparent text-muted-foreground outline-none transition-colors hover:bg-foreground/7 hover:text-foreground focus-visible:bg-foreground/7 focus-visible:text-foreground",
+        "grid h-full w-10 place-items-center border-0 bg-transparent text-muted-foreground outline-none transition-colors hover:bg-foreground/7 hover:text-foreground focus-visible:bg-foreground/7 focus-visible:text-foreground",
         danger && "hover:bg-[#e5484d] hover:text-white focus-visible:bg-[#e5484d] focus-visible:text-white",
       )}
       aria-label={label}

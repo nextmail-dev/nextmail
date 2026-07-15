@@ -7,7 +7,7 @@
 }
 
 :root {
-  --titlebar-height: 40px;
+  --titlebar-height: 34px;
   --shell-sidebar-width: 250px;
 }
 
@@ -46,7 +46,7 @@ body {
 }
 
 .window-titlebar--mac > span {
-  padding-left: 78px;
+  padding-left: 68px;
 }
 
 ::-webkit-scrollbar {

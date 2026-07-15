@@ -1,4 +1,8 @@
-use mail_builder::{headers::address::Address, MessageBuilder};
+use chrono::Local;
+use mail_builder::{
+    headers::{address::Address, raw::Raw},
+    MessageBuilder,
+};
 use nextmail_core::{
     CommandError, CommandResult, DraftContent, DraftRecipientFields, MessageAddress,
 };
@@ -20,6 +24,7 @@ pub fn build_outgoing_message(
     let mut builder = MessageBuilder::new()
         .from(address(sender))
         .subject(subject.to_owned())
+        .header("Date", Raw::new(Local::now().to_rfc2822()))
         .text_body(content.plain_text.clone())
         .html_body(content.html.clone());
 
@@ -103,5 +108,12 @@ mod tests {
         let raw_text = String::from_utf8_lossy(&raw).to_ascii_lowercase();
         assert!(!raw_text.contains("\r\nbcc:"));
         assert!(!raw_text.contains("hidden@example.com"));
+
+        let date_header = String::from_utf8_lossy(&raw)
+            .lines()
+            .find(|line| line.starts_with("Date: "))
+            .expect("generated MIME must contain a Date header")
+            .to_owned();
+        assert!(date_header.ends_with(&Local::now().format("%z").to_string()));
     }
 }

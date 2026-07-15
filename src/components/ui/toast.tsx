@@ -1,4 +1,5 @@
 import { CheckCircle2, X } from "lucide-react";
+import { createPortal } from "react-dom";
 
 import { Button } from "./button";
 import { Inline, Stack } from "./layout";
@@ -12,9 +13,9 @@ interface ToastProps {
 }
 
 export function Toast({ title, description, closeLabel, onClose }: ToastProps) {
-  return (
+  return createPortal(
     <aside
-      className="fixed top-4 right-4 z-[70] w-[min(22rem,calc(100vw-2rem))] rounded-lg bg-popover p-3.5 text-popover-foreground shadow-[0_20px_60px_rgb(15_23_42/0.2)]"
+      className="fixed top-[calc(var(--titlebar-height)+0.75rem)] right-4 z-[120] w-[min(22rem,calc(100vw-2rem))] rounded-lg bg-popover p-3.5 text-popover-foreground shadow-[0_20px_60px_rgb(15_23_42/0.2)]"
       role="status"
       aria-live="polite"
     >
@@ -28,6 +29,7 @@ export function Toast({ title, description, closeLabel, onClose }: ToastProps) {
           <X size={14} />
         </Button>
       </Inline>
-    </aside>
+    </aside>,
+    document.body,
   );
 }

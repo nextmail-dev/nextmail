@@ -246,7 +246,7 @@ impl ComposerRuntime {
         let builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true)
-            .traffic_light_position(tauri::LogicalPosition::new(15.0, 17.0));
+            .traffic_light_position(tauri::LogicalPosition::new(12.0, 11.0));
         builder
             .build()
             .map_err(|_| CommandError::new("composer.window_create_failed"))?;

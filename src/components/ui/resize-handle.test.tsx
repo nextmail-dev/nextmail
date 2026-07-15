@@ -17,7 +17,10 @@ describe("ResizeHandle", () => {
 
     const separator = screen.getByRole("separator", { name: "Resize pane" });
     const rail = separator.querySelector("span");
+    expect(separator).toHaveClass("w-3", "-translate-x-1/2");
     expect(rail).toHaveClass(
+      "inset-y-0",
+      "w-px",
       "bg-foreground/20",
       "opacity-0",
       "group-hover:opacity-100",

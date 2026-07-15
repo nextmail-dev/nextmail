@@ -71,7 +71,7 @@ export function ResizeHandle({
       aria-valuenow={collapsed ? 0 : value}
       tabIndex={0}
       className={cn(
-        "group relative z-10 flex h-full cursor-col-resize touch-none items-center justify-center bg-transparent outline-none",
+        "group relative left-1/2 z-20 flex h-full w-3 -translate-x-1/2 cursor-col-resize touch-none items-center justify-center bg-transparent outline-none",
         className,
       )}
       onPointerDown={handlePointerDown}
@@ -80,7 +80,7 @@ export function ResizeHandle({
       onPointerCancel={handlePointerUp}
       onKeyDown={handleKeyDown}
     >
-      <span className="pointer-events-none absolute h-12 w-1 rounded-full bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
+      <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
       {onCollapsedChange ? (
         <Button
           variant="secondary"

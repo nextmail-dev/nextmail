@@ -2835,6 +2835,7 @@ dependencies = [
  "async-imap",
  "async-trait",
  "base64 0.22.1",
+ "chrono",
  "futures-util",
  "mail-builder",
  "mail-parser",
