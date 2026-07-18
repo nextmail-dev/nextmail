@@ -34,6 +34,7 @@
 - `changes/0024-single-tauri-rust-crate.md`：撤销根 Cargo Workspace，将核心、协议、存储、迁移和唯一构建缓存收敛到 `src-tauri`。
 - `changes/0025-multi-account.md`：多账户配置事务、Supervisor Registry、公平发件、数据隔离和账户管理界面。
 - `changes/0026-system-font-and-attachment-experience.md`：系统原生字体、紧凑附件区域、安全下载后打开和另存为。
+- `changes/0027-theme-color-palette.md`：设置页“主题色”圆点色板、扩展配色和键盘可访问性。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。

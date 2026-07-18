@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { api } from "@/app/api";
 import i18n from "@/app/i18n";
 import { SettingsApp } from "./SettingsApp";
 
@@ -48,7 +49,7 @@ vi.mock("@/app/api", () => ({
       autoLoadRemoteImages: false,
       autoOpenDownloadedAttachments: true,
     }),
-    setAppearancePreferences: vi.fn(),
+    setAppearancePreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
     setReadingPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
   },
   normalizeCommandError: vi.fn(() => ({ code: "common.unexpected_error", params: {}, retryable: false })),
@@ -57,6 +58,8 @@ vi.mock("@/app/api", () => ({
 beforeAll(async () => {
   await i18n.changeLanguage("en-US");
 });
+
+afterEach(cleanup);
 
 describe("SettingsApp", () => {
   it("renders the independent settings shell after loading preferences and accounts", async () => {
@@ -86,6 +89,30 @@ describe("SettingsApp", () => {
     expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
     expect(screen.getByText("Open attachments after downloading")).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox")[1]).toBeChecked();
+  });
+
+  it("offers an accessible theme-color palette instead of a select", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SettingsApp />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Appearance" }));
+    expect(screen.getByText("Theme color")).toBeInTheDocument();
+    expect(screen.getAllByRole("radio")).toHaveLength(10);
+    expect(screen.getByRole("radio", { name: "Blue" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Orange" }));
+    await waitFor(() => {
+      const calls = vi.mocked(api.setAppearancePreferences).mock.calls;
+      expect(calls[calls.length - 1]?.[0]).toEqual({
+        theme: "system",
+        accentColor: "#ea580c",
+        language: "en-US",
+      });
+    });
   });
 
   it("renders the multi-account manager in the Accounts category", async () => {

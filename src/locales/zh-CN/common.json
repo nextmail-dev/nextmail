@@ -24,16 +24,23 @@
     "appearance": "外观",
     "theme": "主题",
     "language": "语言",
-    "accent": "强调色",
+    "themeColor": "主题色",
     "system": "跟随系统",
     "light": "浅色",
     "dark": "深色",
     "chinese": "简体中文",
     "english": "English",
     "blue": "蓝色",
-    "violet": "紫色",
+    "indigo": "靛蓝",
+    "violet": "紫罗兰",
+    "purple": "紫色",
     "teal": "青色",
-    "rose": "玫红"
+    "rose": "玫红",
+    "red": "红色",
+    "orange": "橙色",
+    "amber": "琥珀色",
+    "green": "绿色",
+    "customColor": "当前自定义颜色"
   },
   "onboarding": {
     "progressLabel": "首次设置进度",
@@ -249,7 +256,7 @@
     },
     "categoryDescription": {
       "general": "设置界面语言与通用使用偏好。",
-      "appearance": "调整界面主题和强调色。",
+      "appearance": "调整界面模式和主题色。",
       "accounts": "添加、切换并管理各邮件账户的连接和同步。",
       "reading": "管理邮件正文与远程图片的阅读偏好。",
       "composer": "管理默认写信行为和编辑器偏好。",
@@ -417,7 +424,7 @@
     "send.smtp_authentication_failed": "SMTP 认证失败，请在账户管理中重新验证账户。",
     "send.smtp_rejected": "发件服务器拒绝了这封邮件。",
     "send.mime_build_failed": "无法生成标准邮件内容，请检查正文和附件后重试。",
-    "preferences.accent_invalid": "强调色格式无效。",
+    "preferences.accent_invalid": "主题色格式无效。",
     "common.unexpected_error": "操作未能完成，请重试。"
   }
 }

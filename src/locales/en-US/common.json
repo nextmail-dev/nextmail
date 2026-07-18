@@ -24,16 +24,23 @@
     "appearance": "Appearance",
     "theme": "Theme",
     "language": "Language",
-    "accent": "Accent color",
+    "themeColor": "Theme color",
     "system": "Use system setting",
     "light": "Light",
     "dark": "Dark",
     "chinese": "简体中文",
     "english": "English",
     "blue": "Blue",
+    "indigo": "Indigo",
     "violet": "Violet",
+    "purple": "Purple",
     "teal": "Teal",
-    "rose": "Rose"
+    "rose": "Rose",
+    "red": "Red",
+    "orange": "Orange",
+    "amber": "Amber",
+    "green": "Green",
+    "customColor": "Current custom color"
   },
   "onboarding": {
     "progressLabel": "Setup progress",
@@ -249,7 +256,7 @@
     },
     "categoryDescription": {
       "general": "Choose the interface language and general behavior.",
-      "appearance": "Adjust the interface theme and accent color.",
+      "appearance": "Adjust the interface mode and theme color.",
       "accounts": "Add, switch, and manage account connections and synchronization.",
       "reading": "Manage reading and remote-image preferences.",
       "composer": "Manage default composing and editor preferences.",
@@ -417,7 +424,7 @@
     "send.smtp_authentication_failed": "SMTP authentication failed. Revalidate the account in account management.",
     "send.smtp_rejected": "The outgoing server rejected this message.",
     "send.mime_build_failed": "A standard email message could not be generated. Check the body and attachments and try again.",
-    "preferences.accent_invalid": "The accent color is invalid.",
+    "preferences.accent_invalid": "The theme color is invalid.",
     "common.unexpected_error": "The operation could not be completed. Please try again."
   }
 }

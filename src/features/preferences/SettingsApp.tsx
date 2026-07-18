@@ -28,6 +28,7 @@ import { AppShell, Inline, Page, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SelectField } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { ThemeColorPicker, type ThemeColorOption } from "@/components/ui/theme-color-picker";
 import { Heading, LabelText, Text } from "@/components/ui/typography";
 
 type SettingsCategory =
@@ -50,6 +51,19 @@ const categories: Array<{ id: SettingsCategory; icon: typeof Languages }> = [
   { id: "advanced", icon: SlidersHorizontal },
   { id: "about", icon: Info },
 ];
+
+const themeColors = [
+  { value: "#2563eb", name: "blue" },
+  { value: "#4f46e5", name: "indigo" },
+  { value: "#7c3aed", name: "violet" },
+  { value: "#9333ea", name: "purple" },
+  { value: "#d13c68", name: "rose" },
+  { value: "#dc2626", name: "red" },
+  { value: "#ea580c", name: "orange" },
+  { value: "#d97706", name: "amber" },
+  { value: "#16a34a", name: "green" },
+  { value: "#0f8a7b", name: "teal" },
+] as const;
 
 export function SettingsApp() {
   const { t } = useTranslation();
@@ -211,6 +225,13 @@ function SettingsContent({
     );
   }
   if (category === "appearance") {
+    const colorOptions: ThemeColorOption[] = themeColors.map((color) => ({
+      value: color.value,
+      label: t(`preferences.${color.name}`),
+    }));
+    if (!colorOptions.some((option) => option.value.toLowerCase() === preferences.accentColor.toLowerCase())) {
+      colorOptions.push({ value: preferences.accentColor, label: t("preferences.customColor") });
+    }
     return (
       <SettingsSection category={category}>
         <SelectField
@@ -223,15 +244,10 @@ function SettingsContent({
           ]}
           onValueChange={(theme) => onChange({ ...preferences, theme: theme as ThemePreference })}
         />
-        <SelectField
-          label={t("preferences.accent")}
+        <ThemeColorPicker
+          label={t("preferences.themeColor")}
           value={preferences.accentColor}
-          options={[
-            { value: "#2563eb", label: t("preferences.blue") },
-            { value: "#7c3aed", label: t("preferences.violet") },
-            { value: "#0f8a7b", label: t("preferences.teal") },
-            { value: "#d13c68", label: t("preferences.rose") },
-          ]}
+          options={colorOptions}
           onValueChange={(accentColor) => onChange({ ...preferences, accentColor })}
         />
       </SettingsSection>
