@@ -18,8 +18,10 @@ use crate::protocols::AsyncImapProvider;
 use crate::storage::MailRepository;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_dialog::DialogExt;
 use tokio::sync::{Notify, OnceCell, Semaphore};
 
+use crate::adapters::{open_prepared_attachment, AttachmentOpener, SystemAttachmentOpener};
 use crate::application::AppService;
 
 pub struct MailRuntime {
@@ -31,6 +33,7 @@ pub struct MailRuntime {
     runtime_states: RwLock<HashMap<String, AccountRuntimeSummary>>,
     supervisors: RwLock<HashMap<String, Arc<AccountSupervisor>>>,
     provider: Arc<dyn ImapSyncProvider>,
+    attachment_opener: Arc<dyn AttachmentOpener>,
     network_limit: Arc<Semaphore>,
     next_generation: AtomicU64,
     started: AtomicBool,
@@ -47,6 +50,7 @@ impl MailRuntime {
             runtime_states: RwLock::new(HashMap::new()),
             supervisors: RwLock::new(HashMap::new()),
             provider: Arc::new(AsyncImapProvider),
+            attachment_opener: Arc::new(SystemAttachmentOpener),
             network_limit: Arc::new(Semaphore::new(2)),
             next_generation: AtomicU64::new(1),
             started: AtomicBool::new(false),
@@ -652,9 +656,15 @@ impl MailRuntime {
         account_id: &str,
         attachment_id: &str,
     ) -> CommandResult<AttachmentSummary> {
-        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
+        let current = repository
+            .attachment_summary(&account.data_slot_id, attachment_id)
+            .await?;
+        if current.availability == crate::core::ContentAvailability::Available {
+            return Ok(current);
+        }
+        self.ensure_account_writable(account_id)?;
         let (message_id, part_index) = repository
             .attachment_context(&account.data_slot_id, attachment_id)
             .await?;
@@ -676,6 +686,73 @@ impl MailRuntime {
         repository
             .store_attachment_content(&account.data_slot_id, attachment_id, &content)
             .await
+    }
+
+    pub async fn open_message_attachment(
+        &self,
+        account_id: &str,
+        attachment_id: &str,
+    ) -> CommandResult<()> {
+        let prepared = self
+            .prepare_message_attachment(account_id, attachment_id)
+            .await?;
+        open_prepared_attachment(self.attachment_opener.as_ref(), &prepared)
+    }
+
+    pub async fn save_message_attachment_as(
+        &self,
+        account_id: &str,
+        attachment_id: &str,
+    ) -> CommandResult<bool> {
+        let prepared = self
+            .prepare_message_attachment(account_id, attachment_id)
+            .await?;
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.app
+            .dialog()
+            .file()
+            .set_file_name(&prepared.file_name)
+            .save_file(move |path| {
+                let _ = sender.send(path);
+            });
+        let selected = receiver
+            .await
+            .map_err(|_| CommandError::new("attachment.save_dialog_failed"))?;
+        let Some(selected) = selected else {
+            return Ok(false);
+        };
+        let target = selected
+            .into_path()
+            .map_err(|_| CommandError::new("attachment.save_path_invalid"))?;
+        if target == prepared.path {
+            return Ok(true);
+        }
+        tokio::fs::copy(&prepared.path, target)
+            .await
+            .map_err(|_| CommandError::new("attachment.save_failed"))?;
+        Ok(true)
+    }
+
+    async fn prepare_message_attachment(
+        &self,
+        account_id: &str,
+        attachment_id: &str,
+    ) -> CommandResult<crate::storage::PreparedAttachmentFile> {
+        let account = self.service.account_record(account_id)?;
+        let repository = self.repository().await?;
+        match repository
+            .prepare_attachment_file(&account.data_slot_id, attachment_id)
+            .await
+        {
+            Ok(prepared) => Ok(prepared),
+            Err(error) if error.code == "attachment.content_unavailable" => {
+                self.request_attachment(account_id, attachment_id).await?;
+                repository
+                    .prepare_attachment_file(&account.data_slot_id, attachment_id)
+                    .await
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn fetch_and_store_message(

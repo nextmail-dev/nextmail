@@ -68,6 +68,8 @@ pub fn run() {
             commands::request_raw_message,
             commands::request_message_body,
             commands::request_attachment,
+            commands::open_message_attachment,
+            commands::save_message_attachment_as,
             commands::open_composer,
             commands::list_drafts,
             commands::open_existing_composer,

@@ -32,6 +32,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Heading, LabelText, Text } from "@/components/ui/typography";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SafeMailFrame } from "./SafeMailFrame";
+import { MessageAttachment } from "./MessageAttachment";
+import { activateMessageAttachment } from "./message-attachment-actions";
 
 export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMessageRemoved }: {
   accountId: string;
@@ -56,8 +58,20 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
     enabled: Boolean(accountId && mailboxId && messageId),
   });
   const attachmentMutation = useMutation({
-    mutationFn: (attachmentId: string) => api.requestAttachment(accountId, attachmentId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["message", accountId, messageId] }),
+    mutationFn: async (attachment: AttachmentSummary) => {
+      const autoOpenAfterDownload = attachment.availability === "available"
+        ? true
+        : (readingPreferences.data ?? await api.getReadingPreferences()).autoOpenDownloadedAttachments;
+      await activateMessageAttachment(attachment, autoOpenAfterDownload, {
+        download: (attachmentId) => api.requestAttachment(accountId, attachmentId),
+        open: (attachmentId) => api.openMessageAttachment(accountId, attachmentId),
+      });
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["message", accountId, mailboxId, messageId] }),
+  });
+  const saveAttachmentMutation = useMutation({
+    mutationFn: (attachment: AttachmentSummary) => api.saveMessageAttachmentAs(accountId, attachment.id),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["message", accountId, mailboxId, messageId] }),
   });
   const bodyMutation = useMutation({
     mutationFn: () => api.requestMessageBody(accountId, messageId, mailboxId),
@@ -96,7 +110,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
 
   const message = query.data;
   const allowRemoteImages = remoteImagesAllowed || readingPreferences.data?.autoLoadRemoteImages === true;
-  const operationError = bodyMutation.error ?? rawMutation.error ?? attachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
+  const operationError = bodyMutation.error ?? rawMutation.error ?? attachmentMutation.error ?? saveAttachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
   const normalizedOperationError = operationError ? normalizeCommandError(operationError) : null;
   const date = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(message.receivedAt * 1000));
   const sender = message.from[0];
@@ -205,15 +219,17 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
       </Stack>
 
       {message.attachments.length ? (
-        <Stack className="mx-8 mb-6 rounded-lg bg-muted/60 p-4" gap="sm">
+        <Stack className="mx-5 mt-2 mb-4 rounded-lg bg-muted/60 p-3" gap="sm">
           <Inline><Paperclip size={15} /><LabelText>{t("mail.attachments")}</LabelText></Inline>
-          <Inline className="flex-wrap">
+          <Inline className="flex-wrap gap-1.5">
             {message.attachments.map((attachment) => (
-              <AttachmentButton
+              <MessageAttachment
                 key={attachment.id}
                 attachment={attachment}
-                loading={attachmentMutation.isPending && attachmentMutation.variables === attachment.id}
-                onClick={() => attachmentMutation.mutate(attachment.id)}
+                opening={attachmentMutation.isPending && attachmentMutation.variables?.id === attachment.id}
+                saving={saveAttachmentMutation.isPending && saveAttachmentMutation.variables?.id === attachment.id}
+                onOpen={() => attachmentMutation.mutate(attachment)}
+                onSaveAs={() => saveAttachmentMutation.mutate(attachment)}
               />
             ))}
           </Inline>
@@ -281,24 +297,6 @@ function MailboxActionMenu({ icon, label, mailboxes, onSelect }: {
   );
 }
 
-function AttachmentButton({ attachment, loading, onClick }: { attachment: AttachmentSummary; loading: boolean; onClick: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <Button variant="secondary" loading={loading} disabled={attachment.availability === "available"} title={attachment.availability === "available" ? t("mail.attachmentReady") : undefined} onClick={onClick}>
-      <Download size={14} />
-      {attachment.fileName}
-      <Text className="text-[length:var(--ui-font-caption)]">{formatBytes(attachment.size)}</Text>
-      {attachment.availability === "available" ? t("mail.downloaded") : null}
-    </Button>
-  );
-}
-
 function formatAddresses(addresses: MessageAddress[]) {
   return addresses.map((address) => address.name || address.email).join(", ") || "—";
-}
-
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }

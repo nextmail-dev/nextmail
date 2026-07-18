@@ -121,6 +121,10 @@ export const api = {
     invoke<string>("request_raw_message", { accountId, messageId }),
   requestAttachment: (accountId: string, attachmentId: string) =>
     invoke<AttachmentSummary>("request_attachment", { accountId, attachmentId }),
+  openMessageAttachment: (accountId: string, attachmentId: string) =>
+    invoke<void>("open_message_attachment", { accountId, attachmentId }),
+  saveMessageAttachmentAs: (accountId: string, attachmentId: string) =>
+    invoke<boolean>("save_message_attachment_as", { accountId, attachmentId }),
   openComposer: (accountId: string) =>
     invoke<string>("open_composer", { accountId }),
   listDrafts: (accountId: string) =>

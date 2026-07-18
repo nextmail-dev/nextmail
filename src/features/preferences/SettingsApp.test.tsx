@@ -44,7 +44,10 @@ vi.mock("@/app/api", () => ({
       canRemove: true,
     }),
     getAppAbout: vi.fn().mockResolvedValue({ name: "NextMail", version: "0.1.0" }),
-    getReadingPreferences: vi.fn().mockResolvedValue({ autoLoadRemoteImages: false }),
+    getReadingPreferences: vi.fn().mockResolvedValue({
+      autoLoadRemoteImages: false,
+      autoOpenDownloadedAttachments: true,
+    }),
     setAppearancePreferences: vi.fn(),
     setReadingPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
   },
@@ -80,7 +83,9 @@ describe("SettingsApp", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Reading" }));
     expect(screen.getByText("Automatically load remote images")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
+    expect(screen.getByText("Open attachments after downloading")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")[1]).toBeChecked();
   });
 
   it("renders the multi-account manager in the Accounts category", async () => {

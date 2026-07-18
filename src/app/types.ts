@@ -55,6 +55,7 @@ export interface AppearancePreferences {
 
 export interface ReadingPreferences {
   autoLoadRemoteImages: boolean;
+  autoOpenDownloadedAttachments: boolean;
 }
 
 export interface ServerConfig {

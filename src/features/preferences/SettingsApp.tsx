@@ -256,9 +256,17 @@ function SettingsContent({
           <Checkbox
             checked={readingPreferences.autoLoadRemoteImages}
             label={t("settings.autoLoadRemoteImages")}
-            onCheckedChange={(autoLoadRemoteImages) => onReadingChange({ autoLoadRemoteImages })}
+            onCheckedChange={(autoLoadRemoteImages) => onReadingChange({ ...readingPreferences, autoLoadRemoteImages })}
           />
           <Text className="pl-[28px] text-xs">{t("settings.autoLoadRemoteImagesDescription")}</Text>
+        </Stack>
+        <Stack className="rounded-lg bg-muted/60 p-5" gap="sm">
+          <Checkbox
+            checked={readingPreferences.autoOpenDownloadedAttachments}
+            label={t("settings.autoOpenDownloadedAttachments")}
+            onCheckedChange={(autoOpenDownloadedAttachments) => onReadingChange({ ...readingPreferences, autoOpenDownloadedAttachments })}
+          />
+          <Text className="pl-[28px] text-xs">{t("settings.autoOpenDownloadedAttachmentsDescription")}</Text>
         </Stack>
         {error ? (
           <Alert tone="danger" title={t("errors.title")}>

@@ -17,7 +17,7 @@ use sqlx::{
 };
 use uuid::Uuid;
 
-use super::ContentStore;
+use super::{ContentStore, PreparedAttachmentFile};
 
 pub const CONTENT_DATABASE_FILENAME: &str = "content.sqlite";
 
@@ -364,6 +364,59 @@ impl MailRepository {
             row.try_get::<i64, _>("part_index")
                 .map_err(storage_read_error)? as u32,
         ))
+    }
+
+    pub async fn attachment_summary(
+        &self,
+        account_slot_id: &str,
+        attachment_id: &str,
+    ) -> CommandResult<AttachmentSummary> {
+        let row = sqlx::query(
+            "SELECT a.id, a.file_name, a.content_type, a.size, a.availability FROM attachments a \
+             JOIN messages m ON m.id = a.message_id WHERE a.id = ? AND m.account_slot_id = ?",
+        )
+        .bind(attachment_id)
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("storage.attachment_read_failed"))?
+        .ok_or_else(|| CommandError::new("attachment.not_found"))?;
+        Ok(AttachmentSummary {
+            id: row.try_get("id").map_err(storage_read_error)?,
+            file_name: row.try_get("file_name").map_err(storage_read_error)?,
+            content_type: row.try_get("content_type").map_err(storage_read_error)?,
+            size: row.try_get::<i64, _>("size").map_err(storage_read_error)? as u64,
+            availability: availability_from_db(
+                row.try_get("availability").map_err(storage_read_error)?,
+            ),
+        })
+    }
+
+    pub async fn prepare_attachment_file(
+        &self,
+        account_slot_id: &str,
+        attachment_id: &str,
+    ) -> CommandResult<PreparedAttachmentFile> {
+        let row = sqlx::query(
+            "SELECT a.file_name, a.content_hash FROM attachments a \
+             JOIN messages m ON m.id = a.message_id WHERE a.id = ? AND m.account_slot_id = ?",
+        )
+        .bind(attachment_id)
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("storage.attachment_read_failed"))?
+        .ok_or_else(|| CommandError::new("attachment.not_found"))?;
+        let file_name = row
+            .try_get::<String, _>("file_name")
+            .map_err(storage_read_error)?;
+        let hash = row
+            .try_get::<Option<String>, _>("content_hash")
+            .map_err(storage_read_error)?
+            .ok_or_else(|| CommandError::new("attachment.content_unavailable"))?;
+        self.content
+            .materialize_attachment(attachment_id, &file_name, &hash)
+            .await
     }
 
     pub async fn store_attachment_content(
@@ -1080,11 +1133,25 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.code, "attachment.not_found");
+        repository
+            .store_attachment_content("slot-a", "attachment-a", b"secret")
+            .await
+            .unwrap();
+        let error = repository
+            .prepare_attachment_file("slot-b", "attachment-a")
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "attachment.not_found");
+        let prepared = repository
+            .prepare_attachment_file("slot-a", "attachment-a")
+            .await
+            .unwrap();
+        assert_eq!(tokio::fs::read(prepared.path).await.unwrap(), b"secret");
         let availability: String =
             sqlx::query_scalar("SELECT availability FROM attachments WHERE id = 'attachment-a'")
                 .fetch_one(&repository.pool)
                 .await
                 .unwrap();
-        assert_eq!(availability, "missing");
+        assert_eq!(availability, "available");
     }
 }

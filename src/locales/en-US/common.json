@@ -164,7 +164,11 @@
     "showRemoteImages": "Show now",
     "attachments": "Attachments",
     "downloaded": "Downloaded",
-    "attachmentReady": "Saved in the NextMail data folder"
+    "attachmentReady": "Saved in the NextMail data folder",
+    "downloadAttachment": "Download {{name}}",
+    "openAttachment": "Open {{name}}",
+    "saveAttachmentAs": "Save {{name}} as",
+    "saveAs": "Save as"
   },
   "composer": {
     "send": "Send",
@@ -231,6 +235,8 @@
     "noOptionsDescription": "Options will appear here when the related feature can be configured.",
     "autoLoadRemoteImages": "Automatically load remote images",
     "autoLoadRemoteImagesDescription": "Remote images may tell senders when and where a message was opened. This preference applies to every message on this device.",
+    "autoOpenDownloadedAttachments": "Open attachments after downloading",
+    "autoOpenDownloadedAttachmentsDescription": "When disabled, the first click only downloads the attachment; click it again to open it with the system default app. High-risk files are always revealed in their folder instead.",
     "category": {
       "general": "General",
       "appearance": "Appearance",
@@ -386,6 +392,15 @@
     "attachment.too_large": "An individual attachment cannot exceed 25 MB.",
     "attachment.total_too_large": "Attachments for this message cannot exceed 100 MB in total.",
     "attachment.name_invalid": "The attachment file name is invalid.",
+    "attachment.content_unavailable": "The attachment content has not been downloaded yet.",
+    "attachment.content_read_failed": "The downloaded attachment content could not be read.",
+    "attachment.cache_directory_failed": "The attachment opening cache could not be created.",
+    "attachment.cache_write_failed": "The attachment could not be prepared for opening.",
+    "attachment.open_failed": "The system could not open this attachment. No associated app may be installed.",
+    "attachment.reveal_failed": "The attachment could not be shown in its system folder.",
+    "attachment.save_dialog_failed": "The attachment save dialog could not be opened.",
+    "attachment.save_path_invalid": "The selected attachment save location is invalid.",
+    "attachment.save_failed": "The attachment could not be saved to the selected location.",
     "draft.revision_conflict": "This draft changed in another window. Close this window and open it again.",
     "draft.not_editable": "This draft is already in the send queue and can no longer be changed.",
     "draft.window_open": "Close the composer window for this draft before deleting it.",

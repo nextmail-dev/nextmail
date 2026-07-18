@@ -64,10 +64,21 @@ impl Default for AppearancePreferences {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadingPreferences {
     pub auto_load_remote_images: bool,
+    pub auto_open_downloaded_attachments: bool,
+}
+
+impl Default for ReadingPreferences {
+    fn default() -> Self {
+        Self {
+            auto_load_remote_images: false,
+            auto_open_downloaded_attachments: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

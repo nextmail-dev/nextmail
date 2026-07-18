@@ -2,7 +2,7 @@
 
 项目计划和每次功能变动都随代码保存在本目录中。
 
-- `plans/master-plan.md`：产品目标、技术基线与十一阶段总体路线。
+- `plans/master-plan.md`：产品目标、技术基线与十二阶段总体路线。
 - `architecture.md`：当前有效的模块、存储、安全和设计系统边界。
 - `iterations/`：每个实施阶段的范围、手动验收与自动验证。
 - `iterations/0002-imap-local-reading.md`：第二阶段计划、当前实现结果与待确认差异。
@@ -10,6 +10,7 @@
 - `iterations/0004-complete-imap-sync.md`：第四阶段持续同步、离线操作队列、冲突恢复和 Sent/Drafts 映射计划。
 - `iterations/0005-saas-ui-refactor.md`：第五阶段跨平台窗口壳、随包字体、三栏界面与独立设置窗口实施和验收。
 - `iterations/0006-multi-account.md`：第六阶段多账户生命周期、Supervisor Registry、并发限制和数据隔离计划。
+- `iterations/0007-font-and-attachment-experience.md`：第七阶段系统字体试验、附件区域紧凑化和安全下载后打开计划。
 - `changes/`：按实施批次记录已经发生的功能和架构变动。
 - `changes/0005-message-and-mailbox-encoding.md`：邮件多字符集、IMAP 文件夹名和旧缓存重建说明。
 - `changes/0006-rfc2047-robustness.md`：完整 RFC 2047 encoded-word、安全降级和回归语料。
@@ -32,6 +33,7 @@
 - `changes/0023-startup-responsive-progressive-sync.md`：首帧优先启动、后台服务延后、可见启动同步与渐进式本地视图刷新。
 - `changes/0024-single-tauri-rust-crate.md`：撤销根 Cargo Workspace，将核心、协议、存储、迁移和唯一构建缓存收敛到 `src-tauri`。
 - `changes/0025-multi-account.md`：多账户配置事务、Supervisor Registry、公平发件、数据隔离和账户管理界面。
+- `changes/0026-system-font-and-attachment-experience.md`：系统原生字体、紧凑附件区域、安全下载后打开和另存为。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。
@@ -39,6 +41,6 @@
 - `adr/0005-platform-window-chrome.md`：Windows 自绘控制与 macOS 原生交通灯覆盖式标题栏的分平台决策。
 - `adr/0006-single-tauri-rust-crate.md`：使用单一 `src-tauri` Cargo package，并以内部模块维持 Rust 业务边界。
 - `adr/0007-multi-account-runtime-and-credentials.md`：多账户 Supervisor Registry、匿名数据槽隔离和凭据清理事务。
-- `third-party-notices.md`：当前随应用分发的字体及其来源与许可证说明。
+- `third-party-notices.md`：当前随应用分发的独立第三方资源及许可证说明。
 
 当架构或安全决策出现需要长期解释的取舍时，在 `adr/` 中新增 ADR；单纯实现细节不创建 ADR。

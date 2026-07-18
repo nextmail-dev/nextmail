@@ -520,6 +520,30 @@ pub async fn request_attachment(
 }
 
 #[tauri::command]
+pub async fn open_message_attachment(
+    state: State<'_, AppState>,
+    account_id: String,
+    attachment_id: String,
+) -> CommandResult<()> {
+    state
+        .mail
+        .open_message_attachment(&account_id, &attachment_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn save_message_attachment_as(
+    state: State<'_, AppState>,
+    account_id: String,
+    attachment_id: String,
+) -> CommandResult<bool> {
+    state
+        .mail
+        .save_message_attachment_as(&account_id, &attachment_id)
+        .await
+}
+
+#[tauri::command]
 pub async fn open_composer(
     state: State<'_, AppState>,
     account_id: String,

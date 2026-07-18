@@ -251,9 +251,20 @@ mod tests {
         );
         let preferences = ReadingPreferences {
             auto_load_remote_images: true,
+            auto_open_downloaded_attachments: false,
         };
         store.save(&preferences).expect("save reading preferences");
         assert_eq!(store.load().expect("load reading preferences"), preferences);
+    }
+
+    #[test]
+    fn legacy_reading_preferences_enable_attachment_auto_open() {
+        let preferences: ReadingPreferences =
+            serde_json::from_str(r#"{"autoLoadRemoteImages":true}"#)
+                .expect("deserialize legacy reading preferences");
+
+        assert!(preferences.auto_load_remote_images);
+        assert!(preferences.auto_open_downloaded_attachments);
     }
 
     #[test]

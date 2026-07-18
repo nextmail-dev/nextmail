@@ -164,7 +164,11 @@
     "showRemoteImages": "立即显示",
     "attachments": "附件",
     "downloaded": "已下载",
-    "attachmentReady": "已保存到 NextMail 数据目录"
+    "attachmentReady": "已保存到 NextMail 数据目录",
+    "downloadAttachment": "下载 {{name}}",
+    "openAttachment": "打开 {{name}}",
+    "saveAttachmentAs": "将 {{name}} 另存为",
+    "saveAs": "另存为"
   },
   "composer": {
     "send": "发送",
@@ -231,6 +235,8 @@
     "noOptionsDescription": "此类别会在相关功能可配置时显示选项。",
     "autoLoadRemoteImages": "自动加载远程图片",
     "autoLoadRemoteImagesDescription": "远程图片可能让发件人得知邮件被打开的时间和位置。此偏好会应用于这台设备上的所有邮件。",
+    "autoOpenDownloadedAttachments": "下载附件后自动打开",
+    "autoOpenDownloadedAttachmentsDescription": "关闭后，首次点击只会下载附件；再次点击仍可使用系统默认程序打开。高风险文件始终只在文件夹中显示。",
     "category": {
       "general": "通用",
       "appearance": "外观",
@@ -386,6 +392,15 @@
     "attachment.too_large": "单个附件不能超过 25 MB。",
     "attachment.total_too_large": "此邮件的附件总大小不能超过 100 MB。",
     "attachment.name_invalid": "附件文件名无效。",
+    "attachment.content_unavailable": "附件内容尚未下载。",
+    "attachment.content_read_failed": "无法读取已下载的附件内容。",
+    "attachment.cache_directory_failed": "无法创建附件打开缓存。",
+    "attachment.cache_write_failed": "无法准备要打开的附件。",
+    "attachment.open_failed": "系统无法打开此附件，可能没有关联的应用。",
+    "attachment.reveal_failed": "无法在系统文件夹中显示此附件。",
+    "attachment.save_dialog_failed": "无法打开附件保存窗口。",
+    "attachment.save_path_invalid": "所选附件保存位置无效。",
+    "attachment.save_failed": "无法将附件保存到所选位置。",
     "draft.revision_conflict": "草稿已在另一个窗口中更新，请关闭此窗口后重新打开。",
     "draft.not_editable": "此草稿已进入发件队列，不能继续修改。",
     "draft.window_open": "请先关闭正在编辑此草稿的写信窗口。",

@@ -20,6 +20,15 @@ export function LabelText({ className, ...props }: HTMLAttributes<HTMLParagraphE
   );
 }
 
+export function InlineText({ className, ...props }: HTMLAttributes<HTMLSpanElement>) {
+  return (
+    <span
+      className={cn("text-sm leading-relaxed text-muted-foreground", className)}
+      {...props}
+    />
+  );
+}
+
 export function Eyebrow({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
   return (
     <p
