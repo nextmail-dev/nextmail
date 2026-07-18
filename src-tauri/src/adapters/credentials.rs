@@ -8,7 +8,7 @@ const KEYRING_SERVICE: &str = "com.taurusxin.nextmail";
 pub trait CredentialStore: Send + Sync {
     async fn get_password(&self, credential_ref: &str) -> CommandResult<String>;
     async fn set_password(&self, credential_ref: &str, password: &str) -> CommandResult<()>;
-    async fn delete_password(&self, credential_ref: &str);
+    async fn delete_password(&self, credential_ref: &str) -> CommandResult<()>;
 }
 
 #[derive(Default)]
@@ -43,13 +43,17 @@ impl CredentialStore for SystemCredentialStore {
         .map_err(|_| CommandError::new("credential.write_failed"))?
     }
 
-    async fn delete_password(&self, credential_ref: &str) {
+    async fn delete_password(&self, credential_ref: &str) -> CommandResult<()> {
         let credential_ref = credential_ref.to_owned();
-        let _ = tokio::task::spawn_blocking(move || {
-            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &credential_ref) {
-                let _ = entry.delete_credential();
+        tokio::task::spawn_blocking(move || {
+            let entry = keyring::Entry::new(KEYRING_SERVICE, &credential_ref)
+                .map_err(|_| CommandError::new("credential.unavailable"))?;
+            match entry.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(_) => Err(CommandError::new("credential.delete_failed")),
             }
         })
-        .await;
+        .await
+        .map_err(|_| CommandError::new("credential.delete_failed"))?
     }
 }

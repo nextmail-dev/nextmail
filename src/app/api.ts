@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AccountDraft,
+  AccountConnectionDraft,
+  AccountRemovalImpact,
+  AccountRuntimeSummary,
   AccountSummary,
   AppearancePreferences,
   BootstrapStatus,
@@ -51,12 +54,33 @@ export const api = {
     invoke<ConnectionTestResult>("test_account_connections", { draft }),
   savePasswordAccount: (draft: AccountDraft) =>
     invoke<AccountSummary>("save_password_account", { draft }),
+  addPasswordAccount: (draft: AccountDraft) =>
+    invoke<AccountSummary>("add_password_account", { draft }),
   completeOnboarding: () =>
     invoke<BootstrapStatus>("complete_onboarding"),
   startBackgroundServices: () =>
     invoke<void>("start_background_services"),
   listAccountSummaries: () =>
     invoke<AccountSummary[]>("list_account_summaries"),
+  getAccountConnectionDraft: (accountId: string) =>
+    invoke<AccountConnectionDraft>("get_account_connection_draft", { accountId }),
+  updatePasswordAccount: (
+    accountId: string,
+    draft: AccountConnectionDraft,
+    newPassword: string | null,
+  ) => invoke<AccountSummary>("update_password_account", { accountId, draft, newPassword }),
+  reauthenticatePasswordAccount: (accountId: string, password: string) =>
+    invoke<AccountSummary>("reauthenticate_password_account", { accountId, password }),
+  getAccountRemovalImpact: (accountId: string) =>
+    invoke<AccountRemovalImpact>("get_account_removal_impact", { accountId }),
+  removeAccount: (accountId: string) =>
+    invoke<void>("remove_account", { accountId }),
+  listAccountRuntimeSummaries: () =>
+    invoke<AccountRuntimeSummary[]>("list_account_runtime_summaries"),
+  getLastSelectedAccount: () =>
+    invoke<string | null>("get_last_selected_account"),
+  setLastSelectedAccount: (accountId: string) =>
+    invoke<string>("set_last_selected_account", { accountId }),
   getAppAbout: () => invoke<AppAbout>("get_app_about"),
   quitApp: () => invoke<void>("quit_app"),
   openSettingsWindow: () => invoke<void>("open_settings_window"),

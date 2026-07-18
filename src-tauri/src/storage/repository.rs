@@ -368,25 +368,35 @@ impl MailRepository {
 
     pub async fn store_attachment_content(
         &self,
+        account_slot_id: &str,
         attachment_id: &str,
         content: &[u8],
     ) -> CommandResult<AttachmentSummary> {
+        // Validate ownership before writing into the content-addressed store so a caller
+        // cannot create orphaned content by presenting another account's attachment ID.
+        self.attachment_context(account_slot_id, attachment_id)
+            .await?;
         let hash = self.content.write_attachment(content).await?;
         sqlx::query(
-            "UPDATE attachments SET availability = 'available', content_hash = ? WHERE id = ?",
+            "UPDATE attachments SET availability = 'available', content_hash = ? WHERE id = ? \
+             AND EXISTS(SELECT 1 FROM messages m WHERE m.id = attachments.message_id AND m.account_slot_id = ?)",
         )
         .bind(hash)
         .bind(attachment_id)
+        .bind(account_slot_id)
         .execute(&self.pool)
         .await
         .map_err(|_| CommandError::new("storage.attachment_write_failed"))?;
         let row = sqlx::query(
-            "SELECT id, file_name, content_type, size, availability FROM attachments WHERE id = ?",
+            "SELECT a.id, a.file_name, a.content_type, a.size, a.availability FROM attachments a \
+             JOIN messages m ON m.id = a.message_id WHERE a.id = ? AND m.account_slot_id = ?",
         )
         .bind(attachment_id)
-        .fetch_one(&self.pool)
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.attachment_read_failed"))?;
+        .map_err(|_| CommandError::new("storage.attachment_read_failed"))?
+        .ok_or_else(|| CommandError::new("attachment.not_found"))?;
         Ok(AttachmentSummary {
             id: row.try_get("id").map_err(storage_read_error)?,
             file_name: row.try_get("file_name").map_err(storage_read_error)?,
@@ -1037,5 +1047,44 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn attachment_content_cannot_be_written_through_another_account_slot() {
+        let directory = tempfile::tempdir().unwrap();
+        initialize_content_database(directory.path()).await.unwrap();
+        create_account_slot(directory.path(), "slot-a", 1)
+            .await
+            .unwrap();
+        create_account_slot(directory.path(), "slot-b", 2)
+            .await
+            .unwrap();
+        let repository = MailRepository::open(directory.path()).await.unwrap();
+        sqlx::query(
+            "INSERT INTO messages(id, account_slot_id, subject, received_at) \
+             VALUES ('message-a', 'slot-a', 'Private', 1)",
+        )
+        .execute(&repository.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO attachments(id, message_id, part_index, file_name, content_type, size) \
+             VALUES ('attachment-a', 'message-a', 1, 'private.txt', 'text/plain', 6)",
+        )
+        .execute(&repository.pool)
+        .await
+        .unwrap();
+
+        let error = repository
+            .store_attachment_content("slot-b", "attachment-a", b"secret")
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "attachment.not_found");
+        let availability: String =
+            sqlx::query_scalar("SELECT availability FROM attachments WHERE id = 'attachment-a'")
+                .fetch_one(&repository.pool)
+                .await
+                .unwrap();
+        assert_eq!(availability, "missing");
     }
 }

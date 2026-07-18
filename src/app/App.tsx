@@ -46,6 +46,7 @@ export function App() {
       <WindowTitlebar kind={kind} title={kind === "main" ? "" : "NextMail"} />
       <AppearanceEventBridge />
       <ReadingPreferencesEventBridge />
+      <AccountsEventBridge />
       <ScrollActivityBridge />
       <div className="h-full pt-[var(--titlebar-height)]">
         <WindowContentBoundary kind={kind}>
@@ -122,6 +123,25 @@ function ReadingPreferencesEventBridge() {
       queryCache.setQueryData(["reading-preferences"], event.payload);
     });
     return () => { void unlisten.then((dispose) => dispose()); };
+  }, [queryCache]);
+  return null;
+}
+
+function AccountsEventBridge() {
+  const queryCache = useQueryClient();
+  useEffect(() => {
+    const changes = listen<{ revision: number }>("accounts-changed", () => {
+      void queryCache.invalidateQueries({ queryKey: ["accounts"] });
+      void queryCache.invalidateQueries({ queryKey: ["bootstrap"] });
+      void queryCache.invalidateQueries({ queryKey: ["account-runtimes"] });
+    });
+    const runtime = listen<{ accountId: string }>("account-runtime-status-changed", () => {
+      void queryCache.invalidateQueries({ queryKey: ["account-runtimes"] });
+    });
+    return () => {
+      void changes.then((dispose) => dispose());
+      void runtime.then((dispose) => dispose());
+    };
   }, [queryCache]);
   return null;
 }
@@ -262,6 +282,6 @@ function AppContent() {
     );
   }
   return (
-    <MainShell accounts={status.accounts} />
+    <MainShell accounts={status.accounts} lastSelectedAccountId={status.lastSelectedAccountId} />
   );
 }

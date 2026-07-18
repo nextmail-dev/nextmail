@@ -1,7 +1,7 @@
 import { ChevronDown, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { AccountSummary } from "@/app/types";
+import type { AccountRuntimeSummary, AccountSummary } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,6 +16,7 @@ interface AccountSwitcherProps {
   accounts: AccountSummary[];
   selectedAccountId: string;
   onAccountChange: (accountId: string) => void;
+  runtimeSummaries?: AccountRuntimeSummary[];
   collapsed?: boolean;
 }
 
@@ -23,11 +24,12 @@ export function AccountSwitcher({
   accounts,
   selectedAccountId,
   onAccountChange,
+  runtimeSummaries = [],
   collapsed = false,
 }: AccountSwitcherProps) {
   const { t } = useTranslation();
   const selected = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0];
-  const identity = <AccountIdentity account={selected} collapsed={collapsed} />;
+  const identity = <AccountIdentity account={selected} runtime={runtimeSummaries.find((item) => item.accountId === selected?.id)} collapsed={collapsed} />;
 
   return (
     <Inline className={collapsed ? "justify-center px-2 pt-5" : "px-4 pt-5"}>
@@ -47,10 +49,11 @@ export function AccountSwitcher({
             {accounts.map((account) => (
               <DropdownMenuCheckboxItem
                 key={account.id}
+                className="h-auto min-h-14 py-2 pr-3"
                 checked={account.id === selected?.id}
                 onCheckedChange={() => onAccountChange(account.id)}
               >
-                <AccountIdentity account={account} />
+                <AccountIdentity account={account} runtime={runtimeSummaries.find((item) => item.accountId === account.id)} />
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>
@@ -60,19 +63,22 @@ export function AccountSwitcher({
   );
 }
 
-function AccountIdentity({ account, collapsed = false }: { account?: AccountSummary; collapsed?: boolean }) {
+function AccountIdentity({ account, runtime, collapsed = false }: { account?: AccountSummary; runtime?: AccountRuntimeSummary; collapsed?: boolean }) {
+  const { t } = useTranslation();
   if (!account) return null;
   const label = account.displayName || account.email;
   const initial = label.trim().charAt(0).toLocaleUpperCase() || <UserRound size={16} />;
   return (
-    <Inline className={collapsed ? "min-w-0 justify-center" : "min-w-0 flex-1"} title={collapsed ? account.email : undefined}>
+    <Inline className={collapsed ? "min-w-0 justify-center" : "min-w-0 flex-1 justify-start text-left"} title={collapsed ? account.email : undefined}>
       <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground shadow-[0_7px_18px_color-mix(in_srgb,var(--primary)_22%,transparent)]">
         {initial}
       </span>
       {collapsed ? null : (
-        <Stack className="min-w-0 flex-1" gap="xs">
-          <Text className="truncate text-sm font-semibold leading-none text-foreground">{label}</Text>
-          <Text className="truncate text-[length:var(--ui-font-caption)] leading-none">{account.email}</Text>
+        <Stack className="min-w-0 flex-1 items-start text-left" gap="xs">
+          <Text className="w-full truncate text-left text-sm font-semibold leading-none text-foreground">{label}</Text>
+          <Text className="w-full truncate text-left text-[length:var(--ui-font-caption)] leading-none">
+            {account.email}{runtime && !["ready", "stopped"].includes(runtime.state) ? ` · ${t(`accounts.runtime.${runtime.state}`)}` : ""}
+          </Text>
         </Stack>
       )}
     </Inline>

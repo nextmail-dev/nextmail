@@ -438,7 +438,7 @@ impl MailRepository {
         .await
         .map_err(|_| CommandError::new("draft.read_failed"))?
         .ok_or_else(|| CommandError::new("draft.not_found"))?;
-        let attachments = self.draft_attachments(draft_id).await?;
+        let attachments = self.draft_attachments(account_slot_id, draft_id).await?;
         Ok(DraftDetail {
             id: row.try_get("id").map_err(read_error)?,
             account_id: account_id.to_owned(),
@@ -492,15 +492,17 @@ impl MailRepository {
 
     pub async fn add_draft_attachment(
         &self,
+        account_slot_id: &str,
         draft_id: &str,
         file_name: &str,
         content_type: &str,
         bytes: &[u8],
     ) -> CommandResult<DraftAttachmentSummary> {
         let editable = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM drafts WHERE id = ? AND status = 'editing'",
+            "SELECT COUNT(*) FROM drafts WHERE id = ? AND account_slot_id = ? AND status = 'editing'",
         )
         .bind(draft_id)
+        .bind(account_slot_id)
         .fetch_one(&self.pool)
         .await
         .map_err(|_| CommandError::new("draft.read_failed"))?;
@@ -541,15 +543,17 @@ impl MailRepository {
 
     pub async fn remove_draft_attachment(
         &self,
+        account_slot_id: &str,
         draft_id: &str,
         attachment_id: &str,
     ) -> CommandResult<()> {
         let result = sqlx::query(
             "DELETE FROM draft_attachments WHERE id = ? AND draft_id = ? \
-             AND EXISTS(SELECT 1 FROM drafts WHERE id = ? AND status = 'editing')",
+             AND EXISTS(SELECT 1 FROM drafts WHERE id = ? AND account_slot_id = ? AND status = 'editing')",
         )
         .bind(attachment_id)
         .bind(draft_id)
+        .bind(account_slot_id)
         .bind(draft_id)
         .execute(&self.pool)
         .await
@@ -562,13 +566,16 @@ impl MailRepository {
 
     pub async fn draft_attachments(
         &self,
+        account_slot_id: &str,
         draft_id: &str,
     ) -> CommandResult<Vec<StoredDraftAttachment>> {
         let rows = sqlx::query(
-            "SELECT id, file_name, content_type, size, content_hash FROM draft_attachments \
-             WHERE draft_id = ? ORDER BY sort_order, id",
+            "SELECT a.id, a.file_name, a.content_type, a.size, a.content_hash FROM draft_attachments a \
+             JOIN drafts d ON d.id = a.draft_id WHERE a.draft_id = ? AND d.account_slot_id = ? \
+             ORDER BY a.sort_order, a.id",
         )
         .bind(draft_id)
+        .bind(account_slot_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|_| CommandError::new("draft.attachment_read_failed"))?;
@@ -663,7 +670,7 @@ impl MailRepository {
         let row = sqlx::query(
             "SELECT id, draft_id, account_slot_id, mime_hash, envelope_recipients_json, attempt_count, revision \
              FROM send_jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) \
-             ORDER BY created_at LIMIT 1",
+             ORDER BY created_at, rowid LIMIT 1",
         )
         .bind(now())
         .fetch_optional(&mut *transaction)
@@ -684,6 +691,80 @@ impl MailRepository {
         )
         .bind(now())
         .bind(&id)
+        .bind(revision as i64)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| CommandError::new("send.claim_failed"))?;
+        if claimed.rows_affected() != 1 {
+            transaction.rollback().await.ok();
+            return Ok(None);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| CommandError::new("send.claim_failed"))?;
+        Ok(Some(ClaimedSendJob {
+            id,
+            draft_id: row.try_get("draft_id").map_err(read_error)?,
+            account_slot_id: row.try_get("account_slot_id").map_err(read_error)?,
+            mime_hash: row.try_get("mime_hash").map_err(read_error)?,
+            envelope_recipients: serde_json::from_str(
+                &row.try_get::<String, _>("envelope_recipients_json")
+                    .map_err(read_error)?,
+            )
+            .map_err(json_error)?,
+            attempt_count: row.try_get::<i64, _>("attempt_count").map_err(read_error)? as u32 + 1,
+            revision: revision + 1,
+        }))
+    }
+
+    pub async fn ready_send_account_slots(&self) -> CommandResult<Vec<String>> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT account_slot_id FROM send_jobs WHERE status = 'queued' \
+             AND (next_attempt_at IS NULL OR next_attempt_at <= ?) \
+             GROUP BY account_slot_id ORDER BY MIN(created_at), account_slot_id",
+        )
+        .bind(now())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("send.claim_failed"))
+    }
+
+    pub async fn claim_next_send_job_for_account(
+        &self,
+        account_slot_id: &str,
+    ) -> CommandResult<Option<ClaimedSendJob>> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CommandError::new("send.claim_failed"))?;
+        let row = sqlx::query(
+            "SELECT id, draft_id, account_slot_id, mime_hash, envelope_recipients_json, attempt_count, revision \
+             FROM send_jobs WHERE account_slot_id = ? AND status = 'queued' \
+             AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY created_at, rowid LIMIT 1",
+        )
+        .bind(account_slot_id)
+        .bind(now())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| CommandError::new("send.claim_failed"))?;
+        let Some(row) = row else {
+            transaction
+                .commit()
+                .await
+                .map_err(|_| CommandError::new("send.claim_failed"))?;
+            return Ok(None);
+        };
+        let id: String = row.try_get("id").map_err(read_error)?;
+        let revision = row.try_get::<i64, _>("revision").map_err(read_error)? as u64;
+        let claimed = sqlx::query(
+            "UPDATE send_jobs SET status = 'sending', attempt_count = attempt_count + 1, revision = revision + 1, updated_at = ? \
+             WHERE id = ? AND account_slot_id = ? AND status = 'queued' AND revision = ?",
+        )
+        .bind(now())
+        .bind(&id)
+        .bind(account_slot_id)
         .bind(revision as i64)
         .execute(&mut *transaction)
         .await
@@ -804,13 +885,15 @@ impl MailRepository {
         Ok(())
     }
 
-    pub async fn retry_send_job(&self, job_id: &str) -> CommandResult<()> {
+    pub async fn retry_send_job(&self, account_slot_id: &str, job_id: &str) -> CommandResult<()> {
         let result = sqlx::query(
-            "UPDATE send_jobs SET status = 'queued', error_code = NULL, next_attempt_at = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND status = 'failed'",
+            "UPDATE send_jobs SET status = 'queued', error_code = NULL, next_attempt_at = ?, revision = revision + 1, updated_at = ? \
+             WHERE id = ? AND account_slot_id = ? AND status = 'failed'",
         )
         .bind(now())
         .bind(now())
         .bind(job_id)
+        .bind(account_slot_id)
         .execute(&self.pool)
         .await
         .map_err(|_| CommandError::new("send.retry_failed"))?;
@@ -1196,7 +1279,7 @@ mod tests {
         assert_eq!(drafts.len(), 1);
         assert_eq!(drafts[0].id, draft.id);
         repository
-            .add_draft_attachment(&draft.id, "报告.txt", "text/plain", b"file")
+            .add_draft_attachment("slot", &draft.id, "报告.txt", "text/plain", b"file")
             .await
             .unwrap();
         let mime_hash = repository
@@ -1231,5 +1314,142 @@ mod tests {
                 .status,
             SendJobStatus::Sent
         );
+    }
+
+    #[tokio::test]
+    async fn draft_attachments_are_isolated_by_account_slot() {
+        let directory = tempfile::tempdir().unwrap();
+        initialize_content_database(directory.path()).await.unwrap();
+        create_account_slot(directory.path(), "slot-a", 1)
+            .await
+            .unwrap();
+        create_account_slot(directory.path(), "slot-b", 2)
+            .await
+            .unwrap();
+        let repository = MailRepository::open(directory.path()).await.unwrap();
+        let draft = repository
+            .create_draft("account-a", "slot-a")
+            .await
+            .unwrap();
+        let attachment = repository
+            .add_draft_attachment("slot-a", &draft.id, "private.txt", "text/plain", b"secret")
+            .await
+            .unwrap();
+
+        assert!(repository
+            .draft_attachments("slot-b", &draft.id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            repository
+                .remove_draft_attachment("slot-b", &draft.id, &attachment.id)
+                .await
+                .unwrap_err()
+                .code,
+            "draft.attachment_not_found"
+        );
+        assert_eq!(
+            repository
+                .draft_attachments("slot-a", &draft.id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn per_account_send_claims_preserve_fifo_and_do_not_cross_slots() {
+        let directory = tempfile::tempdir().unwrap();
+        initialize_content_database(directory.path()).await.unwrap();
+        create_account_slot(directory.path(), "slot-a", 1)
+            .await
+            .unwrap();
+        create_account_slot(directory.path(), "slot-b", 2)
+            .await
+            .unwrap();
+        let repository = MailRepository::open(directory.path()).await.unwrap();
+        let draft_a1 = repository
+            .create_draft("account-a", "slot-a")
+            .await
+            .unwrap();
+        let draft_a2 = repository
+            .create_draft("account-a", "slot-a")
+            .await
+            .unwrap();
+        let draft_b = repository
+            .create_draft("account-b", "slot-b")
+            .await
+            .unwrap();
+        let mime_hash = repository
+            .write_send_mime(b"From: a@example.com\r\n\r\nbody")
+            .await
+            .unwrap();
+        let job_a1 = repository
+            .queue_send_job(
+                "account-a",
+                "slot-a",
+                &draft_a1.id,
+                &mime_hash,
+                &["to@example.com".to_owned()],
+            )
+            .await
+            .unwrap();
+        let job_a2 = repository
+            .queue_send_job(
+                "account-a",
+                "slot-a",
+                &draft_a2.id,
+                &mime_hash,
+                &["to@example.com".to_owned()],
+            )
+            .await
+            .unwrap();
+        let job_b = repository
+            .queue_send_job(
+                "account-b",
+                "slot-b",
+                &draft_b.id,
+                &mime_hash,
+                &["to@example.com".to_owned()],
+            )
+            .await
+            .unwrap();
+
+        let slots = repository.ready_send_account_slots().await.unwrap();
+        assert_eq!(slots, vec!["slot-a", "slot-b"]);
+        assert_eq!(
+            repository
+                .claim_next_send_job_for_account("slot-a")
+                .await
+                .unwrap()
+                .unwrap()
+                .id,
+            job_a1.id
+        );
+        assert_eq!(
+            repository
+                .claim_next_send_job_for_account("slot-a")
+                .await
+                .unwrap()
+                .unwrap()
+                .id,
+            job_a2.id
+        );
+        assert_eq!(
+            repository
+                .claim_next_send_job_for_account("slot-b")
+                .await
+                .unwrap()
+                .unwrap()
+                .id,
+            job_b.id
+        );
+        assert!(repository
+            .claim_next_send_job_for_account("slot-b")
+            .await
+            .unwrap()
+            .is_none());
     }
 }

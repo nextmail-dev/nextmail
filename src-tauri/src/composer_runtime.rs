@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -13,7 +14,9 @@ use crate::core::{
     LanguagePreference, MailboxRole, MessageAddress, MessageComposeAction, SendJobSummary,
 };
 use crate::protocols::{build_outgoing_message, OutgoingAttachment};
-use crate::storage::{CreateMessageActionDraftRequest, MailRepository, SaveDraftRequest};
+use crate::storage::{
+    ClaimedSendJob, CreateMessageActionDraftRequest, MailRepository, SaveDraftRequest,
+};
 use lettre::{address::Envelope, Address};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -57,54 +60,90 @@ impl ComposerRuntime {
                 return;
             };
             let _ = repository.recover_interrupted_send_jobs().await;
+            let mut active_accounts = HashSet::new();
+            let mut workers = tokio::task::JoinSet::new();
+            let mut fair_cursor = 0_usize;
             loop {
-                while let Ok(Some(job)) = repository.claim_next_send_job().await {
-                    runtime.emit_job(&job.id, &job.account_slot_id).await;
-                    let result = runtime
-                        .deliver(
-                            &job.account_slot_id,
-                            &job.mime_hash,
-                            &job.envelope_recipients,
-                        )
-                        .await;
-                    match result {
-                        Ok(()) => {
-                            let sent_mailbox = repository
-                                .mailbox_for_role(&job.account_slot_id, MailboxRole::Sent)
-                                .await
-                                .ok()
-                                .flatten()
-                                .map(|(id, _)| id);
-                            let _ = repository
-                                .complete_send_job_and_queue_sent(&job.id, sent_mailbox.as_deref())
-                                .await;
-                            runtime.mail.wake();
-                        }
-                        Err(error) if error.retryable && job.attempt_count < 3 => {
-                            let delay = 5_i64.saturating_mul(1_i64 << (job.attempt_count - 1));
-                            let _ = repository
-                                .defer_send_job(
-                                    &job.id,
-                                    &error.code,
-                                    unix_timestamp().saturating_add(delay),
-                                )
-                                .await;
-                        }
-                        Err(error) => {
-                            let _ = repository.fail_send_job(&job.id, &error.code).await;
-                        }
+                while active_accounts.len() < 2 {
+                    let Ok(slots) = repository.ready_send_account_slots().await else {
+                        break;
+                    };
+                    if slots.is_empty() {
+                        break;
                     }
-                    runtime.emit_job(&job.id, &job.account_slot_id).await;
+                    let Some(slot) =
+                        select_ready_account(&slots, &active_accounts, &mut fair_cursor)
+                    else {
+                        break;
+                    };
+                    let Ok(Some(job)) = repository.claim_next_send_job_for_account(&slot).await
+                    else {
+                        break;
+                    };
+                    active_accounts.insert(slot.clone());
+                    let worker = Arc::clone(&runtime);
+                    workers.spawn(async move {
+                        worker.process_send_job(job).await;
+                        slot
+                    });
                 }
                 tokio::select! {
+                    completed = workers.join_next(), if !workers.is_empty() => {
+                        if let Some(Ok(slot)) = completed {
+                            active_accounts.remove(&slot);
+                        }
+                    }
                     _ = runtime.wake_worker.notified() => {},
-                    _ = tokio::time::sleep(Duration::from_secs(5)) => {},
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {},
                 }
             }
         });
     }
 
+    async fn process_send_job(self: &Arc<Self>, job: ClaimedSendJob) {
+        let Ok(repository) = self.repository().await else {
+            return;
+        };
+        self.emit_job(&job.id, &job.account_slot_id).await;
+        let result = self
+            .deliver(
+                &job.account_slot_id,
+                &job.mime_hash,
+                &job.envelope_recipients,
+            )
+            .await;
+        match result {
+            Ok(()) => {
+                let sent_mailbox = repository
+                    .mailbox_for_role(&job.account_slot_id, MailboxRole::Sent)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|(id, _)| id);
+                let _ = repository
+                    .complete_send_job_and_queue_sent(&job.id, sent_mailbox.as_deref())
+                    .await;
+                self.mail.wake_account_by_slot(&job.account_slot_id);
+            }
+            Err(error) if error.retryable && job.attempt_count < 3 => {
+                self.mail
+                    .report_account_error_by_slot(&job.account_slot_id, &error);
+                let delay = 5_i64.saturating_mul(1_i64 << (job.attempt_count - 1));
+                let _ = repository
+                    .defer_send_job(&job.id, &error.code, unix_timestamp().saturating_add(delay))
+                    .await;
+            }
+            Err(error) => {
+                self.mail
+                    .report_account_error_by_slot(&job.account_slot_id, &error);
+                let _ = repository.fail_send_job(&job.id, &error.code).await;
+            }
+        }
+        self.emit_job(&job.id, &job.account_slot_id).await;
+    }
+
     pub async fn open_composer(&self, account_id: &str) -> CommandResult<String> {
+        self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let draft = self
             .repository()
@@ -129,11 +168,41 @@ impl ComposerRuntime {
             .await
     }
 
+    pub async fn close_account_windows(&self, account_id: &str) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        let drafts = self
+            .repository()
+            .await?
+            .list_editing_drafts(account_id, &account.data_slot_id)
+            .await?;
+        let labels = drafts
+            .iter()
+            .map(|draft| format!("composer-{}", draft.id))
+            .collect::<Vec<_>>();
+        for label in &labels {
+            if let Some(window) = self.app.get_webview_window(label) {
+                let _ = window.close();
+            }
+        }
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while labels
+            .iter()
+            .any(|label| self.app.get_webview_window(label).is_some())
+        {
+            if tokio::time::Instant::now() >= deadline {
+                return Err(CommandError::new("account.composer_close_timeout"));
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        Ok(())
+    }
+
     pub async fn open_existing_composer(
         &self,
         account_id: &str,
         draft_id: &str,
     ) -> CommandResult<()> {
+        self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let draft = self
             .repository()
@@ -147,6 +216,7 @@ impl ComposerRuntime {
     }
 
     pub async fn open_remote_draft(&self, account_id: &str, message_id: &str) -> CommandResult<()> {
+        self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let mut detail = self
             .mail
@@ -179,6 +249,7 @@ impl ComposerRuntime {
         message_id: &str,
         action: MessageComposeAction,
     ) -> CommandResult<()> {
+        self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let mut detail = self
             .mail
@@ -315,6 +386,7 @@ impl ComposerRuntime {
         draft_id: &str,
         selected_paths: Vec<String>,
     ) -> CommandResult<Vec<DraftAttachmentSummary>> {
+        self.mail.ensure_account_writable(account_id)?;
         if selected_paths.is_empty() {
             return Ok(Vec::new());
         }
@@ -354,7 +426,13 @@ impl ComposerRuntime {
                 .to_owned();
             added.push(
                 repository
-                    .add_draft_attachment(draft_id, file_name, &content_type, &bytes)
+                    .add_draft_attachment(
+                        &account.data_slot_id,
+                        draft_id,
+                        file_name,
+                        &content_type,
+                        &bytes,
+                    )
                     .await?,
             );
         }
@@ -367,6 +445,7 @@ impl ComposerRuntime {
         draft_id: &str,
         attachment_id: &str,
     ) -> CommandResult<()> {
+        self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
@@ -374,7 +453,7 @@ impl ComposerRuntime {
             .await?;
         self.repository()
             .await?
-            .remove_draft_attachment(draft_id, attachment_id)
+            .remove_draft_attachment(&account.data_slot_id, draft_id, attachment_id)
             .await
     }
 
@@ -391,6 +470,7 @@ impl ComposerRuntime {
     }
 
     pub async fn delete_draft(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {
+        self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         if self
             .app
@@ -406,6 +486,7 @@ impl ComposerRuntime {
     }
 
     pub async fn queue_remote_draft(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {
+        self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         let draft = repository
@@ -428,7 +509,10 @@ impl ComposerRuntime {
             return Ok(());
         };
         let mut attachments = Vec::new();
-        for stored in repository.draft_attachments(draft_id).await? {
+        for stored in repository
+            .draft_attachments(&account.data_slot_id, draft_id)
+            .await?
+        {
             attachments.push(OutgoingAttachment {
                 file_name: stored.summary.file_name,
                 content_type: stored.summary.content_type,
@@ -461,7 +545,7 @@ impl ComposerRuntime {
                 draft.revision,
             )
             .await?;
-        self.mail.wake();
+        self.mail.wake_account(account_id);
         Ok(())
     }
 
@@ -470,6 +554,7 @@ impl ComposerRuntime {
         account_id: &str,
         draft_id: &str,
     ) -> CommandResult<SendJobSummary> {
+        self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         let draft = repository
@@ -478,7 +563,10 @@ impl ComposerRuntime {
         validate_recipient_fields(&draft.recipients, true)?;
         validate_content(&draft.content)?;
         let mut attachments = Vec::new();
-        for stored in repository.draft_attachments(draft_id).await? {
+        for stored in repository
+            .draft_attachments(&account.data_slot_id, draft_id)
+            .await?
+        {
             attachments.push(OutgoingAttachment {
                 file_name: stored.summary.file_name,
                 content_type: stored.summary.content_type,
@@ -520,12 +608,15 @@ impl ComposerRuntime {
         account_id: &str,
         job_id: &str,
     ) -> CommandResult<SendJobSummary> {
+        self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         repository
             .get_send_job(account_id, &account.data_slot_id, job_id)
             .await?;
-        repository.retry_send_job(job_id).await?;
+        repository
+            .retry_send_job(&account.data_slot_id, job_id)
+            .await?;
         self.wake_worker.notify_one();
         repository
             .get_send_job(account_id, &account.data_slot_id, job_id)
@@ -667,6 +758,21 @@ fn unix_timestamp() -> i64 {
         .as_secs() as i64
 }
 
+fn select_ready_account(
+    slots: &[String],
+    active_accounts: &HashSet<String>,
+    fair_cursor: &mut usize,
+) -> Option<String> {
+    if slots.is_empty() {
+        return None;
+    }
+    let index = (0..slots.len())
+        .map(|offset| (*fair_cursor + offset) % slots.len())
+        .find(|index| !active_accounts.contains(&slots[*index]))?;
+    *fair_cursor = (index + 1) % slots.len();
+    Some(slots[index].clone())
+}
+
 fn add_draft_identity_headers(
     mut raw: Vec<u8>,
     draft_id: &str,
@@ -750,7 +856,9 @@ struct SendJobChangedEvent {
 
 #[cfg(test)]
 mod tests {
-    use super::{add_draft_identity_headers, add_threading_headers};
+    use std::collections::HashSet;
+
+    use super::{add_draft_identity_headers, add_threading_headers, select_ready_account};
     use crate::storage::DraftThreadingHeaders;
 
     #[test]
@@ -779,5 +887,28 @@ mod tests {
         let value = String::from_utf8(raw).unwrap();
         assert!(value.contains("In-Reply-To: <original@example.com>\r\n"));
         assert!(value.contains("References: <root@example.com> <original@example.com>\r\n\r\nBody"));
+    }
+
+    #[test]
+    fn send_scheduler_rotates_between_accounts_without_parallelizing_one_account() {
+        let slots = vec![
+            "slot-a".to_owned(),
+            "slot-b".to_owned(),
+            "slot-c".to_owned(),
+        ];
+        let mut active = HashSet::new();
+        let mut cursor = 0;
+
+        let first = select_ready_account(&slots, &active, &mut cursor).unwrap();
+        active.insert(first.clone());
+        let second = select_ready_account(&slots, &active, &mut cursor).unwrap();
+        active.insert(second.clone());
+        assert_eq!((first.as_str(), second.as_str()), ("slot-a", "slot-b"));
+
+        active.remove("slot-a");
+        assert_eq!(
+            select_ready_account(&slots, &active, &mut cursor).as_deref(),
+            Some("slot-c")
+        );
     }
 }

@@ -1,3 +1,4 @@
+mod account_repository;
 mod content_store;
 mod draft_repository;
 mod operation_repository;

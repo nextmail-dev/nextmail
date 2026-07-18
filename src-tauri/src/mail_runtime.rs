@@ -1,23 +1,24 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLock,
     },
     time::Duration,
 };
 
 use crate::core::{
-    AccountManagementDetail, AttachmentSummary, CommandError, CommandResult, ImapAccountConfig,
-    ImapSyncProvider, InboxWatchOutcome, MailSyncSink, MailboxRole, MailboxSummary, MessageDetail,
-    MessageListPage, PendingOperationKind, PendingOperationSummary, RemoteOperation,
-    RemoteOperationKind, SyncNotice, SyncObserver, SyncPhase, SyncPolicy, SyncProgress,
+    AccountManagementDetail, AccountRemovalImpact, AccountRuntimeState, AccountRuntimeSummary,
+    AttachmentSummary, CommandError, CommandResult, ImapAccountConfig, ImapSyncProvider,
+    InboxWatchOutcome, MailSyncSink, MailboxRole, MailboxSummary, MessageDetail, MessageListPage,
+    PendingOperationKind, PendingOperationSummary, RemoteOperation, RemoteOperationKind,
+    SyncNotice, SyncObserver, SyncPhase, SyncPolicy, SyncProgress,
 };
 use crate::protocols::AsyncImapProvider;
 use crate::storage::MailRepository;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::{Mutex, Notify, OnceCell};
+use tokio::sync::{Notify, OnceCell, Semaphore};
 
 use crate::application::AppService;
 
@@ -25,12 +26,13 @@ pub struct MailRuntime {
     app: AppHandle,
     service: Arc<AppService>,
     repository: OnceCell<Arc<MailRepository>>,
+    recovery: OnceCell<()>,
     progress: RwLock<HashMap<String, SyncProgress>>,
+    runtime_states: RwLock<HashMap<String, AccountRuntimeSummary>>,
+    supervisors: RwLock<HashMap<String, Arc<AccountSupervisor>>>,
     provider: Arc<dyn ImapSyncProvider>,
-    sync_lock: Mutex<()>,
-    wake_supervisor: Notify,
-    manual_sync_requested: AtomicBool,
-    background_sync_requested: AtomicBool,
+    network_limit: Arc<Semaphore>,
+    next_generation: AtomicU64,
     started: AtomicBool,
 }
 
@@ -40,78 +42,227 @@ impl MailRuntime {
             app,
             service,
             repository: OnceCell::new(),
+            recovery: OnceCell::new(),
             progress: RwLock::new(HashMap::new()),
+            runtime_states: RwLock::new(HashMap::new()),
+            supervisors: RwLock::new(HashMap::new()),
             provider: Arc::new(AsyncImapProvider),
-            sync_lock: Mutex::new(()),
-            wake_supervisor: Notify::new(),
-            manual_sync_requested: AtomicBool::new(false),
-            background_sync_requested: AtomicBool::new(false),
+            network_limit: Arc::new(Semaphore::new(2)),
+            next_generation: AtomicU64::new(1),
             started: AtomicBool::new(false),
         }
     }
 
     pub fn start(self: &Arc<Self>) {
-        if self.started.swap(true, Ordering::AcqRel) {
-            self.wake_supervisor.notify_one();
+        self.started.store(true, Ordering::Release);
+        self.reconcile_accounts();
+    }
+
+    pub fn reconcile_accounts(self: &Arc<Self>) {
+        let Ok(accounts) = self.service.list_account_summaries() else {
+            return;
+        };
+        let configured = accounts
+            .iter()
+            .map(|account| account.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let existing = self
+            .supervisors
+            .read()
+            .map(|values| values.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for account_id in existing {
+            if !configured.contains(&account_id) {
+                self.stop_account(&account_id, AccountRuntimeState::Stopped);
+            }
+        }
+        if !self.started.load(Ordering::Acquire) {
             return;
         }
-        if let Some(account) = self
-            .service
-            .list_account_summaries()
-            .ok()
-            .and_then(|accounts| accounts.into_iter().next())
-        {
-            self.update_progress(&account.id, SyncPhase::Connecting, 0, 0, None);
+        for account in accounts {
+            self.ensure_supervisor(&account.id);
         }
+    }
+
+    pub fn restart_account(self: &Arc<Self>, account_id: &str) {
+        self.stop_account(account_id, AccountRuntimeState::Stopped);
+        if self.started.load(Ordering::Acquire) {
+            self.ensure_supervisor(account_id);
+        }
+    }
+
+    pub fn begin_remove_account(&self, account_id: &str) {
+        self.stop_account(account_id, AccountRuntimeState::Removing);
+    }
+
+    pub fn wake_account(&self, account_id: &str) {
+        if let Some(supervisor) = self.supervisor(account_id) {
+            supervisor
+                .background_sync_requested
+                .store(true, Ordering::Release);
+            supervisor.wake.notify_one();
+        }
+    }
+
+    pub fn wake_account_by_slot(&self, account_slot_id: &str) {
+        if let Ok(account) = self.service.account_record_for_slot(account_slot_id) {
+            self.wake_account(&account.id);
+        }
+    }
+
+    pub fn report_account_error_by_slot(&self, account_slot_id: &str, error: &CommandError) {
+        if let Ok(account) = self.service.account_record_for_slot(account_slot_id) {
+            self.handle_runtime_error(&account.id, error, Duration::from_secs(5));
+            if is_authentication_error(&error.code) {
+                if let Some(supervisor) = self.supervisor(&account.id) {
+                    supervisor.wake.notify_one();
+                }
+            }
+        }
+    }
+
+    pub fn ensure_account_writable(&self, account_id: &str) -> CommandResult<()> {
+        self.service.account_record(account_id)?;
+        if self.runtime_state_is(account_id, AccountRuntimeState::Removing) {
+            return Err(CommandError::new("account.removing"));
+        }
+        Ok(())
+    }
+
+    pub fn list_account_runtime_summaries(&self) -> Vec<AccountRuntimeSummary> {
+        let accounts = self.service.list_account_summaries().unwrap_or_default();
+        let states = self.runtime_states.read().ok();
+        accounts
+            .into_iter()
+            .map(|account| {
+                states
+                    .as_ref()
+                    .and_then(|values| values.get(&account.id).cloned())
+                    .unwrap_or_else(|| AccountRuntimeSummary::stopped(account.id))
+            })
+            .collect()
+    }
+
+    pub async fn get_account_removal_impact(
+        &self,
+        account_id: &str,
+    ) -> CommandResult<AccountRemovalImpact> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .account_removal_impact(&account.data_slot_id)
+            .await
+    }
+
+    fn ensure_supervisor(self: &Arc<Self>, account_id: &str) {
+        if self.supervisor(account_id).is_some() {
+            return;
+        }
+        if self.service.account_record(account_id).is_err() {
+            return;
+        }
+        let generation = self.next_generation.fetch_add(1, Ordering::AcqRel);
+        let supervisor = Arc::new(AccountSupervisor::new(account_id, generation));
+        let inserted = self.supervisors.write().ok().is_some_and(|mut values| {
+            if values.contains_key(account_id) {
+                false
+            } else {
+                values.insert(account_id.to_owned(), Arc::clone(&supervisor));
+                true
+            }
+        });
+        if !inserted {
+            return;
+        }
+        self.update_runtime_state(account_id, AccountRuntimeState::Starting, None, None);
+        self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None);
         let runtime = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
-            runtime.supervisor_loop().await;
+            runtime.supervisor_loop(supervisor).await;
         });
     }
 
-    pub fn wake(&self) {
-        self.wake_supervisor.notify_one();
+    fn stop_account(&self, account_id: &str, state: AccountRuntimeState) {
+        let supervisor = self
+            .supervisors
+            .write()
+            .ok()
+            .and_then(|mut values| values.remove(account_id));
+        if let Some(supervisor) = supervisor {
+            supervisor.stopped.store(true, Ordering::Release);
+            supervisor.wake.notify_waiters();
+        }
+        self.update_runtime_state(account_id, state, None, None);
     }
 
-    async fn supervisor_loop(self: &Arc<Self>) {
+    fn supervisor(&self, account_id: &str) -> Option<Arc<AccountSupervisor>> {
+        self.supervisors
+            .read()
+            .ok()
+            .and_then(|values| values.get(account_id).cloned())
+    }
+
+    fn is_current_supervisor(&self, account_id: &str, generation: u64) -> bool {
+        self.supervisor(account_id)
+            .is_some_and(|supervisor| supervisor.generation == generation)
+    }
+
+    async fn supervisor_loop(self: &Arc<Self>, supervisor: Arc<AccountSupervisor>) {
         let mut retry_delay = Duration::from_secs(2);
-        let mut recovered = false;
         let mut startup_sync_complete = false;
-        loop {
-            let Some(account) = self
-                .service
-                .list_account_summaries()
-                .ok()
-                .and_then(|accounts| accounts.into_iter().next())
-            else {
-                tokio::select! {
-                    _ = self.wake_supervisor.notified() => {},
-                    _ = tokio::time::sleep(Duration::from_secs(5)) => {},
-                }
+        while !supervisor.stopped.load(Ordering::Acquire) {
+            let account_id = supervisor.account_id.clone();
+            if self.service.account_record(&account_id).is_err() {
+                break;
+            }
+            if self.runtime_state_is(&account_id, AccountRuntimeState::ReauthRequired) {
+                supervisor.wake.notified().await;
                 continue;
-            };
+            }
             let Ok(repository) = self.repository().await else {
                 tokio::time::sleep(retry_delay).await;
                 retry_delay = (retry_delay * 2).min(Duration::from_secs(300));
                 continue;
             };
-            if !recovered {
-                let _ = repository.recover_pending_operations().await;
-                recovered = true;
-            }
+            let _ = self
+                .recovery
+                .get_or_try_init(|| async { repository.recover_pending_operations().await })
+                .await;
 
             if !startup_sync_complete {
-                let sync_result = self.run_sync(&account.id, true).await;
+                let sync_result = self
+                    .run_sync(&account_id, supervisor.generation, true)
+                    .await;
+                if supervisor.stopped.load(Ordering::Acquire)
+                    || !self.is_current_supervisor(&account_id, supervisor.generation)
+                {
+                    break;
+                }
                 if sync_result.is_ok() {
                     startup_sync_complete = true;
-                    self.manual_sync_requested.store(false, Ordering::Release);
-                    self.background_sync_requested
+                    supervisor
+                        .manual_sync_requested
+                        .store(false, Ordering::Release);
+                    supervisor
+                        .background_sync_requested
                         .store(false, Ordering::Release);
                     retry_delay = Duration::from_secs(2);
-                    let _ = self.drain_pending_operations(&account.id).await;
+                    let _ = self
+                        .drain_pending_operations(&account_id, supervisor.generation)
+                        .await;
                 } else {
+                    if self.runtime_state_is(&account_id, AccountRuntimeState::ReauthRequired) {
+                        supervisor.wake.notified().await;
+                        continue;
+                    }
+                    self.update_runtime_state(
+                        &account_id,
+                        AccountRuntimeState::Retrying,
+                        None,
+                        Some(unix_timestamp() + retry_delay.as_secs() as i64),
+                    );
                     tokio::select! {
-                        _ = self.wake_supervisor.notified() => {},
+                        _ = supervisor.wake.notified() => {},
                         _ = tokio::time::sleep(retry_delay) => {},
                     }
                     retry_delay = (retry_delay * 2).min(Duration::from_secs(300));
@@ -119,28 +270,32 @@ impl MailRuntime {
                 }
             }
 
-            let Ok(config) = self.imap_config(&account.id).await else {
-                tokio::time::sleep(retry_delay).await;
-                continue;
+            let config = match self.imap_config(&account_id).await {
+                Ok(config) => config,
+                Err(error) => {
+                    self.handle_runtime_error(&account_id, &error, retry_delay);
+                    supervisor.wake.notified().await;
+                    continue;
+                }
             };
             let watch = self
                 .provider
                 .wait_for_inbox_change(&config, Duration::from_secs(25 * 60));
             let wake = tokio::select! {
-                _ = self.wake_supervisor.notified() => SupervisorWake::Requested,
+                _ = supervisor.wake.notified() => SupervisorWake::Requested,
                 _ = tokio::time::sleep(Duration::from_secs(5 * 60)) => SupervisorWake::BackgroundSync,
                 result = watch => {
                     match result {
                         Ok(InboxWatchOutcome::Unsupported) => {
                             tokio::select! {
-                                _ = self.wake_supervisor.notified() => SupervisorWake::Requested,
+                                _ = supervisor.wake.notified() => SupervisorWake::Requested,
                                 _ = tokio::time::sleep(Duration::from_secs(60)) => SupervisorWake::BackgroundSync,
                             }
                         }
                         Ok(InboxWatchOutcome::Changed | InboxWatchOutcome::Timeout) => SupervisorWake::BackgroundSync,
                         Err(_) => {
                             tokio::select! {
-                                _ = self.wake_supervisor.notified() => SupervisorWake::Requested,
+                                _ = supervisor.wake.notified() => SupervisorWake::Requested,
                                 _ = tokio::time::sleep(retry_delay) => SupervisorWake::Retry,
                             }
                         }
@@ -148,15 +303,36 @@ impl MailRuntime {
                 }
             };
 
+            if supervisor.stopped.load(Ordering::Acquire) {
+                break;
+            }
+
             if wake == SupervisorWake::Retry {
+                self.update_runtime_state(
+                    &account_id,
+                    AccountRuntimeState::Retrying,
+                    Some("sync.idle_failed".to_owned()),
+                    Some(unix_timestamp() + retry_delay.as_secs() as i64),
+                );
                 retry_delay = (retry_delay * 2).min(Duration::from_secs(300));
                 continue;
             }
 
-            let manual = self.manual_sync_requested.swap(false, Ordering::AcqRel);
-            let background_requested = self.background_sync_requested.swap(false, Ordering::AcqRel);
+            let manual = supervisor
+                .manual_sync_requested
+                .swap(false, Ordering::AcqRel);
+            let background_requested = supervisor
+                .background_sync_requested
+                .swap(false, Ordering::AcqRel);
             if manual || background_requested || wake == SupervisorWake::BackgroundSync {
-                let sync_result = self.run_sync(&account.id, manual).await;
+                let sync_result = self
+                    .run_sync(&account_id, supervisor.generation, manual)
+                    .await;
+                if supervisor.stopped.load(Ordering::Acquire)
+                    || !self.is_current_supervisor(&account_id, supervisor.generation)
+                {
+                    break;
+                }
                 if sync_result.is_ok() {
                     retry_delay = Duration::from_secs(2);
                 } else {
@@ -165,12 +341,15 @@ impl MailRuntime {
             }
 
             if self
-                .drain_pending_operations(&account.id)
+                .drain_pending_operations(&account_id, supervisor.generation)
                 .await
                 .unwrap_or(false)
             {
                 retry_delay = Duration::from_secs(2);
             }
+        }
+        if self.is_current_supervisor(&supervisor.account_id, supervisor.generation) {
+            self.stop_account(&supervisor.account_id, AccountRuntimeState::Stopped);
         }
     }
 
@@ -243,23 +422,27 @@ impl MailRuntime {
         account_id: &str,
         sync_policy: SyncPolicy,
     ) -> CommandResult<SyncPolicy> {
+        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let updated = self
             .repository()
             .await?
             .set_sync_policy(&account.data_slot_id, sync_policy)
             .await?;
-        self.background_sync_requested
-            .store(true, Ordering::Release);
-        self.wake_supervisor.notify_one();
+        self.wake_account(account_id);
         Ok(updated)
     }
 
     pub fn sync_now(&self, account_id: &str) -> CommandResult<()> {
-        self.service.account_record(account_id)?;
-        self.manual_sync_requested.store(true, Ordering::Release);
+        self.ensure_account_writable(account_id)?;
+        let supervisor = self
+            .supervisor(account_id)
+            .ok_or_else(|| CommandError::new("account.runtime_stopped"))?;
+        supervisor
+            .manual_sync_requested
+            .store(true, Ordering::Release);
         self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None);
-        self.wake_supervisor.notify_one();
+        supervisor.wake.notify_one();
         Ok(())
     }
 
@@ -270,13 +453,14 @@ impl MailRuntime {
         message_ids: &[String],
         read: bool,
     ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
             .queue_set_read(&account.data_slot_id, mailbox_id, message_ids, read)
             .await?;
         self.emit_local_change(account_id, mailbox_id, message_ids);
-        self.wake_supervisor.notify_one();
+        self.wake_account(account_id);
         Ok(())
     }
 
@@ -287,13 +471,14 @@ impl MailRuntime {
         message_ids: &[String],
         flagged: bool,
     ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
             .queue_set_flagged(&account.data_slot_id, mailbox_id, message_ids, flagged)
             .await?;
         self.emit_local_change(account_id, mailbox_id, message_ids);
-        self.wake_supervisor.notify_one();
+        self.wake_account(account_id);
         Ok(())
     }
 
@@ -305,6 +490,7 @@ impl MailRuntime {
         message_ids: &[String],
         copy: bool,
     ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
@@ -317,7 +503,7 @@ impl MailRuntime {
             )
             .await?;
         self.emit_local_change(account_id, source_mailbox_id, message_ids);
-        self.wake_supervisor.notify_one();
+        self.wake_account(account_id);
         Ok(())
     }
 
@@ -327,6 +513,7 @@ impl MailRuntime {
         source_mailbox_id: &str,
         message_ids: &[String],
     ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         let role = repository
@@ -352,7 +539,7 @@ impl MailRuntime {
                 .await?;
         }
         self.emit_local_change(account_id, source_mailbox_id, message_ids);
-        self.wake_supervisor.notify_one();
+        self.wake_account(account_id);
         Ok(())
     }
 
@@ -362,6 +549,7 @@ impl MailRuntime {
         source_mailbox_id: &str,
         message_ids: &[String],
     ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         let (archive_id, _) = repository
@@ -378,7 +566,7 @@ impl MailRuntime {
             )
             .await?;
         self.emit_local_change(account_id, source_mailbox_id, message_ids);
-        self.wake_supervisor.notify_one();
+        self.wake_account(account_id);
         Ok(())
     }
 
@@ -388,6 +576,7 @@ impl MailRuntime {
         role: MailboxRole,
         mailbox_id: Option<&str>,
     ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
@@ -413,12 +602,13 @@ impl MailRuntime {
         account_id: &str,
         operation_id: &str,
     ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
             .retry_pending_operation(&account.data_slot_id, operation_id)
             .await?;
-        self.wake_supervisor.notify_one();
+        self.wake_account(account_id);
         Ok(())
     }
 
@@ -462,6 +652,7 @@ impl MailRuntime {
         account_id: &str,
         attachment_id: &str,
     ) -> CommandResult<AttachmentSummary> {
+        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         let (message_id, part_index) = repository
@@ -483,7 +674,7 @@ impl MailRuntime {
         };
         let content = crate::protocols::extract_attachment(&raw, part_index)?;
         repository
-            .store_attachment_content(attachment_id, &content)
+            .store_attachment_content(&account.data_slot_id, attachment_id, &content)
             .await
     }
 
@@ -492,12 +683,18 @@ impl MailRuntime {
         account_id: &str,
         message_id: &str,
     ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = Arc::clone(self.repository().await?);
         let context = repository
             .remote_message_context(&account.data_slot_id, message_id)
             .await?;
         let config = self.imap_config(&account.id).await?;
+        let _permit = self
+            .network_limit
+            .acquire()
+            .await
+            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
         let message = self
             .provider
             .fetch_message(
@@ -557,15 +754,30 @@ impl MailRuntime {
             .await
     }
 
-    async fn drain_pending_operations(&self, account_id: &str) -> CommandResult<bool> {
+    async fn drain_pending_operations(
+        &self,
+        account_id: &str,
+        generation: u64,
+    ) -> CommandResult<bool> {
+        if !self.is_current_supervisor(account_id, generation) {
+            return Ok(false);
+        }
         let account = self.service.account_record(account_id)?;
         let repository = Arc::clone(self.repository().await?);
         let config = self.imap_config(account_id).await?;
+        let _permit = self
+            .network_limit
+            .acquire()
+            .await
+            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
         let mut processed = false;
         while let Some(work) = repository
             .claim_pending_operation(&account.data_slot_id)
             .await?
         {
+            if !self.is_current_supervisor(account_id, generation) {
+                break;
+            }
             processed = true;
             let result = if work.kind == PendingOperationKind::AppendSent {
                 let destination = work
@@ -682,16 +894,30 @@ impl MailRuntime {
         );
     }
 
-    async fn run_sync(&self, account_id: &str, report_progress: bool) -> CommandResult<()> {
-        let _sync_guard = self.sync_lock.lock().await;
+    async fn run_sync(
+        &self,
+        account_id: &str,
+        generation: u64,
+        report_progress: bool,
+    ) -> CommandResult<()> {
+        if !self.is_current_supervisor(account_id, generation) {
+            return Err(CommandError::new("account.runtime_stopped"));
+        }
+        let _permit = self
+            .network_limit
+            .acquire()
+            .await
+            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
         let account = self.service.account_record(account_id)?;
         let repository = Arc::clone(self.repository().await?);
+        self.update_runtime_state(account_id, AccountRuntimeState::Syncing, None, None);
         if report_progress {
             self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None);
         }
         let observer = RuntimeObserver {
             runtime: self,
             account_id: account_id.to_owned(),
+            generation,
             report_progress,
         };
         let result = match self.imap_config(&account.id).await {
@@ -702,11 +928,15 @@ impl MailRuntime {
             }
             Err(error) => Err(error),
         };
+        if !self.is_current_supervisor(account_id, generation) {
+            return Err(CommandError::new("account.runtime_stopped"));
+        }
         match result {
             Ok(()) => {
                 if report_progress {
                     self.update_progress(account_id, SyncPhase::Complete, 1, 1, None);
                 }
+                self.update_runtime_state(account_id, AccountRuntimeState::Ready, None, None);
                 Ok(())
             }
             Err(error) => {
@@ -727,9 +957,68 @@ impl MailRuntime {
                         retryable: error.retryable,
                     },
                 );
+                self.handle_runtime_error(account_id, &error, Duration::from_secs(2));
                 Err(error)
             }
         }
+    }
+
+    fn runtime_state_is(&self, account_id: &str, expected: AccountRuntimeState) -> bool {
+        self.runtime_states
+            .read()
+            .ok()
+            .and_then(|values| values.get(account_id).cloned())
+            .is_some_and(|summary| summary.state == expected)
+    }
+
+    fn handle_runtime_error(&self, account_id: &str, error: &CommandError, delay: Duration) {
+        if is_authentication_error(&error.code) {
+            self.update_runtime_state(
+                account_id,
+                AccountRuntimeState::ReauthRequired,
+                Some(error.code.clone()),
+                None,
+            );
+        } else {
+            self.update_runtime_state(
+                account_id,
+                if error.retryable {
+                    AccountRuntimeState::Retrying
+                } else {
+                    AccountRuntimeState::Offline
+                },
+                Some(error.code.clone()),
+                error
+                    .retryable
+                    .then(|| unix_timestamp() + delay.as_secs() as i64),
+            );
+        }
+    }
+
+    fn update_runtime_state(
+        &self,
+        account_id: &str,
+        state: AccountRuntimeState,
+        error_code: Option<String>,
+        retry_at: Option<i64>,
+    ) {
+        let summary = if let Ok(mut values) = self.runtime_states.write() {
+            let revision = values
+                .get(account_id)
+                .map_or(1, |current| current.revision.saturating_add(1));
+            let summary = AccountRuntimeSummary {
+                account_id: account_id.to_owned(),
+                state,
+                error_code,
+                retry_at,
+                revision,
+            };
+            values.insert(account_id.to_owned(), summary.clone());
+            summary
+        } else {
+            return;
+        };
+        let _ = self.app.emit("account-runtime-status-changed", summary);
     }
 
     fn update_progress(
@@ -764,11 +1053,40 @@ impl MailRuntime {
 struct RuntimeObserver<'a> {
     runtime: &'a MailRuntime,
     account_id: String,
+    generation: u64,
     report_progress: bool,
+}
+
+struct AccountSupervisor {
+    account_id: String,
+    generation: u64,
+    wake: Notify,
+    manual_sync_requested: AtomicBool,
+    background_sync_requested: AtomicBool,
+    stopped: AtomicBool,
+}
+
+impl AccountSupervisor {
+    fn new(account_id: &str, generation: u64) -> Self {
+        Self {
+            account_id: account_id.to_owned(),
+            generation,
+            wake: Notify::new(),
+            manual_sync_requested: AtomicBool::new(false),
+            background_sync_requested: AtomicBool::new(false),
+            stopped: AtomicBool::new(false),
+        }
+    }
 }
 
 impl SyncObserver for RuntimeObserver<'_> {
     fn notify(&self, notice: SyncNotice) {
+        if !self
+            .runtime
+            .is_current_supervisor(&self.account_id, self.generation)
+        {
+            return;
+        }
         match notice {
             SyncNotice::Folders { completed, total } if self.report_progress => self
                 .runtime
@@ -875,4 +1193,37 @@ fn remote_operation(work: &crate::storage::PendingOperationWork) -> CommandResul
             .ok_or_else(|| CommandError::new("operation.uid_required"))?,
         base_modseq: work.base_modseq,
     })
+}
+
+fn is_authentication_error(code: &str) -> bool {
+    matches!(
+        code,
+        "credential.read_failed"
+            | "sync.imap_authentication_failed"
+            | "account.imap_authentication_failed"
+            | "account.smtp_authentication_failed"
+            | "send.smtp_authentication_failed"
+    )
+}
+
+fn unix_timestamp() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_explicit_authentication_failures_require_reauthentication() {
+        assert!(is_authentication_error("credential.read_failed"));
+        assert!(is_authentication_error("sync.imap_authentication_failed"));
+        assert!(is_authentication_error("send.smtp_authentication_failed"));
+        assert!(!is_authentication_error("account.imap_timeout"));
+        assert!(!is_authentication_error("account.imap_tls_failed"));
+        assert!(!is_authentication_error("send.smtp_temporary_failure"));
+    }
 }

@@ -6,6 +6,7 @@ import {
   Languages,
   Palette,
   PenLine,
+  Plus,
   SlidersHorizontal,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,16 +16,19 @@ import { useTranslation } from "react-i18next";
 import { api, normalizeCommandError } from "@/app/api";
 import { applyAppearance, useAppearanceStore } from "@/app/appearance";
 import i18n from "@/app/i18n";
-import type { AppearancePreferences, LanguagePreference, ReadingPreferences, ThemePreference } from "@/app/types";
+import type { AccountDraft, AccountSummary, AppearancePreferences, LanguagePreference, ReadingPreferences, ThemePreference } from "@/app/types";
 import { AccountManagementPanel } from "@/features/accounts/AccountManagementDialog";
+import { PasswordAccountForm } from "@/features/accounts/PasswordAccountForm";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
-import { AppShell, Page, Stack } from "@/components/ui/layout";
+import { Modal } from "@/components/ui/dialog";
+import { AppShell, Inline, Page, Stack } from "@/components/ui/layout";
+import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SelectField } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { Heading, Text } from "@/components/ui/typography";
+import { Heading, LabelText, Text } from "@/components/ui/typography";
 
 type SettingsCategory =
   | "general"
@@ -52,6 +56,7 @@ export function SettingsApp() {
   const queryClient = useQueryClient();
   const appearance = useAppearanceStore();
   const [category, setCategory] = useState<SettingsCategory>("general");
+  const [selectedAccountId, setSelectedAccountId] = useState("");
   const preferencesQuery = useQuery({ queryKey: ["preferences"], queryFn: api.getPreferences });
   const readingPreferencesQuery = useQuery({ queryKey: ["reading-preferences"], queryFn: api.getReadingPreferences });
   const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.listAccountSummaries });
@@ -64,7 +69,12 @@ export function SettingsApp() {
     mutationFn: api.setReadingPreferences,
     onSuccess: (preferences) => queryClient.setQueryData(["reading-preferences"], preferences),
   });
-  const accountId = accountsQuery.data?.[0]?.id ?? "";
+
+  useEffect(() => {
+    const accounts = accountsQuery.data ?? [];
+    if (selectedAccountId && accounts.some((account) => account.id === selectedAccountId)) return;
+    setSelectedAccountId(accounts[0]?.id ?? "");
+  }, [accountsQuery.data, selectedAccountId]);
 
   useEffect(() => {
     if (!preferencesQuery.data) return;
@@ -137,17 +147,25 @@ export function SettingsApp() {
           })}
         </nav>
       </Page>
-      <Page className="min-h-0 overflow-auto bg-card px-10 py-8">
-        <SettingsContent
-          category={category}
-          preferences={preferences}
-          readingPreferences={readingPreferencesQuery.data}
-          readingError={readingMutation.error}
-          accountId={accountId}
-          version={aboutQuery.data?.version ?? "0.1.0"}
-          onChange={updatePreferences}
-          onReadingChange={updateReadingPreferences}
-        />
+      <Page className="relative min-h-0 overflow-hidden bg-card">
+        <OverlayScrollArea
+          className="h-full"
+          viewportClassName="px-10 py-8 pr-12"
+          trackClassName="right-2"
+        >
+          <SettingsContent
+            category={category}
+            preferences={preferences}
+            readingPreferences={readingPreferencesQuery.data}
+            readingError={readingMutation.error}
+            accounts={accountsQuery.data ?? []}
+            selectedAccountId={selectedAccountId}
+            onSelectedAccountChange={setSelectedAccountId}
+            version={aboutQuery.data?.version ?? "0.1.0"}
+            onChange={updatePreferences}
+            onReadingChange={updateReadingPreferences}
+          />
+        </OverlayScrollArea>
       </Page>
     </AppShell>
   );
@@ -158,7 +176,9 @@ function SettingsContent({
   preferences,
   readingPreferences,
   readingError,
-  accountId,
+  accounts,
+  selectedAccountId,
+  onSelectedAccountChange,
   version,
   onChange,
   onReadingChange,
@@ -167,7 +187,9 @@ function SettingsContent({
   preferences: AppearancePreferences;
   readingPreferences: ReadingPreferences;
   readingError: unknown;
-  accountId: string;
+  accounts: AccountSummary[];
+  selectedAccountId: string;
+  onSelectedAccountChange: (accountId: string) => void;
   version: string;
   onChange: (preferences: AppearancePreferences) => void;
   onReadingChange: (preferences: ReadingPreferences) => void;
@@ -218,11 +240,11 @@ function SettingsContent({
   if (category === "accounts") {
     return (
       <SettingsSection category={category}>
-        {accountId ? (
-          <AccountManagementPanel accountId={accountId} />
-        ) : (
-          <EmptyState icon={<CircleUserRound size={24} />} title={t("settings.noAccount")} />
-        )}
+        <AccountsSettings
+          accounts={accounts}
+          selectedAccountId={selectedAccountId}
+          onSelectedAccountChange={onSelectedAccountChange}
+        />
       </SettingsSection>
     );
   }
@@ -265,6 +287,64 @@ function SettingsContent({
         description={t("settings.noOptionsDescription")}
       />
     </SettingsSection>
+  );
+}
+
+function AccountsSettings({
+  accounts,
+  selectedAccountId,
+  onSelectedAccountChange,
+}: {
+  accounts: AccountSummary[];
+  selectedAccountId: string;
+  onSelectedAccountChange: (accountId: string) => void;
+}) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [addOpen, setAddOpen] = useState(false);
+
+  async function addAccount(draft: AccountDraft) {
+    const account = await api.addPasswordAccount(draft);
+    setAddOpen(false);
+    await queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    await queryClient.invalidateQueries({ queryKey: ["account-runtimes"] });
+    onSelectedAccountChange(account.id);
+  }
+
+  return (
+    <Stack gap="lg">
+      <Inline className="justify-between">
+        <LabelText>{t("accounts.accountList")}</LabelText>
+        <Button size="sm" onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button>
+      </Inline>
+      {accounts.length ? (
+        <Page className="grid min-h-[360px] grid-cols-[210px_minmax(0,1fr)] gap-6">
+          <Stack className="self-start rounded-lg bg-muted/50 p-2" gap="xs">
+            {accounts.map((account) => (
+              <Button
+                key={account.id}
+                variant="ghost"
+                className={account.id === selectedAccountId ? "h-auto justify-start bg-card px-3 py-2.5 shadow-sm hover:bg-card" : "h-auto justify-start px-3 py-2.5"}
+                onClick={() => onSelectedAccountChange(account.id)}
+              >
+                <Stack className="min-w-0 items-start" gap="xs">
+                  <Text className="max-w-full truncate text-sm font-semibold text-foreground">{account.displayName || account.email}</Text>
+                  <Text className="max-w-full truncate text-xs">{account.email}</Text>
+                </Stack>
+              </Button>
+            ))}
+          </Stack>
+          {selectedAccountId ? <AccountManagementPanel accountId={selectedAccountId} onRemoved={() => onSelectedAccountChange("")} /> : null}
+        </Page>
+      ) : (
+        <EmptyState icon={<CircleUserRound size={24} />} title={t("settings.noAccount")} description={t("accounts.noAccountDescription")} action={<Button onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button>} />
+      )}
+      <Modal open={addOpen} onOpenChange={setAddOpen} title={t("accounts.addTitle")} closeLabel={t("common.close")}>
+        <Stack className="mt-5 max-h-[72vh] overflow-auto pr-1">
+          <PasswordAccountForm submitLabel={t("accounts.add")} onSubmit={addAccount} />
+        </Stack>
+      </Modal>
+    </Stack>
   );
 }
 

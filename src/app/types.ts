@@ -14,11 +14,30 @@ export interface AccountSummary {
   displayName: string;
 }
 
+export type AccountRuntimeState =
+  | "starting"
+  | "ready"
+  | "syncing"
+  | "offline"
+  | "retrying"
+  | "reauth_required"
+  | "removing"
+  | "stopped";
+
+export interface AccountRuntimeSummary {
+  accountId: string;
+  state: AccountRuntimeState;
+  errorCode: string | null;
+  retryAt: number | null;
+  revision: number;
+}
+
 export interface BootstrapStatus {
   stage: BootstrapStage;
   defaultDataDir: string;
   configuredDataDir: string | null;
   accounts: AccountSummary[];
+  lastSelectedAccountId: string | null;
 }
 
 export interface DataDirectoryValidation {
@@ -52,6 +71,21 @@ export interface AccountDraft {
   incoming: ServerConfig;
   outgoing: ServerConfig;
   insecureAcknowledged: boolean;
+}
+
+export interface AccountConnectionDraft {
+  email: string;
+  displayName: string;
+  incoming: ServerConfig;
+  outgoing: ServerConfig;
+  insecureAcknowledged: boolean;
+}
+
+export interface AccountRemovalImpact {
+  editingDrafts: number;
+  queuedSendJobs: number;
+  pendingOperations: number;
+  canRemove: boolean;
 }
 
 export interface DiscoveredAccountConfig {

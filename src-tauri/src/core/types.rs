@@ -18,6 +18,7 @@ pub struct BootstrapStatus {
     pub default_data_dir: PathBuf,
     pub configured_data_dir: Option<PathBuf>,
     pub accounts: Vec<AccountSummary>,
+    pub last_selected_account_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -77,7 +78,7 @@ pub enum ConnectionSecurity {
     Tls,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerConfig {
     pub host: String,
@@ -95,6 +96,29 @@ pub struct AccountDraft {
     pub incoming: ServerConfig,
     pub outgoing: ServerConfig,
     pub insecure_acknowledged: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountConnectionDraft {
+    pub email: String,
+    pub display_name: String,
+    pub incoming: ServerConfig,
+    pub outgoing: ServerConfig,
+    pub insecure_acknowledged: bool,
+}
+
+impl AccountConnectionDraft {
+    pub fn with_password(&self, password: String) -> AccountDraft {
+        AccountDraft {
+            email: self.email.clone(),
+            display_name: self.display_name.clone(),
+            password,
+            incoming: self.incoming.clone(),
+            outgoing: self.outgoing.clone(),
+            insecure_acknowledged: self.insecure_acknowledged,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -118,6 +142,50 @@ pub struct AccountSummary {
     pub id: String,
     pub email: String,
     pub display_name: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountRuntimeState {
+    Starting,
+    Ready,
+    Syncing,
+    Offline,
+    Retrying,
+    ReauthRequired,
+    Removing,
+    Stopped,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountRuntimeSummary {
+    pub account_id: String,
+    pub state: AccountRuntimeState,
+    pub error_code: Option<String>,
+    pub retry_at: Option<i64>,
+    pub revision: u64,
+}
+
+impl AccountRuntimeSummary {
+    pub fn stopped(account_id: impl Into<String>) -> Self {
+        Self {
+            account_id: account_id.into(),
+            state: AccountRuntimeState::Stopped,
+            error_code: None,
+            retry_at: None,
+            revision: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountRemovalImpact {
+    pub editing_drafts: u64,
+    pub queued_send_jobs: u64,
+    pub pending_operations: u64,
+    pub can_remove: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -153,7 +221,14 @@ impl From<&AccountRecord> for AccountSummary {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountsFile {
+    #[serde(default)]
+    pub revision: u64,
+    #[serde(default)]
     pub accounts: Vec<AccountRecord>,
+    #[serde(default)]
+    pub last_selected_account_id: Option<String>,
+    #[serde(default)]
+    pub pending_credential_cleanup: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

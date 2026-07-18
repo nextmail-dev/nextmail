@@ -255,4 +255,15 @@ mod tests {
         store.save(&preferences).expect("save reading preferences");
         assert_eq!(store.load().expect("load reading preferences"), preferences);
     }
+
+    #[test]
+    fn legacy_accounts_file_defaults_new_multi_account_metadata() {
+        let accounts: AccountsFile =
+            serde_json::from_str(r#"{"accounts":[]}"#).expect("deserialize legacy accounts file");
+
+        assert_eq!(accounts.revision, 0);
+        assert!(accounts.accounts.is_empty());
+        assert!(accounts.last_selected_account_id.is_none());
+        assert!(accounts.pending_credential_cleanup.is_empty());
+    }
 }

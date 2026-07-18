@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { CircleUserRound, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -20,12 +20,27 @@ import { MessageViewer } from "./MessageViewer";
 
 interface MainShellProps {
   accounts: AccountSummary[];
+  lastSelectedAccountId: string | null;
 }
 
-export function MainShell({ accounts }: MainShellProps) {
+export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: MainShellProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id ?? "");
+  const accountsQuery = useQuery({
+    queryKey: ["accounts"],
+    queryFn: api.listAccountSummaries,
+    initialData: initialAccounts,
+  });
+  const runtimeQuery = useQuery({
+    queryKey: ["account-runtimes"],
+    queryFn: api.listAccountRuntimeSummaries,
+    refetchInterval: 10_000,
+  });
+  const accounts = accountsQuery.data ?? [];
+  const initialAccountId = accounts.some((account) => account.id === lastSelectedAccountId)
+    ? lastSelectedAccountId ?? ""
+    : accounts[0]?.id ?? "";
+  const [selectedAccountId, setSelectedAccountId] = useState(initialAccountId);
   const [selectedMailboxId, setSelectedMailboxId] = useState("");
   const [selectedMessageId, setSelectedMessageId] = useState("");
   const [composeError, setComposeError] = useState<string | null>(null);
@@ -61,6 +76,7 @@ export function MainShell({ accounts }: MainShellProps) {
   const pendingIssue = pendingOperationsQuery.data?.find((operation) =>
     operation.cleanupPending || operation.status === "failed" || operation.status === "needs_reconcile");
   const visibleFolderWidth = folderPaneCollapsed ? 72 : folderPaneWidth;
+  const titlebarSidebarWidth = accounts.length ? visibleFolderWidth : 0;
   const selectedMailbox = mailboxesQuery.data?.find((mailbox) => mailbox.id === selectedMailboxId);
   const receiving = !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
 
@@ -77,6 +93,13 @@ export function MainShell({ accounts }: MainShellProps) {
     if (selectedAccountId && accounts.some((account) => account.id === selectedAccountId)) return;
     setSelectedAccountId(accounts[0]?.id ?? "");
   }, [accounts, selectedAccountId]);
+
+  function selectAccount(accountId: string) {
+    setSelectedAccountId(accountId);
+    void api.setLastSelectedAccount(accountId).catch((error) => {
+      setComposeError(normalizeCommandError(error).code);
+    });
+  }
 
   useEffect(() => {
     setSelectedMailboxId("");
@@ -95,17 +118,14 @@ export function MainShell({ accounts }: MainShellProps) {
   useEffect(() => {
     const unlisteners = Promise.all([
       listen<{ accountId: string; mailboxId: string }>("mailbox-changed", (event) => {
-        if (event.payload.accountId !== selectedAccountId) return;
-        void queryClient.invalidateQueries({ queryKey: ["mailboxes", selectedAccountId] });
-        void queryClient.invalidateQueries({ queryKey: ["messages", selectedAccountId, event.payload.mailboxId] });
+        void queryClient.invalidateQueries({ queryKey: ["mailboxes", event.payload.accountId] });
+        void queryClient.invalidateQueries({ queryKey: ["messages", event.payload.accountId, event.payload.mailboxId] });
       }),
       listen<{ accountId: string }>("sync-progress", (event) => {
-        if (event.payload.accountId !== selectedAccountId) return;
-        void queryClient.invalidateQueries({ queryKey: ["sync-progress", selectedAccountId] });
+        void queryClient.invalidateQueries({ queryKey: ["sync-progress", event.payload.accountId] });
       }),
       listen<{ accountId: string; messageId: string }>("message-content-changed", (event) => {
-        if (event.payload.accountId !== selectedAccountId) return;
-        void queryClient.invalidateQueries({ queryKey: ["message", selectedAccountId, event.payload.messageId] });
+        void queryClient.invalidateQueries({ queryKey: ["message", event.payload.accountId, event.payload.messageId] });
       }),
       listen<{ accountId: string; jobId: string; status: string; subject: string }>("send-job-changed", (event) => {
         if (event.payload.accountId !== selectedAccountId || event.payload.status !== "sent") return;
@@ -113,11 +133,10 @@ export function MainShell({ accounts }: MainShellProps) {
         void queryClient.invalidateQueries({ queryKey: ["drafts", selectedAccountId] });
       }),
       listen<{ accountId: string }>("pending-operation-changed", (event) => {
-        if (event.payload.accountId !== selectedAccountId) return;
-        void queryClient.invalidateQueries({ queryKey: ["mailboxes", selectedAccountId] });
-        void queryClient.invalidateQueries({ queryKey: ["messages", selectedAccountId] });
-        void queryClient.invalidateQueries({ queryKey: ["message", selectedAccountId] });
-        void queryClient.invalidateQueries({ queryKey: ["pending-operations", selectedAccountId] });
+        void queryClient.invalidateQueries({ queryKey: ["mailboxes", event.payload.accountId] });
+        void queryClient.invalidateQueries({ queryKey: ["messages", event.payload.accountId] });
+        void queryClient.invalidateQueries({ queryKey: ["message", event.payload.accountId] });
+        void queryClient.invalidateQueries({ queryKey: ["pending-operations", event.payload.accountId] });
       }),
     ]);
     return () => { void unlisteners.then((values) => values.forEach((unlisten) => unlisten())); };
@@ -150,12 +169,12 @@ export function MainShell({ accounts }: MainShellProps) {
     setMessagePaneWidth(messages);
   }, [windowWidth, folderPaneCollapsed]);
 
-  useEffect(() => {
-    document.documentElement.style.setProperty("--shell-sidebar-width", `${visibleFolderWidth}px`);
+  useLayoutEffect(() => {
+    document.documentElement.style.setProperty("--shell-sidebar-width", `${titlebarSidebarWidth}px`);
     return () => {
       document.documentElement.style.removeProperty("--shell-sidebar-width");
     };
-  }, [visibleFolderWidth]);
+  }, [titlebarSidebarWidth]);
 
   const folderPaneMax = Math.max(220, Math.min(350, windowWidth - messagePaneWidth - 372));
   const messagePaneMax = Math.max(310, Math.min(520, windowWidth - visibleFolderWidth - 372));
@@ -168,6 +187,19 @@ export function MainShell({ accounts }: MainShellProps) {
       .catch((error) => setComposeError(normalizeCommandError(error).code));
   }
 
+  if (!accounts.length) {
+    return (
+      <AppShell className="grid place-items-center bg-card p-8">
+        <EmptyAccountState
+          title={t("accounts.noAccount")}
+          description={t("accounts.noAccountDescription")}
+          actionLabel={t("accounts.add")}
+          onAdd={() => void api.openSettingsWindow().catch((error) => setComposeError(normalizeCommandError(error).code))}
+        />
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell
       className="grid overflow-hidden bg-card"
@@ -176,8 +208,9 @@ export function MainShell({ accounts }: MainShellProps) {
       <Page className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] bg-sidebar">
         <AccountSwitcher
           accounts={accounts}
+          runtimeSummaries={runtimeQuery.data ?? []}
           selectedAccountId={selectedAccountId}
-          onAccountChange={setSelectedAccountId}
+          onAccountChange={selectAccount}
           collapsed={folderPaneCollapsed}
         />
         <MailboxPane
@@ -269,5 +302,16 @@ export function MainShell({ accounts }: MainShellProps) {
         </Alert>
       ) : null}
     </AppShell>
+  );
+}
+
+function EmptyAccountState({ title, description, actionLabel, onAdd }: { title: string; description: string; actionLabel: string; onAdd: () => void }) {
+  return (
+    <Stack className="max-w-md items-center text-center" gap="md">
+      <span className="grid size-14 place-items-center rounded-full bg-primary/10 text-primary"><CircleUserRound size={26} /></span>
+      <Text className="text-lg font-semibold text-foreground">{title}</Text>
+      <Text>{description}</Text>
+      <Button onClick={onAdd}><Plus size={16} />{actionLabel}</Button>
+    </Stack>
   );
 }
