@@ -1,0 +1,70 @@
+你正在接手 NextMail 项目，请把仓库内文档和代码视为当前事实来源，不要依赖此前对话或自行猜测历史状态。
+
+项目目录：E:\Workspace\Rust\nextmail
+
+开始工作前必须完整阅读：
+
+1. docs/README.md
+2. docs/technical-reference.md
+3. docs/architecture.md
+4. docs/development.md
+5. docs/plans/master-plan.md
+6. docs/plans/next-implementation.md
+7. docs/iterations/0008-refactor-hardening.md
+8. docs/adr/ 下所有仍有效的 ADR，尤其 0002、0003、0004、0005、0006、0007
+9. 最近的 docs/changes/0023 至 0029
+
+当前状态：
+
+- NextMail 0.1.0，Tauri 2 + React 19/TypeScript + Rust。
+- Windows 10 22H2+ 是当前主要实机验收平台；macOS 12+ 是目标平台，但未经执行的行为不要宣称通过；Linux 不做深度适配。
+- 首次启动、多账户 IMAP/SMTP 密码认证、本地离线阅读、完整 IMAP 同步语义、HTML 安全阅读、附件、富文本草稿、持久化发件、回复/回复全部/转发、SaaS UI、独立设置窗口均已实现并验收。
+- P0 正确性/热路径与 P1 Rust 分层重构已验收，基线提交至少包含 57efbfa；以你当前检出的最新提交为准。
+- 下一项工作是 docs/plans/next-implementation.md 定义的“前端状态与工作区结构收敛”，不是 POP3。
+- POP3、OAuth、模板、签名、全文搜索、会话、托盘、系统通知、自动更新尚未实现。
+
+必须遵守的项目约定：
+
+- 使用 pnpm 管理全部 Node.js 依赖。
+- 项目当前不使用 Python；未来如确实需要 Python，统一使用 uv 管理。
+- Rust 只能保留 src-tauri 下的单一 Cargo package。不得创建根 Cargo Workspace、根 Cargo.toml/Cargo.lock/target 或业务子 crate。
+- 日常调试由用户运行 pnpm tauri dev。不要每次执行 Tauri 完整 bundle；dist 与 src-tauri/target 是增量缓存，不要主动清理。
+- 不要开发用户未要求或当前计划之外的功能。额外产品行为、依赖、安全策略或 UI 选择需要先询问确认。
+- 每一批先按文档范围实施，完成自动验证后交给用户手动验收。用户明确确认通过后才记录验收、提交并规划下一批。
+- 未经用户明确要求，不要 commit、push、配置远程仓库、创建 GitHub Workflow/Release、签名或发布。
+- 功能或架构变化必须同步维护 docs/technical-reference.md、docs/architecture.md、当前计划/iteration 和新的 docs/changes 记录；重大安全或架构取舍新增 ADR。
+- 正式测试代码保留。临时探针、测试目录、凭据、日志、截图和 coverage 要清理；正常构建产物不清理。
+- 开源依赖优先 MIT/Apache/BSD/ISC 等宽松许可证；商业、Cloud、Pro 或其他许可证必须先确认。
+
+前端边界：
+
+- React 不直接访问 SQLite、邮件服务器、任意文件系统或系统凭据库。
+- 所有 IPC 通过 src/app/api.ts 和稳定 DTO；不要在业务组件散落裸 invoke。
+- TanStack Query 管理本地视图；事件只负责失效/刷新，不推完整邮件正文。
+- UI 使用 src/components/ui 的自有组件和语义令牌，不使用组件库默认外观或浏览器原生表单样式。
+- 业务页面尽量不直接写裸 div/span/input/select；语义与可访问性需要的 HTML 放在基础组件内或有明确理由。
+- 中文和英文文案必须同时维护，UI 只能出现生产级文案。
+- 保持系统/浅色/深色、主题色、Windows/macOS 平台窗口行为和键盘可访问性。
+
+Rust 与安全边界：
+
+- core 不依赖 Tauri、SQLx 或具体协议库；第三方协议/SQLx 类型不得越过 Adapter/Repository 边界。
+- 具体实现由 state.rs 装配并通过 ports 注入；不要在 application/runtime 重新硬编码构造 Adapter。
+- Command 保持薄，统一返回稳定 CommandError { code, params, retryable }。
+- 密码和 Token 只进入系统凭据库；不得进入 SQLite、可迁移数据目录、前端持久化、日志或错误详情。
+- TLS 严格验证系统信任链，不提供忽略证书错误；明文连接必须显式确认。
+- 邮件 HTML 继续由 Rust 清洗并在 sandbox iframe 中渲染。不得为显示效果放开 scripts、forms、same-origin、top-navigation、任意文件或任意网络权限。
+- 数据访问必须按 account_slot_id 隔离；多表可见写入使用事务；不要持有 SQLite 写锁等待网络或慢文件 I/O。
+
+本次请直接实施 docs/plans/next-implementation.md，执行顺序：
+
+1. 先检查工作区和当前实现，确认没有用户未提交的无关修改；有冲突时停下说明。
+2. 更新计划状态，但不要扩大范围。
+3. 收敛外观偏好为 TanStack Query 单一数据源。
+4. 稳定 Composer 关闭监听。
+5. 拆分 MainShell 的选择、事件和分栏 hooks，并补回归测试。
+6. 更新文档和 changes 记录。
+7. 运行：pnpm test、pnpm build；进入 src-tauri 运行 cargo fmt --all -- --check、cargo test --offline --locked、cargo clippy --offline --locked --all-targets -- -D warnings；最后 git diff --check。
+8. 不运行 Tauri bundle，不提交。交付清晰的实机验收步骤，等待用户确认。
+
+如果文档与代码冲突：以当前代码、最近 changes 和有效 ADR 为证据，先修正文档或向用户说明；不要用早期历史计划覆盖已经验收的实现。

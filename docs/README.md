@@ -1,9 +1,13 @@
 # NextMail 文档索引
 
-项目计划和每次功能变动都随代码保存在本目录中。
+项目计划和每次功能变动都随代码保存在本目录中。当前实现事实以技术参考、架构基线、最近变更和有效 ADR 为准；历史 iteration 不覆盖已经验收的现状。
 
+- `technical-reference.md`：当前已经实现的能力、技术栈、模块、Command/Event、数据、同步、发件、安全与已知限制。
+- `architecture.md`：当前有效的模块、存储、安全、同步、窗口和设计系统边界。
+- `development.md`：环境、命令、测试、渐进交付、代码边界与文档维护规范。
 - `plans/master-plan.md`：产品目标、技术基线与十三阶段总体路线。
-- `architecture.md`：当前有效的模块、存储、安全和设计系统边界。
+- `plans/next-implementation.md`：交接后的下一批决策完整计划与验收标准。
+- `handoff-claude.txt`：可直接交给 Claude 的下一阶段开发提示词。
 - `iterations/`：每个实施阶段的范围、手动验收与自动验证。
 - `iterations/0002-imap-local-reading.md`：第二阶段计划、当前实现结果与待确认差异。
 - `iterations/0003-compose-drafts-smtp.md`：第三阶段写信、草稿与 SMTP 发件实施计划与验收。
@@ -38,6 +42,7 @@
 - `changes/0027-theme-color-palette.md`：设置页“主题色”圆点色板、扩展配色和键盘可访问性。
 - `changes/0028-refactor-p0-hardening.md`：邮件详情刷新、SQLite 原子写入、TLS 缓存和 IMAP 批量正文热路径。
 - `changes/0029-refactor-p1-rust-layering.md`：应用用例上移、Repository/ports 拆分、运行时注入与 IMAP 模块化。
+- `changes/0030-project-documentation-and-handoff.md`：当前技术参考、开发指南、下一批计划、Claude 交接与 GitHub README 更新。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。
