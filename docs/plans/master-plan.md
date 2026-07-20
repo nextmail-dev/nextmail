@@ -2,9 +2,9 @@
 
 ## 产品目标
 
-NextMail 是面向 Windows 10 22H2+ x64 和 macOS 12+ Intel/Apple Silicon 的桌面多协议邮件客户端。技术栈为 Tauri 2、React/TypeScript 和 Rust；Linux 不作为深度适配或验收平台。
+NextMail 是面向 Windows 10 22H2+ x64 和 macOS 12+ Intel/Apple Silicon 的桌面邮件客户端。技术栈为 Tauri 2、React/TypeScript 和 Rust；Linux 不作为深度适配或验收平台。
 
-核心能力包括加密或非加密的 POP3、IMAP、SMTP，多账户和密码/OAuth 认证，邮件与签名模板，富文本写信，中英文及可扩展语言包。
+当前路线聚焦 IMAP/SMTP 密码账户、模板与签名、可靠的 HTML 阅读和回复体验、搜索与桌面集成。POP3 与 Google/Microsoft OAuth 保留为产品设想，但不进入当前排期。
 
 ## 架构基线
 
@@ -15,9 +15,9 @@ NextMail 是面向 Windows 10 22H2+ x64 和 macOS 12+ Intel/Apple Silicon 的桌
 - Rust 只使用 `src-tauri` 下的单一 Cargo package；`core`、`storage`、`protocols` 等职责通过内部模块隔离，仓库根目录不再维护 Cargo Workspace、lockfile 或 `target`。
 - 功能依赖优先使用 MIT、Apache、BSD、ISC 等宽松许可证，其他许可证需单独确认。
 
-前端基线为 React 19、TypeScript、Vite、TanStack Query、Zustand、react-i18next、Tailwind CSS 和基于 shadcn 结构自建的组件层。交互原语采用 Radix Primitives，编辑器使用开源 Tiptap/ProseMirror。
+前端基线为 React 19、TypeScript、Vite、TanStack Query、react-i18next、Tailwind CSS 和基于 shadcn 结构自建的组件层。交互原语采用 Radix Primitives，编辑器使用开源 Tiptap/ProseMirror。
 
-Rust 基线为 Tauri 2、Tokio、serde、tracing；协议适配计划采用 async-imap、lettre 和隔离的 POP3 Adapter；MIME 使用 mail-parser/mail-builder；本地数据采用 SQLite WAL、FTS5 和 SQLx 嵌入式迁移；凭据进入 Windows Credential Manager/macOS Keychain。
+Rust 基线为 Tauri 2、Tokio、serde、tracing；当前协议适配采用 async-imap 与 lettre；MIME 使用 mail-parser/mail-builder；本地数据采用 SQLite WAL、FTS5 和 SQLx 嵌入式迁移；凭据进入 Windows Credential Manager/macOS Keychain。
 
 ## 数据与安全边界
 
@@ -34,18 +34,25 @@ HTML 邮件由 Rust 白名单清洗，邮件资源重写为不透明 ID，并在
 5. 跨平台窗口壳与 SaaS UI 重构：Windows 自绘窗口控制、macOS 原生交通灯覆盖式标题栏、随包字体、沉浸式侧栏、邮件列表/阅读器重构和独立设置窗口。（已验收）
 6. 多账户：账户管理、Supervisor Registry、并发限制、独立同步策略和账户层级导航。（已验收）
 7. 系统字体与附件体验优化：改用 Windows/macOS 原生字体栈，压缩阅读器附件区域，并补齐安全的按需下载、另存为与系统打开闭环。（已验收）
-8. 架构与性能重构：分批处理正确性、同步/存储热路径、Rust 分层、前端状态与工具链；P0、P1 Rust 分层与 P1 前端结构均已验收，P2/P3 未排期。
-9. POP3：TLS/STARTTLS/非加密、UIDL、服务器副本策略和真实服务商兼容门禁。
-10. 模板与签名：作用域、变量替换、可可靠替换的签名节点，以及新建/回复/转发场景模板；基础回复与转发已在第四阶段提供。
-11. Google 与 Microsoft OAuth：系统浏览器、PKCE、回调、刷新、撤销和重新认证。
-12. 搜索、会话与桌面集成：FTS5、会话聚合、托盘、未读数、通知和窗口行为。
-13. 迁移、发布与硬化：跨机重绑定、性能和损坏恢复、安全审计、签名、公证、发布与自动更新。
+8. 架构与性能重构：正确性、同步/存储热路径、Rust 分层与前端状态结构；三个批次均已验收，本阶段完成。
+9. 模板与签名：作用域、变量替换、可可靠替换的签名节点，以及新建/回复/转发场景模板；基础回复与转发已在第四阶段提供。
+10. 邮件阅读与回复体验：提高 HTML/CSS 保真度、建立受控外链、优化深色模式，并让回复/转发在富文本编辑器中保留可编辑的完整原始内容与默认签名布局。
+11. 搜索、会话与桌面集成：FTS5、会话聚合、托盘、未读数、通知和窗口行为。
 
 每个阶段先在 `iterations/` 形成独立实施与验收文档，并明确标记“规划中”“实施中”“等待手动验收”“已验收”或“未排期”；完成自动验证后由用户手动验收，只有确认通过才规划和实施下一阶段。
 
+## 未排期设想
+
+- POP3 协议支持。
+- Google 与 Microsoft OAuth。
+- 跨机重绑定、正式发布与自动更新硬化。
+- 功能阶段完成后的全局性能、工具链和代码清理优化。
+
+上述方向不是当前实施计划；重新进入路线前必须单独建立 iteration、确认范围和验收门禁。
+
 ## 当前非目标
 
-统一收件箱、联系人簿、邮件规则、延迟或撤销发送、EML/MBOX 导入导出、日历、PGP/S-MIME、企业策略、遥测以及 Linux 深度适配不在当前标准基线中。
+统一收件箱、联系人簿、邮件规则、延迟或撤销发送、EML/MBOX 导入导出、日历、PGP/S-MIME、企业策略、遥测以及 Linux 深度适配不在当前标准基线中。POP3、OAuth、发布硬化和全局优化虽保留设想，但当前同样不排期。
 
 ## 执行约束
 

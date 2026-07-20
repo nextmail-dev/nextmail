@@ -25,7 +25,7 @@ NextMail 当前版本为 `0.1.0`，目标平台为 Windows 10 22H2+ x64 与 macO
 
 尚未实现：
 
-- POP3、Google/Microsoft OAuth。
+- POP3、Google/Microsoft OAuth；当前均为未排期设想。
 - 邮件模板、签名模板及身份系统。
 - FTS5 全文搜索、会话聚合、统一收件箱。
 - 托盘、系统新邮件通知、自动更新与正式发布流水线。
@@ -245,7 +245,7 @@ SQLite 数据格式当前为版本 7。主要表：
 - 保留白名单内的行内排版、颜色、尺寸、表格和间距样式。
 - 阅读器使用无 scripts/forms/same-origin/top-navigation 的 sandbox iframe。
 - 远程图片默认由 iframe CSP 阻止，用户可单次显示或启用设备级自动加载；加载使用 `no-referrer`。
-- 外部链接仅允许 `http`、`https`、`mailto`，经校验后交给系统。
+- 当前清洗结果会移除所有超链接 `href`，阅读器尚不能打开邮件外链；保留安全链接、离站确认和系统打开已进入第十阶段计划。
 - 已收附件按账户槽验证归属；高风险扩展名只在文件管理器显示，不自动执行。
 
 ## 12. 当前已知技术债与限制
@@ -253,6 +253,6 @@ SQLite 数据格式当前为版本 7。主要表：
 - 前端尚无 ESLint/Prettier/CI；是否添加 GitHub Actions 需用户单独确认。
 - Vite 主入口压缩后超过 500 kB，写信与设置已动态拆分，但主工作区仍需继续拆包。
 - 存储错误对 UI 保持稳定码，但内部诊断日志尚未形成完整 tracing 方案。
-- HTML 邮件内 `<style>`、CID/内联附件受控协议和远程图片代理仍未完成。
+- HTML 邮件内 `<style>`、受控外链、CID/内联附件协议和远程图片代理仍未完成；第十阶段已规划样式/外链与回复体验，CID 和代理是否纳入仍需单独确认。
 
 总体阶段顺序见 `plans/master-plan.md`；各阶段范围、进度和验收边界统一记录在 `iterations/`。

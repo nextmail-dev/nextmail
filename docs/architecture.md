@@ -10,7 +10,7 @@ Rust 代码只使用 `src-tauri` 下的单一 Cargo package，避免仓库根目
 
 - `src-tauri/src/core`：不依赖 Tauri、数据库和具体协议库的领域 DTO、稳定错误与 ports。
 - `src-tauri/src/storage`：共享 SQLite/内容存储之上的读取、同步写入、草稿、发件任务、待办操作和文件夹角色子仓库；嵌入式迁移位于 `src-tauri/migrations`。
-- `src-tauri/src/protocols`：IMAP 同步与写操作、MIME 解析/生成和 HTML 清洗；IMAP 内部再按会话、解析、文件夹编码和同步策略拆分，后续继续承载 POP3 Adapter。
+- `src-tauri/src/protocols`：IMAP 同步与写操作、MIME 解析/生成和 HTML 清洗；IMAP 内部再按会话、解析、文件夹编码和同步策略拆分。新增协议 Adapter 只有在未来单独排期后进入此边界。
 - `src-tauri/src/application`、`adapters`、`commands` 与运行时模块：首次启动用例、Keyring、自动发现、Command/Event、窗口和 Worker 装配。
 
 仓库根目录不放置 Cargo manifest、lockfile 或 Rust 构建目录。唯一的 `Cargo.toml`、`Cargo.lock` 和 `target` 均由 `src-tauri` 管理。
@@ -30,7 +30,7 @@ Rust 代码只使用 `src-tauri` 下的单一 Cargo package，避免仓库根目
 NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src-tauri` package 内保持清晰模块：
 
 - `core`：纯 Rust 的领域模型、用例接口和稳定错误。
-- `protocols`：IMAP、POP3、SMTP、MIME 和 HTML 安全 Adapter。
+- `protocols`：当前 IMAP、SMTP、MIME 和 HTML 安全 Adapter。
 - `storage`：SQLite、原始邮件、附件和索引存储。
 - Tauri 宿主模块：窗口、Capability、系统集成、Command/Event 和运行时装配。
 
@@ -128,6 +128,7 @@ UI 使用操作系统原生字体栈，不再随 Vite 打包字体。Windows 使
 ## HTML 阅读器
 
 - 清洗层移除脚本、表单、嵌入文档、事件属性、危险 URL、外部样式表和 CSS 资源；经过白名单过滤的行内排版、颜色、尺寸、表格和间距属性会保留。安全的远程图片 URL 可以保留在清洗结果中，但默认 iframe CSP 的 `img-src data:` 阻止请求。
+- 当前清洗层同时移除所有链接 `href`，因此邮件正文暂不提供外链打开；未来受控外链仍必须经过 Rust URL 校验、用户确认和系统打开边界。
 - “立即显示”或设备级“自动加载远程图片”只把当前 iframe 的图片 CSP 扩为 `data: http: https:`，sandbox 仍不启用 scripts、forms、same-origin 或 top-navigation，并使用 `no-referrer`。自动加载默认关闭，设置界面说明打开跟踪风险。
 - Tauri 顶层 CSP 允许图片协议只是为 iframe 的显式选择提供上限；默认阻止由邮件文档自身更严格的 CSP 执行。
 - 阅读 iframe 不继承应用 DOM 样式。NextMail 根据有效主题注入浅色或灰黑深色页面级兜底层，但不覆盖正文子元素自身的安全颜色和背景，避免破坏邮件原始布局。邮件内 `<style>` 样式表、`cid:`/附件资源协议与远程图片代理仍需后续专门的 CSS 和受控资源方案。

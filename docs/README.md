@@ -5,7 +5,7 @@
 - `technical-reference.md`：当前已经实现的能力、技术栈、模块、Command/Event、数据、同步、发件、安全与已知限制。
 - `architecture.md`：当前有效的模块、存储、安全、同步、窗口和设计系统边界。
 - `development.md`：环境、命令、测试、渐进交付、代码边界与文档维护规范。
-- `plans/master-plan.md`：产品目标、技术基线与十三阶段总体路线。
+- `plans/master-plan.md`：产品目标、技术基线、十一阶段总体路线与未排期设想。
 - `iterations/`：每个实施阶段的范围、当前状态、自动验证与手动验收；后续阶段计划统一在此维护。
 - `iterations/0002-imap-local-reading.md`：第二阶段计划、当前实现结果与待确认差异。
 - `iterations/0003-compose-drafts-smtp.md`：第三阶段写信、草稿与 SMTP 发件实施计划与验收。
@@ -13,7 +13,10 @@
 - `iterations/0005-saas-ui-refactor.md`：第五阶段跨平台窗口壳、随包字体、三栏界面与独立设置窗口实施和验收。
 - `iterations/0006-multi-account.md`：第六阶段多账户生命周期、Supervisor Registry、并发限制和数据隔离计划。
 - `iterations/0007-font-and-attachment-experience.md`：第七阶段系统字体试验、附件区域紧凑化和安全下载后打开计划。
-- `iterations/0008-refactor-hardening.md`：第八阶段正确性、同步热路径、架构分层和前端结构重构；前三批已验收，P2/P3 未排期。
+- `iterations/0008-refactor-hardening.md`：第八阶段正确性、同步热路径、架构分层和前端结构重构；三个批次均已验收。
+- `iterations/0009-templates-and-signatures.md`：第九阶段模板、签名、变量和写信场景集成计划。
+- `iterations/0010-mail-reading-and-reply-experience.md`：第十阶段 HTML/CSS 保真、受控外链、深色阅读与完整富文本引用计划。
+- `iterations/0011-search-conversations-and-desktop.md`：第十一阶段搜索、会话与桌面集成范围。
 - `changes/`：按实施批次记录已经发生的功能和架构变动。
 - `changes/0005-message-and-mailbox-encoding.md`：邮件多字符集、IMAP 文件夹名和旧缓存重建说明。
 - `changes/0006-rfc2047-robustness.md`：完整 RFC 2047 encoded-word、安全降级和回归语料。
@@ -42,6 +45,7 @@
 - `changes/0029-refactor-p1-rust-layering.md`：应用用例上移、Repository/ports 拆分、运行时注入与 IMAP 模块化。
 - `changes/0030-project-documentation-and-handoff.md`：当前技术参考、开发指南、下一批计划、Claude 交接与 GitHub README 更新。
 - `changes/0031-frontend-state-and-workspace-structure.md`：外观 Query 单一数据源、Composer 稳定关闭监听与主工作区 hooks 收敛。
+- `changes/0032-roadmap-reprioritization.md`：删除旧 P2/P3，重排第九至十一阶段，并把 POP3/OAuth 等方向移为未排期设想。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。
