@@ -31,15 +31,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Text } from "@/components/ui/typography";
+import { cn } from "@/lib/utils";
 
 interface RichTextEditorProps {
   initialJson: string;
   disabled?: boolean;
-  signature: { name: string; email: string };
+  signature?: { name: string; email: string };
+  ariaLabel?: string;
+  className?: string;
   onChange: (content: DraftContent) => void;
 }
 
-export function RichTextEditor({ initialJson, disabled, signature, onChange }: RichTextEditorProps) {
+export function RichTextEditor({ initialJson, disabled, signature, ariaLabel, className, onChange }: RichTextEditorProps) {
   const { t } = useTranslation();
   const editor = useEditor({
     extensions: [StarterKit.configure({ underline: false }), Underline, TextStyleKit],
@@ -48,7 +51,7 @@ export function RichTextEditor({ initialJson, disabled, signature, onChange }: R
     editorProps: {
       attributes: {
         class: "nextmail-editor-content",
-        "aria-label": t("composer.body"),
+        "aria-label": ariaLabel ?? t("composer.body"),
       },
     },
     onUpdate: ({ editor: current }) => {
@@ -80,7 +83,7 @@ export function RichTextEditor({ initialJson, disabled, signature, onChange }: R
   );
 
   return (
-    <Page className="flex min-h-0 flex-1 flex-col bg-card">
+    <Page className={cn("flex min-h-0 flex-1 flex-col bg-card", className)}>
       <Inline className="min-h-11 shrink-0 gap-0.5 overflow-x-auto bg-muted/35 px-3 py-1.5" role="toolbar">
         <SelectField
           compact
@@ -142,11 +145,11 @@ export function RichTextEditor({ initialJson, disabled, signature, onChange }: R
         {action(t("composer.bulletList"), editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run(), <List size={16} />)}
         {action(t("composer.numberedList"), editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), <ListOrdered size={16} />)}
         {action(t("composer.quote"), editor.isActive("blockquote"), () => editor.chain().focus().toggleBlockquote().run(), <Quote size={16} />)}
-        {action(t("composer.insertSignature"), false, () => editor.chain().focus().insertContent([
+        {signature ? action(t("composer.insertSignature"), false, () => editor.chain().focus().insertContent([
           { type: "paragraph", content: [{ type: "text", text: "-- " }] },
           { type: "paragraph", content: [{ type: "text", text: signature.name || signature.email }] },
           ...(signature.name ? [{ type: "paragraph", content: [{ type: "text", text: signature.email }] }] : []),
-        ]).run(), <UserRound size={16} />)}
+        ]).run(), <UserRound size={16} />) : null}
         <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
         {action(t("composer.undo"), false, () => editor.chain().focus().undo().run(), <Undo2 size={16} />)}
         {action(t("composer.redo"), false, () => editor.chain().focus().redo().run(), <Redo2 size={16} />)}

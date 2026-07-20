@@ -545,6 +545,53 @@ pub struct ComposerBootstrap {
     pub sender: AccountSummary,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompositionDefinitionScope {
+    Global,
+    Account,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MailTemplateDraft {
+    pub name: String,
+    pub subject: String,
+    pub content: DraftContent,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MailTemplate {
+    pub id: String,
+    pub scope: CompositionDefinitionScope,
+    pub account_id: Option<String>,
+    pub name: String,
+    pub subject: String,
+    pub content: DraftContent,
+    pub revision: u64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MailSignatureDraft {
+    pub name: String,
+    pub content: DraftContent,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MailSignature {
+    pub id: String,
+    pub scope: CompositionDefinitionScope,
+    pub account_id: Option<String>,
+    pub name: String,
+    pub content: DraftContent,
+    pub revision: u64,
+    pub updated_at: i64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SendJobStatus {

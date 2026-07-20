@@ -30,6 +30,10 @@ import type {
   MailboxRole,
   MessageComposeAction,
   ReadingPreferences,
+  MailSignature,
+  MailSignatureDraft,
+  MailTemplate,
+  MailTemplateDraft,
 } from "./types";
 
 export const api = {
@@ -137,6 +141,34 @@ export const api = {
     invoke<void>("open_message_action_composer", { accountId, messageId, action }),
   getComposerBootstrap: (accountId: string, draftId: string) =>
     invoke<ComposerBootstrap>("get_composer_bootstrap", { accountId, draftId }),
+  listMailTemplates: (accountId: string | null) =>
+    invoke<MailTemplate[]>("list_mail_templates", { accountId }),
+  createMailTemplate: (accountId: string | null, draft: MailTemplateDraft) =>
+    invoke<MailTemplate>("create_mail_template", { accountId, draft }),
+  updateMailTemplate: (
+    accountId: string | null,
+    templateId: string,
+    draft: MailTemplateDraft,
+    expectedRevision: number,
+  ) => invoke<MailTemplate>("update_mail_template", {
+    accountId, templateId, draft, expectedRevision,
+  }),
+  deleteMailTemplate: (accountId: string | null, templateId: string, expectedRevision: number) =>
+    invoke<void>("delete_mail_template", { accountId, templateId, expectedRevision }),
+  listMailSignatures: (accountId: string | null) =>
+    invoke<MailSignature[]>("list_mail_signatures", { accountId }),
+  createMailSignature: (accountId: string | null, draft: MailSignatureDraft) =>
+    invoke<MailSignature>("create_mail_signature", { accountId, draft }),
+  updateMailSignature: (
+    accountId: string | null,
+    signatureId: string,
+    draft: MailSignatureDraft,
+    expectedRevision: number,
+  ) => invoke<MailSignature>("update_mail_signature", {
+    accountId, signatureId, draft, expectedRevision,
+  }),
+  deleteMailSignature: (accountId: string | null, signatureId: string, expectedRevision: number) =>
+    invoke<void>("delete_mail_signature", { accountId, signatureId, expectedRevision }),
   saveDraft: (
     accountId: string,
     draftId: string,

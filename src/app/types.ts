@@ -258,6 +258,35 @@ export interface ComposerBootstrap {
   sender: AccountSummary;
 }
 
+export type CompositionDefinitionScope = "global" | "account";
+
+export interface MailTemplateDraft {
+  name: string;
+  subject: string;
+  content: DraftContent;
+}
+
+export interface MailTemplate extends MailTemplateDraft {
+  id: string;
+  scope: CompositionDefinitionScope;
+  accountId: string | null;
+  revision: number;
+  updatedAt: number;
+}
+
+export interface MailSignatureDraft {
+  name: string;
+  content: DraftContent;
+}
+
+export interface MailSignature extends MailSignatureDraft {
+  id: string;
+  scope: CompositionDefinitionScope;
+  accountId: string | null;
+  revision: number;
+  updatedAt: number;
+}
+
 export type SendJobStatus = "queued" | "sending" | "sent" | "failed";
 
 export interface SendJobSummary {

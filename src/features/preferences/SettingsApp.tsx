@@ -29,6 +29,7 @@ import { SelectField } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { ThemeColorPicker, type ThemeColorOption } from "@/components/ui/theme-color-picker";
 import { Heading, LabelText, Text } from "@/components/ui/typography";
+import { CompositionDefinitionsSettings } from "./CompositionDefinitionsSettings";
 
 type SettingsCategory =
   | "general"
@@ -267,6 +268,13 @@ function SettingsContent({
             {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
           </Alert>
         ) : null}
+      </SettingsSection>
+    );
+  }
+  if (category === "composer") {
+    return (
+      <SettingsSection category={category}>
+        <CompositionDefinitionsSettings accounts={accounts} />
       </SettingsSection>
     );
   }

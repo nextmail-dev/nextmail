@@ -9,9 +9,10 @@ use std::{
 };
 
 use crate::core::{
-    AccountSummary, CommandError, CommandResult, ComposerBootstrap, DraftAttachmentSummary,
-    DraftContent, DraftDetail, DraftListItem, DraftRecipientFields, DraftStatus,
-    LanguagePreference, MailboxRole, MessageAddress, MessageComposeAction, SendJobSummary,
+    AccountRecord, AccountSummary, CommandError, CommandResult, ComposerBootstrap,
+    DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem, DraftRecipientFields,
+    DraftStatus, LanguagePreference, MailSignature, MailSignatureDraft, MailTemplate,
+    MailTemplateDraft, MailboxRole, MessageAddress, MessageComposeAction, SendJobSummary,
 };
 use crate::protocols::{build_outgoing_message, OutgoingAttachment};
 use crate::storage::{
@@ -26,7 +27,8 @@ use tokio::sync::Notify;
 use crate::{
     adapters::send_raw_smtp,
     application::{
-        compose_imported_draft, compose_message_action_draft, AppService, MessageActionLabels,
+        compose_imported_draft, compose_message_action_draft, normalize_mail_signature_draft,
+        normalize_mail_template_draft, AppService, MessageActionLabels,
     },
     mail_runtime::MailRuntime,
 };
@@ -401,6 +403,154 @@ impl ComposerRuntime {
         })
     }
 
+    pub async fn list_mail_templates(
+        &self,
+        account_id: Option<&str>,
+    ) -> CommandResult<Vec<MailTemplate>> {
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .list_mail_templates(
+                account.as_ref().map(|value| value.id.as_str()),
+                account.as_ref().map(|value| value.data_slot_id.as_str()),
+            )
+            .await
+    }
+
+    pub async fn create_mail_template(
+        &self,
+        account_id: Option<&str>,
+        draft: MailTemplateDraft,
+    ) -> CommandResult<MailTemplate> {
+        let draft = normalize_mail_template_draft(draft)?;
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .create_mail_template(
+                account.as_ref().map(|value| value.id.as_str()),
+                account.as_ref().map(|value| value.data_slot_id.as_str()),
+                &draft,
+            )
+            .await
+    }
+
+    pub async fn update_mail_template(
+        &self,
+        account_id: Option<&str>,
+        template_id: &str,
+        draft: MailTemplateDraft,
+        expected_revision: u64,
+    ) -> CommandResult<MailTemplate> {
+        let draft = normalize_mail_template_draft(draft)?;
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .update_mail_template(
+                account.as_ref().map(|value| value.id.as_str()),
+                account.as_ref().map(|value| value.data_slot_id.as_str()),
+                template_id,
+                &draft,
+                expected_revision,
+            )
+            .await
+    }
+
+    pub async fn delete_mail_template(
+        &self,
+        account_id: Option<&str>,
+        template_id: &str,
+        expected_revision: u64,
+    ) -> CommandResult<()> {
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .delete_mail_template(
+                account.as_ref().map(|value| value.id.as_str()),
+                account.as_ref().map(|value| value.data_slot_id.as_str()),
+                template_id,
+                expected_revision,
+            )
+            .await
+    }
+
+    pub async fn list_mail_signatures(
+        &self,
+        account_id: Option<&str>,
+    ) -> CommandResult<Vec<MailSignature>> {
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .list_mail_signatures(
+                account.as_ref().map(|value| value.id.as_str()),
+                account.as_ref().map(|value| value.data_slot_id.as_str()),
+            )
+            .await
+    }
+
+    pub async fn create_mail_signature(
+        &self,
+        account_id: Option<&str>,
+        draft: MailSignatureDraft,
+    ) -> CommandResult<MailSignature> {
+        let draft = normalize_mail_signature_draft(draft)?;
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .create_mail_signature(
+                account.as_ref().map(|value| value.id.as_str()),
+                account.as_ref().map(|value| value.data_slot_id.as_str()),
+                &draft,
+            )
+            .await
+    }
+
+    pub async fn update_mail_signature(
+        &self,
+        account_id: Option<&str>,
+        signature_id: &str,
+        draft: MailSignatureDraft,
+        expected_revision: u64,
+    ) -> CommandResult<MailSignature> {
+        let draft = normalize_mail_signature_draft(draft)?;
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .update_mail_signature(
+                account.as_ref().map(|value| value.id.as_str()),
+                account.as_ref().map(|value| value.data_slot_id.as_str()),
+                signature_id,
+                &draft,
+                expected_revision,
+            )
+            .await
+    }
+
+    pub async fn delete_mail_signature(
+        &self,
+        account_id: Option<&str>,
+        signature_id: &str,
+        expected_revision: u64,
+    ) -> CommandResult<()> {
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .delete_mail_signature(
+                account.as_ref().map(|value| value.id.as_str()),
+                account.as_ref().map(|value| value.data_slot_id.as_str()),
+                signature_id,
+                expected_revision,
+            )
+            .await
+    }
+
     pub async fn save_draft(
         &self,
         account_id: &str,
@@ -763,6 +913,12 @@ impl ComposerRuntime {
 
     async fn repository(&self) -> CommandResult<&Arc<MailRepository>> {
         self.mail.repository().await
+    }
+
+    fn definition_account(&self, account_id: Option<&str>) -> CommandResult<Option<AccountRecord>> {
+        account_id
+            .map(|value| self.service.account_record(value))
+            .transpose()
     }
 }
 

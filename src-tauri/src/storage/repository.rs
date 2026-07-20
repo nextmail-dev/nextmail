@@ -18,8 +18,8 @@ use sqlx::{
 use uuid::Uuid;
 
 use super::{
-    ContentStore, DraftRepository, MailboxRoleRepository, OperationRepository,
-    PreparedAttachmentFile, SendJobRepository,
+    CompositionDefinitionRepository, ContentStore, DraftRepository, MailboxRoleRepository,
+    OperationRepository, PreparedAttachmentFile, SendJobRepository,
 };
 
 pub const CONTENT_DATABASE_FILENAME: &str = "content.sqlite";
@@ -180,6 +180,12 @@ impl MailRepository {
 
     pub fn mailbox_roles(&self) -> MailboxRoleRepository {
         MailboxRoleRepository {
+            pool: self.pool.clone(),
+        }
+    }
+
+    pub fn composition_definitions(&self) -> CompositionDefinitionRepository {
+        CompositionDefinitionRepository {
             pool: self.pool.clone(),
         }
     }

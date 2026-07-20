@@ -46,6 +46,7 @@
 - `changes/0030-project-documentation-and-handoff.md`：当前技术参考、开发指南、下一批计划、Claude 交接与 GitHub README 更新。
 - `changes/0031-frontend-state-and-workspace-structure.md`：外观 Query 单一数据源、Composer 稳定关闭监听与主工作区 hooks 收敛。
 - `changes/0032-roadmap-reprioritization.md`：删除旧 P2/P3，重排第九至十一阶段，并把 POP3/OAuth 等方向移为未排期设想。
+- `changes/0033-template-and-signature-library.md`：第九阶段第一批全局/账户模板与签名库、稳定 CRUD 和设置窗口富文本管理。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。

@@ -7,9 +7,9 @@ use crate::{
         AccountRuntimeSummary, AccountSummary, AppAbout, AppearancePreferences, AttachmentSummary,
         BootstrapStatus, ComposerBootstrap, ConnectionTestResult, DataDirectoryValidation,
         DiscoveredAccountConfig, DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem,
-        DraftRecipientFields, MailboxRole, MailboxSummary, MessageComposeAction, MessageDetail,
-        MessageListPage, PendingOperationSummary, ReadingPreferences, SendJobSummary, SyncPolicy,
-        SyncProgress,
+        DraftRecipientFields, MailSignature, MailSignatureDraft, MailTemplate, MailTemplateDraft,
+        MailboxRole, MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage,
+        PendingOperationSummary, ReadingPreferences, SendJobSummary, SyncPolicy, SyncProgress,
     },
     error::CommandResult,
     state::AppState,
@@ -603,6 +603,116 @@ pub async fn get_composer_bootstrap(
     draft_id: String,
 ) -> CommandResult<ComposerBootstrap> {
     state.composer.get_bootstrap(&account_id, &draft_id).await
+}
+
+#[tauri::command]
+pub async fn list_mail_templates(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+) -> CommandResult<Vec<MailTemplate>> {
+    state
+        .composer
+        .list_mail_templates(account_id.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn create_mail_template(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+    draft: MailTemplateDraft,
+) -> CommandResult<MailTemplate> {
+    state
+        .composer
+        .create_mail_template(account_id.as_deref(), draft)
+        .await
+}
+
+#[tauri::command]
+pub async fn update_mail_template(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+    template_id: String,
+    draft: MailTemplateDraft,
+    expected_revision: u64,
+) -> CommandResult<MailTemplate> {
+    state
+        .composer
+        .update_mail_template(
+            account_id.as_deref(),
+            &template_id,
+            draft,
+            expected_revision,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn delete_mail_template(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+    template_id: String,
+    expected_revision: u64,
+) -> CommandResult<()> {
+    state
+        .composer
+        .delete_mail_template(account_id.as_deref(), &template_id, expected_revision)
+        .await
+}
+
+#[tauri::command]
+pub async fn list_mail_signatures(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+) -> CommandResult<Vec<MailSignature>> {
+    state
+        .composer
+        .list_mail_signatures(account_id.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn create_mail_signature(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+    draft: MailSignatureDraft,
+) -> CommandResult<MailSignature> {
+    state
+        .composer
+        .create_mail_signature(account_id.as_deref(), draft)
+        .await
+}
+
+#[tauri::command]
+pub async fn update_mail_signature(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+    signature_id: String,
+    draft: MailSignatureDraft,
+    expected_revision: u64,
+) -> CommandResult<MailSignature> {
+    state
+        .composer
+        .update_mail_signature(
+            account_id.as_deref(),
+            &signature_id,
+            draft,
+            expected_revision,
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn delete_mail_signature(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+    signature_id: String,
+    expected_revision: u64,
+) -> CommandResult<()> {
+    state
+        .composer
+        .delete_mail_signature(account_id.as_deref(), &signature_id, expected_revision)
+        .await
 }
 
 #[tauri::command]
