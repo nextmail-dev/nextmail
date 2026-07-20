@@ -225,7 +225,12 @@
     "fontSizeDefault": "Default",
     "textColor": "Text color",
     "backgroundColor": "Background color",
-    "colorDefault": "Default color"
+    "colorDefault": "Default color",
+    "template": "Template",
+    "signature": "Signature",
+    "noTemplate": "No template",
+    "noSignature": "No signature",
+    "definitionOption": "{{name}} ({{scope}})"
   },
   "mailboxNames": {
     "inbox": "Inbox",
@@ -291,7 +296,22 @@
     "templateContent": "Template body",
     "signatureContent": "Signature content",
     "emptyContent": "No body content",
-    "confirmDelete": "Click again to delete"
+    "confirmDelete": "Click again to delete",
+    "defaultRules": "Default composing rules",
+    "globalRulesDescription": "Choose the shared default template and signature for each composing scene.",
+    "accountRulesDescription": "An account can inherit the shared rule or use its own complete rule for a scene.",
+    "ruleMode": "Rule source",
+    "inheritGlobal": "Inherit all-accounts rule",
+    "customRule": "Customize for this account",
+    "globalBadge": "Global",
+    "accountBadge": "Account",
+    "variablesHint": "Available variable names: sender_name, sender_email, recipient_name, recipient_email, and date; wrap a name in double braces when using it. Missing context is reported when inserting.",
+    "scene": {
+      "new": "New message",
+      "reply": "Reply",
+      "reply_all": "Reply all",
+      "forward": "Forward"
+    }
   },
   "accounts": {
     "accountList": "Email accounts",
@@ -377,6 +397,8 @@
     "template.subject_too_long": "The template subject is too long.",
     "template.content_too_large": "The template body is too large.",
     "template.editor_json_invalid": "The template body is not a valid editor document.",
+    "template.variable_unknown": "The template contains an unsupported variable: {{variable}}.",
+    "template.in_use": "This template is still referenced by a default composing rule. Remove the reference first.",
     "signature.list_failed": "Signatures could not be loaded.",
     "signature.create_failed": "The signature could not be created.",
     "signature.update_failed": "The signature could not be updated.",
@@ -386,6 +408,15 @@
     "signature.name_too_long": "Signature names can contain at most 80 characters.",
     "signature.content_too_large": "The signature content is too large.",
     "signature.editor_json_invalid": "The signature is not a valid editor document.",
+    "signature.variable_unknown": "The signature contains an unsupported variable: {{variable}}.",
+    "signature.in_use": "This signature is still referenced by a default composing rule. Remove the reference first.",
+    "composition.variable_context_missing": "The composing context required for {{variable}} is missing. Add a recipient or choose another definition.",
+    "composition_rule.read_failed": "Default composing rules could not be loaded.",
+    "composition_rule.save_failed": "The default composing rule could not be saved.",
+    "composition_rule.revision_conflict": "This default composing rule changed elsewhere. Reload and try again.",
+    "composition_rule.global_cannot_inherit": "The all-accounts rule cannot inherit another rule.",
+    "composition_rule.template_unavailable": "The selected template is not available in this rule scope.",
+    "composition_rule.signature_unavailable": "The selected signature is not available in this rule scope.",
     "data_directory.incompatible_dataset": "The NextMail data in this folder is incompatible or damaged.",
     "data_directory.create_failed": "NextMail cannot create this data folder. Check the path and permissions.",
     "data_directory.database_open_failed": "NextMail cannot create the mail database in this folder.",

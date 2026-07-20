@@ -478,6 +478,15 @@ pub enum MessageComposeAction {
     Forward,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompositionScene {
+    New,
+    Reply,
+    ReplyAll,
+    Forward,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageActionSource {
     pub subject: String,
@@ -543,6 +552,8 @@ pub struct DraftListItem {
 pub struct ComposerBootstrap {
     pub draft: DraftDetail,
     pub sender: AccountSummary,
+    pub templates: Vec<CompositionDefinitionSummary>,
+    pub signatures: Vec<CompositionDefinitionSummary>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -550,6 +561,33 @@ pub struct ComposerBootstrap {
 pub enum CompositionDefinitionScope {
     Global,
     Account,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositionDefinitionSummary {
+    pub id: String,
+    pub name: String,
+    pub scope: CompositionDefinitionScope,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositionSceneRule {
+    pub scene: CompositionScene,
+    pub template_id: Option<String>,
+    pub signature_id: Option<String>,
+    pub inherited: bool,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositionSceneRuleDraft {
+    pub scene: CompositionScene,
+    pub template_id: Option<String>,
+    pub signature_id: Option<String>,
+    pub inherit: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -590,6 +628,21 @@ pub struct MailSignature {
     pub content: DraftContent,
     pub revision: u64,
     pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderedMailTemplate {
+    pub id: String,
+    pub subject: String,
+    pub content: DraftContent,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderedMailSignature {
+    pub id: String,
+    pub content: DraftContent,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

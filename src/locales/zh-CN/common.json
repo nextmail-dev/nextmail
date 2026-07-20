@@ -225,7 +225,12 @@
     "fontSizeDefault": "默认",
     "textColor": "文字颜色",
     "backgroundColor": "背景颜色",
-    "colorDefault": "默认颜色"
+    "colorDefault": "默认颜色",
+    "template": "模板",
+    "signature": "签名",
+    "noTemplate": "不使用模板",
+    "noSignature": "不使用签名",
+    "definitionOption": "{{name}}（{{scope}}）"
   },
   "mailboxNames": {
     "inbox": "收件箱",
@@ -291,7 +296,22 @@
     "templateContent": "模板正文",
     "signatureContent": "签名内容",
     "emptyContent": "没有正文内容",
-    "confirmDelete": "再次点击确认删除"
+    "confirmDelete": "再次点击确认删除",
+    "defaultRules": "默认写信规则",
+    "globalRulesDescription": "为四种写信场景分别选择所有账户共用的默认模板和签名。",
+    "accountRulesDescription": "账户可以继承所有账户规则，也可以为某个场景使用自己的完整规则。",
+    "ruleMode": "规则来源",
+    "inheritGlobal": "继承所有账户规则",
+    "customRule": "此账户自定义",
+    "globalBadge": "全局",
+    "accountBadge": "账户",
+    "variablesHint": "可用变量名称：sender_name、sender_email、recipient_name、recipient_email、date；使用时在名称两侧各加两个花括号。插入时缺少对应上下文会提示错误。",
+    "scene": {
+      "new": "新建邮件",
+      "reply": "回复",
+      "reply_all": "回复全部",
+      "forward": "转发"
+    }
   },
   "accounts": {
     "accountList": "邮件账户",
@@ -377,6 +397,8 @@
     "template.subject_too_long": "模板主题过长。",
     "template.content_too_large": "模板正文过大。",
     "template.editor_json_invalid": "模板正文不是有效的编辑器文档。",
+    "template.variable_unknown": "模板包含不支持的变量：{{variable}}。",
+    "template.in_use": "此模板仍被默认写信规则引用，请先解除引用。",
     "signature.list_failed": "无法加载签名。",
     "signature.create_failed": "无法创建签名。",
     "signature.update_failed": "无法更新签名。",
@@ -386,6 +408,15 @@
     "signature.name_too_long": "签名名称最多包含 80 个字符。",
     "signature.content_too_large": "签名内容过大。",
     "signature.editor_json_invalid": "签名不是有效的编辑器文档。",
+    "signature.variable_unknown": "签名包含不支持的变量：{{variable}}。",
+    "signature.in_use": "此签名仍被默认写信规则引用，请先解除引用。",
+    "composition.variable_context_missing": "缺少变量 {{variable}} 所需的写信上下文。请先填写收件人或选择其他定义。",
+    "composition_rule.read_failed": "无法加载默认写信规则。",
+    "composition_rule.save_failed": "无法保存默认写信规则。",
+    "composition_rule.revision_conflict": "默认写信规则已在其他位置发生变化，请重新加载后再试。",
+    "composition_rule.global_cannot_inherit": "所有账户规则不能继承其他规则。",
+    "composition_rule.template_unavailable": "所选模板不属于当前规则范围。",
+    "composition_rule.signature_unavailable": "所选签名不属于当前规则范围。",
     "data_directory.incompatible_dataset": "此目录中的 NextMail 数据格式不兼容或已损坏。",
     "data_directory.create_failed": "无法创建数据目录，请检查路径和写入权限。",
     "data_directory.database_open_failed": "无法创建邮件数据库，请检查目录是否可写。",

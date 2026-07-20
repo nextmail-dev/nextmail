@@ -16,6 +16,8 @@ vi.mock("@/app/api", () => ({
     deleteMailTemplate: vi.fn(),
     listMailSignatures: vi.fn(),
     listMailTemplates: vi.fn(),
+    listCompositionSceneRules: vi.fn(),
+    saveCompositionSceneRule: vi.fn(),
     updateMailSignature: vi.fn(),
     updateMailTemplate: vi.fn(),
   },
@@ -81,6 +83,19 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.listMailTemplates).mockResolvedValue([]);
   vi.mocked(api.listMailSignatures).mockResolvedValue([]);
+  vi.mocked(api.listCompositionSceneRules).mockResolvedValue([
+    { scene: "new", templateId: null, signatureId: null, inherited: false, revision: 0 },
+    { scene: "reply", templateId: null, signatureId: null, inherited: false, revision: 0 },
+    { scene: "reply_all", templateId: null, signatureId: null, inherited: false, revision: 0 },
+    { scene: "forward", templateId: null, signatureId: null, inherited: false, revision: 0 },
+  ]);
+  vi.mocked(api.saveCompositionSceneRule).mockImplementation(async (_accountId, draft) => ({
+    scene: draft.scene,
+    templateId: draft.templateId,
+    signatureId: draft.signatureId,
+    inherited: false,
+    revision: 1,
+  }));
   vi.mocked(api.createMailTemplate).mockImplementation(async (_accountId, draft) => ({
     id: "template-new",
     scope: "global",
@@ -140,6 +155,27 @@ describe("CompositionDefinitionsSettings", () => {
       null,
       existingTemplate.id,
       existingTemplate.revision,
+    ));
+  });
+
+  it("saves a separate default rule for the new-message scene", async () => {
+    vi.mocked(api.listMailTemplates).mockResolvedValue([existingTemplate]);
+    renderSettings();
+    await screen.findByText("Follow up");
+    const templateSelectors = await screen.findAllByRole("combobox", { name: "Template" });
+
+    fireEvent.pointerDown(templateSelectors[0], { button: 0, ctrlKey: false, pointerType: "mouse" });
+    fireEvent.click(await screen.findByRole("option", { name: "Follow up (Global)" }));
+
+    await waitFor(() => expect(api.saveCompositionSceneRule).toHaveBeenCalledWith(
+      null,
+      {
+        scene: "new",
+        templateId: existingTemplate.id,
+        signatureId: null,
+        inherit: false,
+      },
+      0,
     ));
   });
 });

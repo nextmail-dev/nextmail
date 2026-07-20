@@ -10,9 +10,11 @@ use std::{
 
 use crate::core::{
     AccountRecord, AccountSummary, CommandError, CommandResult, ComposerBootstrap,
-    DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem, DraftRecipientFields,
-    DraftStatus, LanguagePreference, MailSignature, MailSignatureDraft, MailTemplate,
-    MailTemplateDraft, MailboxRole, MessageAddress, MessageComposeAction, SendJobSummary,
+    CompositionDefinitionSummary, CompositionScene, CompositionSceneRule,
+    CompositionSceneRuleDraft, DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem,
+    DraftRecipientFields, DraftStatus, LanguagePreference, MailSignature, MailSignatureDraft,
+    MailTemplate, MailTemplateDraft, MailboxRole, MessageAddress, MessageComposeAction,
+    RenderedMailSignature, RenderedMailTemplate, SendJobSummary,
 };
 use crate::protocols::{build_outgoing_message, OutgoingAttachment};
 use crate::storage::{
@@ -27,8 +29,9 @@ use tokio::sync::Notify;
 use crate::{
     adapters::send_raw_smtp,
     application::{
-        compose_imported_draft, compose_message_action_draft, normalize_mail_signature_draft,
-        normalize_mail_template_draft, AppService, MessageActionLabels,
+        assemble_composition_content, compose_imported_draft, compose_message_action_draft,
+        normalize_mail_signature_draft, normalize_mail_template_draft, render_mail_signature,
+        render_mail_template, AppService, CompositionRenderContext, MessageActionLabels,
     },
     mail_runtime::MailRuntime,
 };
@@ -161,11 +164,25 @@ impl ComposerRuntime {
     pub async fn open_composer(&self, account_id: &str) -> CommandResult<String> {
         self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
+        let empty = DraftContent {
+            editor_json: r#"{"type":"doc","content":[{"type":"paragraph"}]}"#.to_owned(),
+            html: "<p></p>".to_owned(),
+            plain_text: String::new(),
+        };
+        let (subject, content) = self
+            .initial_composition(
+                &account,
+                CompositionScene::New,
+                &DraftRecipientFields::default(),
+                "",
+                &empty,
+            )
+            .await?;
         let draft = self
             .repository()
             .await?
             .drafts()
-            .create_draft(account_id, &account.data_slot_id)
+            .create_initialized_draft(account_id, &account.data_slot_id, &subject, &content)
             .await?;
         if let Err(error) = self.show_composer_window(&account.id, &draft.id).await {
             self.repository()
@@ -329,7 +346,23 @@ impl ComposerRuntime {
         let source = drafts
             .message_action_source(&account.data_slot_id, message_id)
             .await?;
-        let composed = compose_message_action_draft(&source, &account.email, action, labels)?;
+        let mut composed = compose_message_action_draft(&source, &account.email, action, labels)?;
+        let scene = match action {
+            MessageComposeAction::Reply => CompositionScene::Reply,
+            MessageComposeAction::ReplyAll => CompositionScene::ReplyAll,
+            MessageComposeAction::Forward => CompositionScene::Forward,
+        };
+        let (subject, content) = self
+            .initial_composition(
+                &account,
+                scene,
+                &composed.recipients,
+                &composed.subject,
+                &composed.content,
+            )
+            .await?;
+        composed.subject = subject;
+        composed.content = content;
         let draft = drafts
             .persist_message_action_draft(PersistMessageActionDraftRequest {
                 account_id,
@@ -391,15 +424,37 @@ impl ComposerRuntime {
         draft_id: &str,
     ) -> CommandResult<ComposerBootstrap> {
         let account = self.service.account_record(account_id)?;
-        let draft = self
-            .repository()
-            .await?
+        let repository = self.repository().await?;
+        let draft = repository
             .drafts()
             .get_draft(account_id, &account.data_slot_id, draft_id)
             .await?;
+        let definitions = repository.composition_definitions();
+        let templates = definitions
+            .available_mail_templates(account_id, &account.data_slot_id)
+            .await?
+            .into_iter()
+            .map(|value| CompositionDefinitionSummary {
+                id: value.id,
+                name: value.name,
+                scope: value.scope,
+            })
+            .collect();
+        let signatures = definitions
+            .available_mail_signatures(account_id, &account.data_slot_id)
+            .await?
+            .into_iter()
+            .map(|value| CompositionDefinitionSummary {
+                id: value.id,
+                name: value.name,
+                scope: value.scope,
+            })
+            .collect();
         Ok(ComposerBootstrap {
             draft,
             sender: AccountSummary::from(&account),
+            templates,
+            signatures,
         })
     }
 
@@ -549,6 +604,75 @@ impl ComposerRuntime {
                 expected_revision,
             )
             .await
+    }
+
+    pub async fn list_composition_scene_rules(
+        &self,
+        account_id: Option<&str>,
+    ) -> CommandResult<Vec<CompositionSceneRule>> {
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .list_composition_scene_rules(account.as_ref().map(|value| value.data_slot_id.as_str()))
+            .await
+    }
+
+    pub async fn save_composition_scene_rule(
+        &self,
+        account_id: Option<&str>,
+        draft: CompositionSceneRuleDraft,
+        expected_revision: u64,
+    ) -> CommandResult<CompositionSceneRule> {
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .save_composition_scene_rule(
+                account.as_ref().map(|value| value.id.as_str()),
+                account.as_ref().map(|value| value.data_slot_id.as_str()),
+                &draft,
+                expected_revision,
+            )
+            .await
+    }
+
+    pub async fn render_mail_template(
+        &self,
+        account_id: &str,
+        template_id: &str,
+        recipients: DraftRecipientFields,
+    ) -> CommandResult<RenderedMailTemplate> {
+        let account = self.service.account_record(account_id)?;
+        let template = self
+            .repository()
+            .await?
+            .composition_definitions()
+            .available_mail_template(account_id, &account.data_slot_id, template_id)
+            .await?;
+        render_mail_template(
+            &template,
+            &self.render_context(&account, recipients.to.first())?,
+        )
+    }
+
+    pub async fn render_mail_signature(
+        &self,
+        account_id: &str,
+        signature_id: &str,
+        recipients: DraftRecipientFields,
+    ) -> CommandResult<RenderedMailSignature> {
+        let account = self.service.account_record(account_id)?;
+        let signature = self
+            .repository()
+            .await?
+            .composition_definitions()
+            .available_mail_signature(account_id, &account.data_slot_id, signature_id)
+            .await?;
+        render_mail_signature(
+            &signature,
+            &self.render_context(&account, recipients.to.first())?,
+        )
     }
 
     pub async fn save_draft(
@@ -913,6 +1037,62 @@ impl ComposerRuntime {
 
     async fn repository(&self) -> CommandResult<&Arc<MailRepository>> {
         self.mail.repository().await
+    }
+
+    async fn initial_composition(
+        &self,
+        account: &AccountRecord,
+        scene: CompositionScene,
+        recipients: &DraftRecipientFields,
+        base_subject: &str,
+        base_content: &DraftContent,
+    ) -> CommandResult<(String, DraftContent)> {
+        let repository = self.repository().await?;
+        let definitions = repository.composition_definitions();
+        let rule = definitions
+            .resolved_composition_scene_rule(&account.data_slot_id, scene)
+            .await?;
+        let context = self.render_context(account, recipients.to.first())?;
+        let template = if let Some(id) = rule.template_id.as_deref() {
+            let value = definitions
+                .available_mail_template(&account.id, &account.data_slot_id, id)
+                .await?;
+            Some(render_mail_template(&value, &context)?)
+        } else {
+            None
+        };
+        let signature = if let Some(id) = rule.signature_id.as_deref() {
+            let value = definitions
+                .available_mail_signature(&account.id, &account.data_slot_id, id)
+                .await?;
+            Some(render_mail_signature(&value, &context)?)
+        } else {
+            None
+        };
+        let subject = template
+            .as_ref()
+            .map(|value| value.subject.trim())
+            .filter(|value| !value.is_empty())
+            .unwrap_or(base_subject)
+            .to_owned();
+        let content =
+            assemble_composition_content(base_content, template.as_ref(), signature.as_ref())?;
+        Ok((subject, content))
+    }
+
+    fn render_context<'a>(
+        &self,
+        account: &'a AccountRecord,
+        recipient: Option<&'a MessageAddress>,
+    ) -> CommandResult<CompositionRenderContext<'a>> {
+        Ok(CompositionRenderContext {
+            sender: MessageAddress {
+                name: nonempty(&account.display_name),
+                email: account.email.clone(),
+            },
+            recipient,
+            language: self.service.get_preferences()?.language,
+        })
     }
 
     fn definition_account(&self, account_id: Option<&str>) -> CommandResult<Option<AccountRecord>> {

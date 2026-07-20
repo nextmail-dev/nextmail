@@ -5,11 +5,13 @@ use crate::{
     domain::{
         AccountConnectionDraft, AccountDraft, AccountManagementDetail, AccountRemovalImpact,
         AccountRuntimeSummary, AccountSummary, AppAbout, AppearancePreferences, AttachmentSummary,
-        BootstrapStatus, ComposerBootstrap, ConnectionTestResult, DataDirectoryValidation,
-        DiscoveredAccountConfig, DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem,
-        DraftRecipientFields, MailSignature, MailSignatureDraft, MailTemplate, MailTemplateDraft,
-        MailboxRole, MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage,
-        PendingOperationSummary, ReadingPreferences, SendJobSummary, SyncPolicy, SyncProgress,
+        BootstrapStatus, ComposerBootstrap, CompositionSceneRule, CompositionSceneRuleDraft,
+        ConnectionTestResult, DataDirectoryValidation, DiscoveredAccountConfig,
+        DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem, DraftRecipientFields,
+        MailSignature, MailSignatureDraft, MailTemplate, MailTemplateDraft, MailboxRole,
+        MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage,
+        PendingOperationSummary, ReadingPreferences, RenderedMailSignature, RenderedMailTemplate,
+        SendJobSummary, SyncPolicy, SyncProgress,
     },
     error::CommandResult,
     state::AppState,
@@ -712,6 +714,56 @@ pub async fn delete_mail_signature(
     state
         .composer
         .delete_mail_signature(account_id.as_deref(), &signature_id, expected_revision)
+        .await
+}
+
+#[tauri::command]
+pub async fn list_composition_scene_rules(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+) -> CommandResult<Vec<CompositionSceneRule>> {
+    state
+        .composer
+        .list_composition_scene_rules(account_id.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn save_composition_scene_rule(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+    draft: CompositionSceneRuleDraft,
+    expected_revision: u64,
+) -> CommandResult<CompositionSceneRule> {
+    state
+        .composer
+        .save_composition_scene_rule(account_id.as_deref(), draft, expected_revision)
+        .await
+}
+
+#[tauri::command]
+pub async fn render_mail_template(
+    state: State<'_, AppState>,
+    account_id: String,
+    template_id: String,
+    recipients: DraftRecipientFields,
+) -> CommandResult<RenderedMailTemplate> {
+    state
+        .composer
+        .render_mail_template(&account_id, &template_id, recipients)
+        .await
+}
+
+#[tauri::command]
+pub async fn render_mail_signature(
+    state: State<'_, AppState>,
+    account_id: String,
+    signature_id: String,
+    recipients: DraftRecipientFields,
+) -> CommandResult<RenderedMailSignature> {
+    state
+        .composer
+        .render_mail_signature(&account_id, &signature_id, recipients)
         .await
 }
 

@@ -13,12 +13,16 @@ const {
   eventListenMock,
   onCloseRequestedMock,
   openMock,
+  replaceSignatureMock,
+  replaceTemplateMock,
   unlistenCloseMock,
 } = vi.hoisted(() => ({
   destroyMock: vi.fn(),
   eventListenMock: vi.fn(),
   onCloseRequestedMock: vi.fn(),
   openMock: vi.fn(),
+  replaceSignatureMock: vi.fn(() => true),
+  replaceTemplateMock: vi.fn(() => true),
   unlistenCloseMock: vi.fn(),
 }));
 
@@ -42,6 +46,8 @@ vi.mock("@/app/api", () => ({
     queueDraftSend: vi.fn(),
     queueRemoteDraft: vi.fn(),
     removeDraftAttachment: vi.fn(),
+    renderMailSignature: vi.fn(),
+    renderMailTemplate: vi.fn(),
     retrySendJob: vi.fn(),
     saveDraft: vi.fn(),
   },
@@ -51,22 +57,36 @@ vi.mock("@/app/api", () => ({
     retryable: false,
   })),
 }));
-vi.mock("./RichTextEditor", () => ({
-  RichTextEditor: ({ onChange }: { onChange: (content: DraftContent) => void }) => (
-    <button
-      type="button"
-      onClick={() => onChange({
-        editorJson: "{\"type\":\"doc\"}",
-        html: "<p>Changed body</p>",
-        plainText: "Changed body",
-      })}
-    >
-      Change body
-    </button>
-  ),
-}));
+vi.mock("./RichTextEditor", async () => {
+  const { forwardRef, useImperativeHandle } = await import("react");
+  return {
+    RichTextEditor: forwardRef(function MockRichTextEditor(
+      { onChange }: { onChange: (content: DraftContent) => void },
+      ref,
+    ) {
+      useImperativeHandle(ref, () => ({
+        replaceSignature: replaceSignatureMock,
+        replaceTemplate: replaceTemplateMock,
+      }));
+      return (
+        <button
+          type="button"
+          onClick={() => onChange({
+            editorJson: "{\"type\":\"doc\"}",
+            html: "<p>Changed body</p>",
+            plainText: "Changed body",
+          })}
+        >
+          Change body
+        </button>
+      );
+    }),
+  };
+});
 
 const bootstrap: ComposerBootstrap = {
+  templates: [],
+  signatures: [],
   sender: {
     id: "account-one",
     email: "alice@example.com",
@@ -173,5 +193,35 @@ describe("ComposerApp close lifecycle", () => {
 
     view.unmount();
     await waitFor(() => expect(unlistenCloseMock).toHaveBeenCalledOnce());
+  });
+
+  it("renders and replaces an explicitly selected template through the stable editor handle", async () => {
+    vi.mocked(api.getComposerBootstrap).mockResolvedValue({
+      ...bootstrap,
+      templates: [{ id: "template-one", name: "Welcome", scope: "global" }],
+    });
+    vi.mocked(api.renderMailTemplate).mockResolvedValue({
+      id: "template-one",
+      subject: "Hello",
+      content: {
+        editorJson: '{"type":"doc","content":[{"type":"paragraph"}]}',
+        html: "<p>Hello</p>",
+        plainText: "Hello",
+      },
+    });
+    renderComposer();
+    const template = await screen.findByRole("combobox", { name: "Template" });
+
+    fireEvent.pointerDown(template, { button: 0, ctrlKey: false, pointerType: "mouse" });
+    fireEvent.click(await screen.findByRole("option", { name: "Welcome (Global)" }));
+
+    await waitFor(() => expect(api.renderMailTemplate).toHaveBeenCalledWith(
+      "account-one",
+      "template-one",
+      { to: [], cc: [], bcc: [] },
+    ));
+    expect(replaceTemplateMock).toHaveBeenCalledWith("template-one", expect.objectContaining({
+      plainText: "Hello",
+    }));
   });
 });

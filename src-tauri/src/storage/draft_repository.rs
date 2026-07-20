@@ -101,13 +101,38 @@ impl DraftRepository {
         account_id: &str,
         account_slot_id: &str,
     ) -> CommandResult<DraftDetail> {
+        self.create_initialized_draft(
+            account_id,
+            account_slot_id,
+            "",
+            &DraftContent {
+                editor_json: r#"{"type":"doc","content":[{"type":"paragraph"}]}"#.to_owned(),
+                html: "<p></p>".to_owned(),
+                plain_text: String::new(),
+            },
+        )
+        .await
+    }
+
+    pub async fn create_initialized_draft(
+        &self,
+        account_id: &str,
+        account_slot_id: &str,
+        subject: &str,
+        content: &DraftContent,
+    ) -> CommandResult<DraftDetail> {
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
         sqlx::query(
-            "INSERT INTO drafts(id, account_slot_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO drafts(id, account_slot_id, subject, editor_json, html, plain_text, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(account_slot_id)
+        .bind(subject)
+        .bind(&content.editor_json)
+        .bind(&content.html)
+        .bind(&content.plain_text)
         .bind(timestamp)
         .bind(timestamp)
         .execute(&self.pool)

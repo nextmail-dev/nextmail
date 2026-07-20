@@ -48,6 +48,7 @@
 - `changes/0032-roadmap-reprioritization.md`：删除旧 P2/P3，重排第九至十一阶段，并把 POP3/OAuth 等方向移为未排期设想。
 - `changes/0033-template-and-signature-library.md`：第九阶段第一批全局/账户模板与签名库、稳定 CRUD 和设置窗口富文本管理。
 - `changes/0034-application-icon-assets.md`：替换 NextMail 应用图标源文件并更新 Windows、macOS、Android 与 iOS 尺寸资产。
+- `changes/0035-composition-scene-rules.md`：第九阶段第二批变量渲染、四场景默认规则、Composer 模板/签名选择和稳定节点。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。

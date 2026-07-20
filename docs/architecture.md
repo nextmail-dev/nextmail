@@ -36,7 +36,7 @@ NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src
 
 依赖方向仍保持为宿主和 Adapter 指向核心，核心不得依赖 Tauri、SQLx 或具体协议库。协议库与 SQLx 类型不得越过模块边界；模块级单元测试、公共 DTO 审查和受控可见性用于维持原有隔离。除非未来出现独立发布、独立版本或被其他二进制复用的实际需求，不再为形式上的分层创建 Cargo Workspace 或子 crate。
 
-账户、Bootstrap 与本机偏好的配置读写以 `core::ports` 注入 application service；IMAP Provider、Repository Provider 和系统附件打开能力同样从 `state.rs` 组合进运行时。Application 不构造具体 JSON Store，Worker 不构造具体 IMAP/SQLite Adapter。写信与邮件运行时复用同一个 Repository 实例和 SQLite 连接池。模板与签名输入的名称、大小和 editor JSON 校验位于 application，SQLx Repository 只按显式作用域持久化规范结果。
+账户、Bootstrap 与本机偏好的配置读写以 `core::ports` 注入 application service；IMAP Provider、Repository Provider 和系统附件打开能力同样从 `state.rs` 组合进运行时。Application 不构造具体 JSON Store，Worker 不构造具体 IMAP/SQLite Adapter。写信与邮件运行时复用同一个 Repository 实例和 SQLite 连接池。模板与签名输入校验、变量渲染及初始三格式组合位于 application，SQLx Repository 只按显式作用域持久化定义、场景引用和 revision。
 
 ## 存储边界
 
@@ -80,8 +80,9 @@ NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src
 
 ## 草稿与发件边界
 
-- 模板与签名使用独立窄 Repository 保存三格式富文本定义。全局定义使用空账户槽，账户定义始终通过 Rust 将公开账户 ID 解析为匿名 `account_slot_id`；React 不接触数据槽。定义列表按名称稳定排序，并以 revision 防止设置窗口覆盖陈旧编辑。
-- 设置窗口“写信”分类只通过 `src/app/api.ts` 管理当前作用域的模板/签名库。第九阶段第一批不改变草稿创建、回复/转发或发件行为；变量、场景默认规则和 Composer 稳定节点在下一批接入。
+- 模板与签名使用独立窄 Repository 保存三格式富文本定义和四场景规则。全局定义/规则使用空账户槽，账户记录始终通过 Rust 将公开账户 ID 解析为匿名 `account_slot_id`；React 不接触数据槽。账户场景没有显式记录时整体继承全局规则，显式账户规则优先；引用范围在 Repository 边界验证，被引用定义禁止删除。
+- 变量白名单、缺失上下文错误、HTML/主题/纯文本差异化转义与本地化日期在 application 完成。设置窗口和 Composer 只通过 `src/app/api.ts` 使用稳定 DTO；Composer 先取得可见定义摘要，再把当前收件人上下文交给 Rust 渲染。
+- Tiptap 使用 `nextmailTemplate` 和 `nextmailSignature` 可编辑块节点保存定义 ID，HTML 使用对应 `data-nextmail-*-id` 属性。显式切换只替换同类节点，自动规则只在草稿首次创建时应用，因此用户手动删除签名后自动保存或重开不会恢复。
 - 独立 `composer-*` WebView 通过窄业务命令访问草稿，不直接访问数据库、任意文件或网络；系统文件选择器只授权用户明确选择的附件。
 - 草稿保存 Tiptap JSON、HTML 和纯文本，使用修订号做乐观并发控制。写信窗口关闭前会提交未保存改动；关闭监听按账户与草稿身份单次订阅，并通过 ref 读取最新保存函数和编辑状态。
 - SMTP 联网前先用 `mail-builder` 生成完整 UTF-8 MIME，按内容哈希原子落盘并创建 `send_job`。MIME `Date` 头在生成时读取操作系统本机时区并写入当时的 UTC 偏移；Bcc 只进入 SMTP envelope，不写入邮件头。

@@ -20,8 +20,13 @@ import { CompactField } from "@/components/ui/compact-field";
 import { Modal } from "@/components/ui/dialog";
 import { AppShell, Inline, Page, Stack } from "@/components/ui/layout";
 import { Spinner } from "@/components/ui/spinner";
+import { SelectField } from "@/components/ui/select";
 import { Text } from "@/components/ui/typography";
-import { RichTextEditor } from "./RichTextEditor";
+import {
+  RichTextEditor,
+  type CompositionNodeSelection,
+  type RichTextEditorHandle,
+} from "./RichTextEditor";
 import { formatAddresses, parseAddresses } from "./recipient-utils";
 
 interface ComposerAppProps {
@@ -71,6 +76,11 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   const [submitting, setSubmitting] = useState(false);
   const [confirmEmptySubject, setConfirmEmptySubject] = useState(false);
   const [saveRetry, setSaveRetry] = useState(0);
+  const initialComposition = compositionSelection(draft.content.editorJson);
+  const [templateId, setTemplateId] = useState(initialComposition.templateId ?? "none");
+  const [signatureId, setSignatureId] = useState(initialComposition.signatureId ?? "none");
+  const [switchingDefinition, setSwitchingDefinition] = useState(false);
+  const editorRef = useRef<RichTextEditorHandle>(null);
   const savingRef = useRef(false);
   const revisionRef = useRef(revision);
   const changeVersionRef = useRef(0);
@@ -192,6 +202,51 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     setDirty(true);
   };
 
+  const recipients = () => ({
+    to: parseAddresses(to),
+    cc: parseAddresses(cc),
+    bcc: parseAddresses(bcc),
+  });
+
+  async function selectTemplate(value: string) {
+    setSwitchingDefinition(true);
+    try {
+      if (value === "none") {
+        editorRef.current?.replaceTemplate(null);
+        setTemplateId("none");
+      } else {
+        const rendered = await api.renderMailTemplate(sender.id, value, recipients());
+        if (rendered.subject.trim()) setSubject(rendered.subject);
+        editorRef.current?.replaceTemplate(rendered.id, rendered.content);
+        setTemplateId(rendered.id);
+      }
+      setErrorCode(null);
+    } catch (error) {
+      setErrorCode(normalizeCommandError(error).code);
+    } finally {
+      setSwitchingDefinition(false);
+    }
+  }
+
+  async function selectSignature(value: string) {
+    setSwitchingDefinition(true);
+    try {
+      if (value === "none") {
+        editorRef.current?.replaceSignature(null);
+        setSignatureId("none");
+      } else {
+        const rendered = await api.renderMailSignature(sender.id, value, recipients());
+        editorRef.current?.replaceSignature(rendered.id, rendered.content);
+        setSignatureId(rendered.id);
+      }
+      setErrorCode(null);
+    } catch (error) {
+      setErrorCode(normalizeCommandError(error).code);
+    } finally {
+      setSwitchingDefinition(false);
+    }
+  }
+
   async function addAttachments() {
     const selected = await open({ multiple: true, directory: false });
     const paths = typeof selected === "string" ? [selected] : selected ?? [];
@@ -283,6 +338,37 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         ) : null}
         <CompactField label={t("composer.subject")} value={subject} disabled={!editable} onChange={(event) => { setSubject(event.currentTarget.value); markDirty(); }} />
 
+        <Inline className="min-h-12 shrink-0 flex-wrap bg-card px-4 py-2">
+          <SelectField
+            compact
+            label={t("composer.template")}
+            value={templateId}
+            options={[
+              { value: "none", label: t("composer.noTemplate") },
+              ...bootstrap.templates.map((value) => ({
+                value: value.id,
+                label: definitionLabel(value.name, value.scope, t),
+              })),
+            ]}
+            disabled={!editable || switchingDefinition}
+            onValueChange={(value) => void selectTemplate(value)}
+          />
+          <SelectField
+            compact
+            label={t("composer.signature")}
+            value={signatureId}
+            options={[
+              { value: "none", label: t("composer.noSignature") },
+              ...bootstrap.signatures.map((value) => ({
+                value: value.id,
+                label: definitionLabel(value.name, value.scope, t),
+              })),
+            ]}
+            disabled={!editable || switchingDefinition}
+            onValueChange={(value) => void selectSignature(value)}
+          />
+        </Inline>
+
         {errorCode ? (
           <Alert className="m-3 mb-0" tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert>
         ) : null}
@@ -303,10 +389,14 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           </Inline>
         ) : null}
         <RichTextEditor
+          ref={editorRef}
           initialJson={draft.content.editorJson}
           disabled={!editable}
-          signature={{ name: sender.displayName, email: sender.email }}
           onChange={(value) => { setContent(value); markDirty(); }}
+          onCompositionChange={(value) => {
+            setTemplateId(value.templateId ?? "none");
+            setSignatureId(value.signatureId ?? "none");
+          }}
         />
       </Page>
 
@@ -359,4 +449,32 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function compositionSelection(editorJson: string): CompositionNodeSelection {
+  try {
+    const document = JSON.parse(editorJson) as {
+      content?: Array<{ type?: string; attrs?: { definitionId?: unknown } }>;
+    };
+    const selection: CompositionNodeSelection = { templateId: null, signatureId: null };
+    for (const node of document.content ?? []) {
+      const id = typeof node.attrs?.definitionId === "string" ? node.attrs.definitionId : null;
+      if (node.type === "nextmailTemplate") selection.templateId = id;
+      if (node.type === "nextmailSignature") selection.signatureId = id;
+    }
+    return selection;
+  } catch {
+    return { templateId: null, signatureId: null };
+  }
+}
+
+function definitionLabel(
+  name: string,
+  scope: "global" | "account",
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  return t("composer.definitionOption", {
+    name,
+    scope: t(`compositionLibrary.${scope}Badge`),
+  });
 }

@@ -36,3 +36,21 @@
 .nextmail-editor-content span[style*="background-color"] {
   color: #202124;
 }
+
+.nextmail-editor-content .nextmail-composition-template,
+.nextmail-editor-content .nextmail-composition-signature {
+  margin: 0 0 0.8em;
+  padding: 0.55rem 0.75rem;
+  border-left: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+.nextmail-editor-content .nextmail-composition-signature {
+  border-left-color: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
+}
+
+.nextmail-editor-content .nextmail-composition-template > :last-child,
+.nextmail-editor-content .nextmail-composition-signature > :last-child {
+  margin-bottom: 0;
+}

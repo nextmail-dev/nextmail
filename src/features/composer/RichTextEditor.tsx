@@ -1,4 +1,5 @@
 import { EditorContent, useEditor } from "@tiptap/react";
+import type { Editor, JSONContent } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import { TextStyleKit } from "@tiptap/extension-text-style";
@@ -12,11 +13,10 @@ import {
   Strikethrough,
   UnderlineIcon,
   Undo2,
-  UserRound,
   Palette,
   Highlighter,
 } from "lucide-react";
-import { useEffect } from "react";
+import { forwardRef, useEffect, useImperativeHandle } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -32,20 +32,40 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Text } from "@/components/ui/typography";
 import { cn } from "@/lib/utils";
+import { NextMailSignature, NextMailTemplate } from "./composition-nodes";
 
 interface RichTextEditorProps {
   initialJson: string;
   disabled?: boolean;
-  signature?: { name: string; email: string };
   ariaLabel?: string;
   className?: string;
   onChange: (content: DraftContent) => void;
+  onCompositionChange?: (selection: CompositionNodeSelection) => void;
 }
 
-export function RichTextEditor({ initialJson, disabled, signature, ariaLabel, className, onChange }: RichTextEditorProps) {
+export interface CompositionNodeSelection {
+  templateId: string | null;
+  signatureId: string | null;
+}
+
+export interface RichTextEditorHandle {
+  replaceTemplate: (definitionId: string | null, content?: DraftContent) => boolean;
+  replaceSignature: (definitionId: string | null, content?: DraftContent) => boolean;
+}
+
+export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor(
+  { initialJson, disabled, ariaLabel, className, onChange, onCompositionChange },
+  ref,
+) {
   const { t } = useTranslation();
   const editor = useEditor({
-    extensions: [StarterKit.configure({ underline: false }), Underline, TextStyleKit],
+    extensions: [
+      StarterKit.configure({ underline: false }),
+      Underline,
+      TextStyleKit,
+      NextMailTemplate,
+      NextMailSignature,
+    ],
     content: parseDocument(initialJson),
     editable: !disabled,
     editorProps: {
@@ -60,8 +80,24 @@ export function RichTextEditor({ initialJson, disabled, signature, ariaLabel, cl
         html: current.getHTML(),
         plainText: current.getText({ blockSeparator: "\n\n" }),
       });
+      onCompositionChange?.(compositionSelection(current.getJSON()));
     },
   });
+
+  useImperativeHandle(ref, () => ({
+    replaceTemplate: (definitionId, content) => replaceCompositionNode(
+      editor,
+      "nextmailTemplate",
+      definitionId,
+      content,
+    ),
+    replaceSignature: (definitionId, content) => replaceCompositionNode(
+      editor,
+      "nextmailSignature",
+      definitionId,
+      content,
+    ),
+  }), [editor]);
 
   useEffect(() => {
     editor?.setEditable(!disabled);
@@ -145,11 +181,6 @@ export function RichTextEditor({ initialJson, disabled, signature, ariaLabel, cl
         {action(t("composer.bulletList"), editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run(), <List size={16} />)}
         {action(t("composer.numberedList"), editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), <ListOrdered size={16} />)}
         {action(t("composer.quote"), editor.isActive("blockquote"), () => editor.chain().focus().toggleBlockquote().run(), <Quote size={16} />)}
-        {signature ? action(t("composer.insertSignature"), false, () => editor.chain().focus().insertContent([
-          { type: "paragraph", content: [{ type: "text", text: "-- " }] },
-          { type: "paragraph", content: [{ type: "text", text: signature.name || signature.email }] },
-          ...(signature.name ? [{ type: "paragraph", content: [{ type: "text", text: signature.email }] }] : []),
-        ]).run(), <UserRound size={16} />) : null}
         <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
         {action(t("composer.undo"), false, () => editor.chain().focus().undo().run(), <Undo2 size={16} />)}
         {action(t("composer.redo"), false, () => editor.chain().focus().redo().run(), <Redo2 size={16} />)}
@@ -157,7 +188,7 @@ export function RichTextEditor({ initialJson, disabled, signature, ariaLabel, cl
       <EditorContent editor={editor} className="min-h-0 flex-1 overflow-auto" />
     </Page>
   );
-}
+});
 
 function ColorMenu({ label, icon, disabled, background, onSelect }: {
   label: string;
@@ -199,4 +230,69 @@ function parseDocument(value: string) {
   } catch {
     return { type: "doc", content: [{ type: "paragraph" }] };
   }
+}
+
+function compositionSelection(document: JSONContent): CompositionNodeSelection {
+  const selection: CompositionNodeSelection = { templateId: null, signatureId: null };
+  for (const node of document.content ?? []) {
+    if (node.type === "nextmailTemplate") {
+      selection.templateId = typeof node.attrs?.definitionId === "string" ? node.attrs.definitionId : null;
+    }
+    if (node.type === "nextmailSignature") {
+      selection.signatureId = typeof node.attrs?.definitionId === "string" ? node.attrs.definitionId : null;
+    }
+  }
+  return selection;
+}
+
+function replaceCompositionNode(
+  editor: Editor | null,
+  nodeType: "nextmailTemplate" | "nextmailSignature",
+  definitionId: string | null,
+  content?: DraftContent,
+) {
+  if (!editor) return false;
+  const target = findTopLevelNode(editor.getJSON(), nodeType);
+  if (!definitionId) {
+    if (!target) return true;
+    return editor.chain().deleteRange({ from: target.from, to: target.to }).run();
+  }
+  const children = parseDocument(content?.editorJson ?? "").content;
+  const node = {
+    type: nodeType,
+    attrs: { definitionId },
+    content: Array.isArray(children) && children.length ? children : [{ type: "paragraph" }],
+  };
+  if (target) {
+    return editor.chain().insertContentAt(target, node).run();
+  }
+  if (nodeType === "nextmailTemplate") {
+    return editor.chain().insertContentAt(0, node).run();
+  }
+  return editor.chain().insertContentAt(editor.state.doc.content.size, [
+    { type: "paragraph" },
+    node,
+  ]).run();
+}
+
+function findTopLevelNode(
+  document: JSONContent,
+  nodeType: string,
+) {
+  let position = 0;
+  for (const node of document.content ?? []) {
+    const size = nodeSize(node);
+    if (node.type === nodeType) return { from: position, to: position + size };
+    position += size;
+  }
+  return null;
+}
+
+function nodeSize(node: JSONContent): number {
+  if (node.type === "text") return node.text?.length ?? 0;
+  const contentSize: number = (node.content ?? []).reduce(
+    (sum: number, child: JSONContent) => sum + nodeSize(child),
+    0,
+  );
+  return 2 + contentSize;
 }

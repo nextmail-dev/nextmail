@@ -6,6 +6,8 @@ import { useTranslation } from "react-i18next";
 import { api, normalizeCommandError } from "@/app/api";
 import type {
   AccountSummary,
+  CompositionScene,
+  CompositionSceneRule,
   DraftContent,
   MailSignature,
   MailSignatureDraft,
@@ -50,6 +52,7 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
   const scopeKey = accountId ?? "global";
   const templatesKey = ["mail-templates", scopeKey] as const;
   const signaturesKey = ["mail-signatures", scopeKey] as const;
+  const rulesKey = ["composition-scene-rules", scopeKey] as const;
   const templates = useQuery({
     queryKey: templatesKey,
     queryFn: () => api.listMailTemplates(accountId),
@@ -57,6 +60,36 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
   const signatures = useQuery({
     queryKey: signaturesKey,
     queryFn: () => api.listMailSignatures(accountId),
+  });
+  const globalTemplates = useQuery({
+    queryKey: ["mail-templates", "global"],
+    queryFn: () => api.listMailTemplates(null),
+    enabled: accountId !== null,
+  });
+  const globalSignatures = useQuery({
+    queryKey: ["mail-signatures", "global"],
+    queryFn: () => api.listMailSignatures(null),
+    enabled: accountId !== null,
+  });
+  const rules = useQuery({
+    queryKey: rulesKey,
+    queryFn: () => api.listCompositionSceneRules(accountId),
+  });
+  const ruleUpdate = useMutation({
+    mutationFn: ({ rule, templateId, signatureId, inherit }: {
+      rule: CompositionSceneRule;
+      templateId: string | null;
+      signatureId: string | null;
+      inherit: boolean;
+    }) => api.saveCompositionSceneRule(accountId, {
+      scene: rule.scene,
+      templateId,
+      signatureId,
+      inherit,
+    }, rule.revision),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: rulesKey });
+    },
   });
   const deletion = useMutation({
     mutationFn: async (target: { kind: "template" | "signature"; id: string; revision: number }) => {
@@ -83,7 +116,14 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
     setEditor(null);
   }, [scope]);
 
-  const error = templates.error ?? signatures.error ?? deletion.error;
+  const error = templates.error ?? signatures.error ?? globalTemplates.error
+    ?? globalSignatures.error ?? rules.error ?? ruleUpdate.error ?? deletion.error;
+  const availableTemplates = accountId
+    ? [...(globalTemplates.data ?? []), ...(templates.data ?? [])]
+    : templates.data ?? [];
+  const availableSignatures = accountId
+    ? [...(globalSignatures.data ?? []), ...(signatures.data ?? [])]
+    : signatures.data ?? [];
 
   async function saveDefinition(
     state: Exclude<DefinitionEditorState, null>,
@@ -139,6 +179,16 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
           {t(`errors.${normalizeCommandError(error).code}`, { defaultValue: t("common.unexpectedError") })}
         </Alert>
       ) : null}
+      <SceneRules
+        accountScope={accountId !== null}
+        rules={rules.data ?? []}
+        templates={availableTemplates}
+        signatures={availableSignatures}
+        loading={rules.isPending || ruleUpdate.isPending}
+        onChange={(rule, templateId, signatureId, inherit) => {
+          ruleUpdate.mutate({ rule, templateId, signatureId, inherit });
+        }}
+      />
       <DefinitionList
         kind="template"
         values={templates.data ?? []}
@@ -169,6 +219,125 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
       ) : null}
     </Stack>
   );
+}
+
+const SCENES: CompositionScene[] = ["new", "reply", "reply_all", "forward"];
+
+function SceneRules({
+  accountScope,
+  rules,
+  templates,
+  signatures,
+  loading,
+  onChange,
+}: {
+  accountScope: boolean;
+  rules: CompositionSceneRule[];
+  templates: MailTemplate[];
+  signatures: MailSignature[];
+  loading: boolean;
+  onChange: (
+    rule: CompositionSceneRule,
+    templateId: string | null,
+    signatureId: string | null,
+    inherit: boolean,
+  ) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Stack gap="sm">
+      <Stack gap="xs">
+        <Heading level={2}>{t("compositionLibrary.defaultRules")}</Heading>
+        <Text className="text-xs">
+          {accountScope
+            ? t("compositionLibrary.accountRulesDescription")
+            : t("compositionLibrary.globalRulesDescription")}
+        </Text>
+      </Stack>
+      {SCENES.map((scene) => {
+        const rule = rules.find((value) => value.scene === scene) ?? {
+          scene,
+          templateId: null,
+          signatureId: null,
+          inherited: accountScope,
+          revision: 0,
+        };
+        return (
+          <Surface key={scene} className="p-4 shadow-none ring-1 ring-border/70">
+            <Stack gap="sm">
+              <LabelText>{t(`compositionLibrary.scene.${scene}`)}</LabelText>
+              <Inline className="flex-wrap items-end">
+                {accountScope ? (
+                  <SelectField
+                    label={t("compositionLibrary.ruleMode")}
+                    value={rule.inherited ? "inherit" : "custom"}
+                    options={[
+                      { value: "inherit", label: t("compositionLibrary.inheritGlobal") },
+                      { value: "custom", label: t("compositionLibrary.customRule") },
+                    ]}
+                    disabled={loading}
+                    onValueChange={(value) => onChange(
+                      rule,
+                      rule.templateId,
+                      rule.signatureId,
+                      value === "inherit",
+                    )}
+                  />
+                ) : null}
+                <SelectField
+                  label={t("composer.template")}
+                  value={rule.templateId ?? "none"}
+                  options={[
+                    { value: "none", label: t("composer.noTemplate") },
+                    ...templates.map((value) => ({
+                      value: value.id,
+                      label: scopedDefinitionLabel(value.name, value.scope, t),
+                    })),
+                  ]}
+                  disabled={loading || rule.inherited}
+                  onValueChange={(value) => onChange(
+                    rule,
+                    value === "none" ? null : value,
+                    rule.signatureId,
+                    false,
+                  )}
+                />
+                <SelectField
+                  label={t("composer.signature")}
+                  value={rule.signatureId ?? "none"}
+                  options={[
+                    { value: "none", label: t("composer.noSignature") },
+                    ...signatures.map((value) => ({
+                      value: value.id,
+                      label: scopedDefinitionLabel(value.name, value.scope, t),
+                    })),
+                  ]}
+                  disabled={loading || rule.inherited}
+                  onValueChange={(value) => onChange(
+                    rule,
+                    rule.templateId,
+                    value === "none" ? null : value,
+                    false,
+                  )}
+                />
+              </Inline>
+            </Stack>
+          </Surface>
+        );
+      })}
+    </Stack>
+  );
+}
+
+function scopedDefinitionLabel(
+  name: string,
+  scope: "global" | "account",
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
+  return t("composer.definitionOption", {
+    name,
+    scope: t(`compositionLibrary.${scope}Badge`),
+  });
 }
 
 function DefinitionList<T extends MailTemplate | MailSignature>({
@@ -315,6 +484,9 @@ function DefinitionEditor({
               onChange={(event) => setSubject(event.target.value)}
             />
           ) : null}
+          <Text className="text-xs">
+            {t("compositionLibrary.variablesHint")}
+          </Text>
           <Stack gap="xs">
             <LabelText>{label}</LabelText>
             <Page className="h-[330px] overflow-hidden rounded-lg ring-1 ring-border">

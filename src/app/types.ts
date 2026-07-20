@@ -226,6 +226,7 @@ export interface DraftRecipientFields {
 
 export type DraftStatus = "editing" | "queued" | "sent";
 export type MessageComposeAction = "reply" | "reply_all" | "forward";
+export type CompositionScene = "new" | "reply" | "reply_all" | "forward";
 
 export interface DraftAttachmentSummary {
   id: string;
@@ -256,9 +257,32 @@ export interface DraftListItem {
 export interface ComposerBootstrap {
   draft: DraftDetail;
   sender: AccountSummary;
+  templates: CompositionDefinitionSummary[];
+  signatures: CompositionDefinitionSummary[];
 }
 
 export type CompositionDefinitionScope = "global" | "account";
+
+export interface CompositionDefinitionSummary {
+  id: string;
+  name: string;
+  scope: CompositionDefinitionScope;
+}
+
+export interface CompositionSceneRule {
+  scene: CompositionScene;
+  templateId: string | null;
+  signatureId: string | null;
+  inherited: boolean;
+  revision: number;
+}
+
+export interface CompositionSceneRuleDraft {
+  scene: CompositionScene;
+  templateId: string | null;
+  signatureId: string | null;
+  inherit: boolean;
+}
 
 export interface MailTemplateDraft {
   name: string;
@@ -285,6 +309,17 @@ export interface MailSignature extends MailSignatureDraft {
   accountId: string | null;
   revision: number;
   updatedAt: number;
+}
+
+export interface RenderedMailTemplate {
+  id: string;
+  subject: string;
+  content: DraftContent;
+}
+
+export interface RenderedMailSignature {
+  id: string;
+  content: DraftContent;
 }
 
 export type SendJobStatus = "queued" | "sending" | "sent" | "failed";
