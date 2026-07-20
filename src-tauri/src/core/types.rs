@@ -478,6 +478,34 @@ pub enum MessageComposeAction {
     Forward,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageActionSource {
+    pub subject: String,
+    pub from: Vec<MessageAddress>,
+    pub to: Vec<MessageAddress>,
+    pub cc: Vec<MessageAddress>,
+    pub message_id: Option<String>,
+    pub references: Vec<String>,
+    pub plain_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComposedMessageActionDraft {
+    pub recipients: DraftRecipientFields,
+    pub subject: String,
+    pub content: DraftContent,
+    pub in_reply_to: Option<String>,
+    pub references: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportedDraftSource {
+    pub recipients: DraftRecipientFields,
+    pub subject: String,
+    pub plain_text: String,
+    pub safe_html: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftAttachmentSummary {

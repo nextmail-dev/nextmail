@@ -17,6 +17,7 @@ import { AccountSwitcher } from "./AccountSwitcher";
 import { MailboxPane } from "./MailboxPane";
 import { MessageListPane } from "./MessageListPane";
 import { MessageViewer } from "./MessageViewer";
+import { messageQueryKeys } from "./message-query-keys";
 
 interface MainShellProps {
   accounts: AccountSummary[];
@@ -125,7 +126,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
         void queryClient.invalidateQueries({ queryKey: ["sync-progress", event.payload.accountId] });
       }),
       listen<{ accountId: string; messageId: string }>("message-content-changed", (event) => {
-        void queryClient.invalidateQueries({ queryKey: ["message", event.payload.accountId, event.payload.messageId] });
+        void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(event.payload.accountId) });
       }),
       listen<{ accountId: string; jobId: string; status: string; subject: string }>("send-job-changed", (event) => {
         if (event.payload.accountId !== selectedAccountId || event.payload.status !== "sent") return;

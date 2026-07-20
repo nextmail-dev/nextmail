@@ -12,16 +12,15 @@ use crate::core::{
     AttachmentSummary, CommandError, CommandResult, ImapAccountConfig, ImapSyncProvider,
     InboxWatchOutcome, MailSyncSink, MailboxRole, MailboxSummary, MessageDetail, MessageListPage,
     PendingOperationKind, PendingOperationSummary, RemoteOperation, RemoteOperationKind,
-    SyncNotice, SyncObserver, SyncPhase, SyncPolicy, SyncProgress,
+    RemoteOperationOutcome, SyncNotice, SyncObserver, SyncPhase, SyncPolicy, SyncProgress,
 };
-use crate::protocols::AsyncImapProvider;
-use crate::storage::MailRepository;
+use crate::storage::{MailRepository, MailRepositoryProvider, PendingOperationWork};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::{Notify, OnceCell, Semaphore};
 
-use crate::adapters::{open_prepared_attachment, AttachmentOpener, SystemAttachmentOpener};
+use crate::adapters::{open_prepared_attachment, AttachmentOpener};
 use crate::application::AppService;
 
 pub struct MailRuntime {
@@ -33,6 +32,7 @@ pub struct MailRuntime {
     runtime_states: RwLock<HashMap<String, AccountRuntimeSummary>>,
     supervisors: RwLock<HashMap<String, Arc<AccountSupervisor>>>,
     provider: Arc<dyn ImapSyncProvider>,
+    repository_provider: Arc<dyn MailRepositoryProvider>,
     attachment_opener: Arc<dyn AttachmentOpener>,
     network_limit: Arc<Semaphore>,
     next_generation: AtomicU64,
@@ -40,7 +40,13 @@ pub struct MailRuntime {
 }
 
 impl MailRuntime {
-    pub fn new(app: AppHandle, service: Arc<AppService>) -> Self {
+    pub fn new(
+        app: AppHandle,
+        service: Arc<AppService>,
+        provider: Arc<dyn ImapSyncProvider>,
+        repository_provider: Arc<dyn MailRepositoryProvider>,
+        attachment_opener: Arc<dyn AttachmentOpener>,
+    ) -> Self {
         Self {
             app,
             service,
@@ -49,8 +55,9 @@ impl MailRuntime {
             progress: RwLock::new(HashMap::new()),
             runtime_states: RwLock::new(HashMap::new()),
             supervisors: RwLock::new(HashMap::new()),
-            provider: Arc::new(AsyncImapProvider),
-            attachment_opener: Arc::new(SystemAttachmentOpener),
+            provider,
+            repository_provider,
+            attachment_opener,
             network_limit: Arc::new(Semaphore::new(2)),
             next_generation: AtomicU64::new(1),
             started: AtomicBool::new(false),
@@ -230,7 +237,9 @@ impl MailRuntime {
             };
             let _ = self
                 .recovery
-                .get_or_try_init(|| async { repository.recover_pending_operations().await })
+                .get_or_try_init(|| async {
+                    repository.operations().recover_pending_operations().await
+                })
                 .await;
 
             if !startup_sync_complete {
@@ -361,6 +370,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .read()
             .list_mailboxes(account_id, &account.data_slot_id)
             .await
     }
@@ -375,6 +385,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .read()
             .list_messages(&account.data_slot_id, mailbox_id, cursor, limit)
             .await
     }
@@ -388,6 +399,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .read()
             .get_message_detail(&account.data_slot_id, message_id, mailbox_id)
             .await
     }
@@ -408,6 +420,7 @@ impl MailRuntime {
         let sync_policy = self
             .repository()
             .await?
+            .read()
             .get_sync_policy(&account.data_slot_id)
             .await?;
         Ok(AccountManagementDetail {
@@ -431,6 +444,7 @@ impl MailRuntime {
         let updated = self
             .repository()
             .await?
+            .read()
             .set_sync_policy(&account.data_slot_id, sync_policy)
             .await?;
         self.wake_account(account_id);
@@ -461,6 +475,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .operations()
             .queue_set_read(&account.data_slot_id, mailbox_id, message_ids, read)
             .await?;
         self.emit_local_change(account_id, mailbox_id, message_ids);
@@ -479,6 +494,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .operations()
             .queue_set_flagged(&account.data_slot_id, mailbox_id, message_ids, flagged)
             .await?;
         self.emit_local_change(account_id, mailbox_id, message_ids);
@@ -498,6 +514,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .operations()
             .queue_transfer(
                 &account.data_slot_id,
                 source_mailbox_id,
@@ -521,18 +538,22 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         let role = repository
+            .mailbox_roles()
             .mailbox_role_for_id(&account.data_slot_id, source_mailbox_id)
             .await?;
         if role == MailboxRole::Trash {
             repository
+                .operations()
                 .queue_permanent_delete(&account.data_slot_id, source_mailbox_id, message_ids)
                 .await?;
         } else {
             let (trash_id, _) = repository
+                .mailbox_roles()
                 .mailbox_for_role(&account.data_slot_id, MailboxRole::Trash)
                 .await?
                 .ok_or_else(|| CommandError::new("mailbox.trash_not_mapped"))?;
             repository
+                .operations()
                 .queue_transfer(
                     &account.data_slot_id,
                     source_mailbox_id,
@@ -557,10 +578,12 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         let (archive_id, _) = repository
+            .mailbox_roles()
             .mailbox_for_role(&account.data_slot_id, MailboxRole::Archive)
             .await?
             .ok_or_else(|| CommandError::new("mailbox.archive_not_mapped"))?;
         repository
+            .operations()
             .queue_transfer(
                 &account.data_slot_id,
                 source_mailbox_id,
@@ -584,6 +607,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .mailbox_roles()
             .set_mailbox_role_mapping(&account.data_slot_id, role, mailbox_id)
             .await?;
         self.emit_mailbox_change(account_id, mailbox_id.unwrap_or_default(), 0);
@@ -597,6 +621,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .operations()
             .list_pending_operation_status(account_id, &account.data_slot_id)
             .await
     }
@@ -610,6 +635,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .operations()
             .retry_pending_operation(&account.data_slot_id, operation_id)
             .await?;
         self.wake_account(account_id);
@@ -624,6 +650,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         let repository = Arc::clone(self.repository().await?);
         let raw = match repository
+            .read()
             .raw_message(&account.data_slot_id, message_id)
             .await?
         {
@@ -632,6 +659,7 @@ impl MailRuntime {
                 self.fetch_and_store_message(&account.id, message_id)
                     .await?;
                 repository
+                    .read()
                     .raw_message(&account.data_slot_id, message_id)
                     .await?
                     .ok_or_else(|| CommandError::new("message.raw_unavailable"))?
@@ -659,6 +687,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         let current = repository
+            .read()
             .attachment_summary(&account.data_slot_id, attachment_id)
             .await?;
         if current.availability == crate::core::ContentAvailability::Available {
@@ -666,9 +695,11 @@ impl MailRuntime {
         }
         self.ensure_account_writable(account_id)?;
         let (message_id, part_index) = repository
+            .read()
             .attachment_context(&account.data_slot_id, attachment_id)
             .await?;
         let raw = match repository
+            .read()
             .raw_message(&account.data_slot_id, &message_id)
             .await?
         {
@@ -677,6 +708,7 @@ impl MailRuntime {
                 self.fetch_and_store_message(&account.id, &message_id)
                     .await?;
                 repository
+                    .read()
                     .raw_message(&account.data_slot_id, &message_id)
                     .await?
                     .ok_or_else(|| CommandError::new("message.raw_unavailable"))?
@@ -684,6 +716,7 @@ impl MailRuntime {
         };
         let content = crate::protocols::extract_attachment(&raw, part_index)?;
         repository
+            .read()
             .store_attachment_content(&account.data_slot_id, attachment_id, &content)
             .await
     }
@@ -741,6 +774,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         match repository
+            .read()
             .prepare_attachment_file(&account.data_slot_id, attachment_id)
             .await
         {
@@ -748,6 +782,7 @@ impl MailRuntime {
             Err(error) if error.code == "attachment.content_unavailable" => {
                 self.request_attachment(account_id, attachment_id).await?;
                 repository
+                    .read()
                     .prepare_attachment_file(&account.data_slot_id, attachment_id)
                     .await
             }
@@ -764,6 +799,7 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         let repository = Arc::clone(self.repository().await?);
         let context = repository
+            .read()
             .remote_message_context(&account.data_slot_id, message_id)
             .await?;
         let config = self.imap_config(&account.id).await?;
@@ -782,9 +818,11 @@ impl MailRuntime {
             )
             .await?;
         repository
+            .sync_sink()
             .upsert_message(&account.data_slot_id, &context.mailbox_id, &message)
             .await?;
         let revision = repository
+            .read()
             .get_message_detail(&account.data_slot_id, message_id, Some(&context.mailbox_id))
             .await?
             .revision;
@@ -804,6 +842,7 @@ impl MailRuntime {
         let sync_policy = self
             .repository()
             .await?
+            .read()
             .get_sync_policy(&account.data_slot_id)
             .await?;
         let password = self
@@ -822,11 +861,11 @@ impl MailRuntime {
         })
     }
 
-    async fn repository(&self) -> CommandResult<&Arc<MailRepository>> {
+    pub(crate) async fn repository(&self) -> CommandResult<&Arc<MailRepository>> {
         self.repository
             .get_or_try_init(|| async {
                 let data_dir = self.service.configured_data_dir()?;
-                MailRepository::open(&data_dir).await.map(Arc::new)
+                self.repository_provider.open(&data_dir).await.map(Arc::new)
             })
             .await
     }
@@ -849,6 +888,7 @@ impl MailRuntime {
             .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
         let mut processed = false;
         while let Some(work) = repository
+            .operations()
             .claim_pending_operation(&account.data_slot_id)
             .await?
         {
@@ -856,68 +896,19 @@ impl MailRuntime {
                 break;
             }
             processed = true;
-            let result = if work.kind == PendingOperationKind::AppendSent {
-                let destination = work
-                    .destination_mailbox_name
-                    .as_deref()
-                    .ok_or_else(|| CommandError::new("operation.destination_required"));
-                let hash = work
-                    .payload
-                    .get("mimeHash")
-                    .and_then(|value| value.as_str())
-                    .ok_or_else(|| CommandError::new("operation.mime_missing"));
-                match (destination, hash) {
-                    (Ok(destination), Ok(hash)) => match repository.read_send_mime(hash).await {
-                        Ok(raw) => self
-                            .provider
-                            .append_message(&config, destination, "(\\Seen)", &raw)
-                            .await
-                            .map(|_| Default::default()),
-                        Err(error) => Err(error),
-                    },
-                    (Err(error), _) | (_, Err(error)) => Err(error),
-                }
-            } else if work.kind == PendingOperationKind::AppendDraft {
-                let destination = work
-                    .destination_mailbox_name
-                    .as_deref()
-                    .ok_or_else(|| CommandError::new("operation.destination_required"));
-                let hash = work
-                    .payload
-                    .get("mimeHash")
-                    .and_then(|value| value.as_str())
-                    .ok_or_else(|| CommandError::new("operation.mime_missing"));
-                let draft_id = work
-                    .payload
-                    .get("draftId")
-                    .and_then(|value| value.as_str())
-                    .ok_or_else(|| CommandError::new("operation.draft_missing"));
-                match (destination, hash, draft_id) {
-                    (Ok(destination), Ok(hash), Ok(draft_id)) => {
-                        match repository.read_send_mime(hash).await {
-                            Ok(raw) => {
-                                self.provider
-                                    .replace_draft(&config, destination, draft_id, &raw)
-                                    .await
-                            }
-                            Err(error) => Err(error),
-                        }
-                    }
-                    (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => Err(error),
-                }
-            } else {
-                self.provider
-                    .apply_operation(&config, &remote_operation(&work)?)
-                    .await
-            };
+            let result = self
+                .run_pending_operation(&repository, &config, &work)
+                .await;
             match result {
                 Ok(outcome) => {
                     repository
+                        .operations()
                         .complete_pending_operation(&work, outcome.cleanup_pending)
                         .await?;
                 }
                 Err(error) => {
                     repository
+                        .operations()
                         .fail_pending_operation(&work, &error.code, error.retryable)
                         .await?;
                     self.emit_pending_operation(account_id, &work.id, "failed");
@@ -933,6 +924,57 @@ impl MailRuntime {
             }
         }
         Ok(processed)
+    }
+
+    async fn run_pending_operation(
+        &self,
+        repository: &MailRepository,
+        config: &ImapAccountConfig,
+        work: &PendingOperationWork,
+    ) -> CommandResult<RemoteOperationOutcome> {
+        match work.kind {
+            PendingOperationKind::AppendSent => {
+                self.run_append_sent(repository, config, work).await
+            }
+            PendingOperationKind::AppendDraft => {
+                self.run_append_draft(repository, config, work).await
+            }
+            _ => {
+                self.provider
+                    .apply_operation(config, &remote_operation(work)?)
+                    .await
+            }
+        }
+    }
+
+    async fn run_append_sent(
+        &self,
+        repository: &MailRepository,
+        config: &ImapAccountConfig,
+        work: &PendingOperationWork,
+    ) -> CommandResult<RemoteOperationOutcome> {
+        let destination = required_destination(work)?;
+        let hash = required_payload(work, "mimeHash", "operation.mime_missing")?;
+        let raw = repository.send_jobs().read_send_mime(hash).await?;
+        self.provider
+            .append_message(config, destination, "(\\Seen)", &raw)
+            .await?;
+        Ok(RemoteOperationOutcome::default())
+    }
+
+    async fn run_append_draft(
+        &self,
+        repository: &MailRepository,
+        config: &ImapAccountConfig,
+        work: &PendingOperationWork,
+    ) -> CommandResult<RemoteOperationOutcome> {
+        let destination = required_destination(work)?;
+        let hash = required_payload(work, "mimeHash", "operation.mime_missing")?;
+        let draft_id = required_payload(work, "draftId", "operation.draft_missing")?;
+        let raw = repository.send_jobs().read_send_mime(hash).await?;
+        self.provider
+            .replace_draft(config, destination, draft_id, &raw)
+            .await
     }
 
     fn emit_local_change(&self, account_id: &str, mailbox_id: &str, message_ids: &[String]) {
@@ -999,9 +1041,8 @@ impl MailRuntime {
         };
         let result = match self.imap_config(&account.id).await {
             Ok(config) => {
-                self.provider
-                    .synchronize(&config, repository.as_ref(), &observer)
-                    .await
+                let sink = repository.sync_sink();
+                self.provider.synchronize(&config, &sink, &observer).await
             }
             Err(error) => Err(error),
         };
@@ -1239,7 +1280,24 @@ struct PendingOperationChangedEvent {
     status: String,
 }
 
-fn remote_operation(work: &crate::storage::PendingOperationWork) -> CommandResult<RemoteOperation> {
+fn required_destination(work: &PendingOperationWork) -> CommandResult<&str> {
+    work.destination_mailbox_name
+        .as_deref()
+        .ok_or_else(|| CommandError::new("operation.destination_required"))
+}
+
+fn required_payload<'a>(
+    work: &'a PendingOperationWork,
+    key: &str,
+    error_code: &str,
+) -> CommandResult<&'a str> {
+    work.payload
+        .get(key)
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| CommandError::new(error_code))
+}
+
+fn remote_operation(work: &PendingOperationWork) -> CommandResult<RemoteOperation> {
     let value = work
         .payload
         .get("value")

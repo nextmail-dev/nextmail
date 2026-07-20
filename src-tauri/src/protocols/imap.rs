@@ -1,36 +1,67 @@
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+use std::{collections::HashMap, time::Duration};
+
+mod encoding;
+mod parse;
+mod policy;
+mod session;
+
+pub use encoding::decode_modified_utf7;
+use encoding::mailbox_role;
+use parse::{message_flag_state, parse_message_in_background, MessageParseInput};
+use policy::{should_download_body, sync_policy_cutoff};
+#[cfg(test)]
+use session::conditional_store_query;
+use session::{
+    append_message_session, apply_operation_session, fetch_message_session, fetch_remote_messages,
+    replace_draft_session, wait_for_change_session,
 };
 
+use super::native_tls_connector;
 use crate::core::{
     CommandError, CommandResult, ConnectionSecurity, ImapAccountConfig, ImapSyncProvider,
-    InboxWatchOutcome, MailSyncSink, MailboxRole, MessageAddress, RemoteAttachment, RemoteMailbox,
-    RemoteMessage, RemoteMessageState, RemoteOperation, RemoteOperationKind,
-    RemoteOperationOutcome, SyncNotice, SyncObserver, SyncPolicy,
+    InboxWatchOutcome, MailSyncSink, MailboxRole, RemoteMailbox, RemoteMessage, RemoteMessageState,
+    RemoteOperation, RemoteOperationOutcome, StoredMailbox, SyncNotice, SyncObserver,
 };
 use async_imap::{
-    extensions::idle::IdleResponse,
     types::{Flag, NameAttribute},
     Session,
 };
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::TryStreamExt;
-use mail_parser::{Address, Message, MessageParser, MimeHeaders};
-use rustls::{pki_types::ServerName, ClientConfig, RootCertStore};
+use rustls::pki_types::ServerName;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
-use tokio_rustls::TlsConnector;
-
-use super::sanitize_mail_html;
 
 const FETCH_BATCH_SIZE: usize = 100;
 
+struct FetchedMessageSummary {
+    uid: u32,
+    received_at: i64,
+    unread: bool,
+    flagged: bool,
+    header: Vec<u8>,
+    size: u64,
+    modseq: Option<u64>,
+}
+
+struct FolderDescriptor {
+    name: String,
+    display_name: String,
+    delimiter: Option<String>,
+    role: MailboxRole,
+    selectable: bool,
+}
+
 #[derive(Default)]
 pub struct AsyncImapProvider;
+
+trait ImapTransport: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send {}
+
+impl<T> ImapTransport for T where T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send {}
+
+type BoxedImapTransport = Box<dyn ImapTransport>;
 
 #[async_trait]
 impl ImapSyncProvider for AsyncImapProvider {
@@ -40,36 +71,7 @@ impl ImapSyncProvider for AsyncImapProvider {
         sink: &(dyn MailSyncSink + Send + Sync),
         observer: &(dyn SyncObserver + Send + Sync),
     ) -> CommandResult<()> {
-        let stream = TcpStream::connect((account.host.as_str(), account.port))
-            .await
-            .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
-        match account.security {
-            ConnectionSecurity::None => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                let session = login(client, account).await?;
-                sync_session(session, account, sink, observer).await
-            }
-            ConnectionSecurity::Tls => {
-                let tls = connect_tls(&account.host, stream).await?;
-                let mut client = async_imap::Client::new(tls);
-                read_greeting(&mut client).await?;
-                let session = login(client, account).await?;
-                sync_session(session, account, sink, observer).await
-            }
-            ConnectionSecurity::StartTls => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                client
-                    .run_command_and_check_ok("STARTTLS", None)
-                    .await
-                    .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
-                let tls = connect_tls(&account.host, client.into_inner()).await?;
-                let client = async_imap::Client::new(tls);
-                let session = login(client, account).await?;
-                sync_session(session, account, sink, observer).await
-            }
-        }
+        sync_session(connect_session(account).await?, account, sink, observer).await
     }
 
     async fn fetch_message(
@@ -79,36 +81,13 @@ impl ImapSyncProvider for AsyncImapProvider {
         uid: u32,
         expected_uid_validity: u32,
     ) -> CommandResult<RemoteMessage> {
-        let stream = TcpStream::connect((account.host.as_str(), account.port))
-            .await
-            .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
-        match account.security {
-            ConnectionSecurity::None => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                let session = login(client, account).await?;
-                fetch_message_session(session, mailbox_name, uid, expected_uid_validity).await
-            }
-            ConnectionSecurity::Tls => {
-                let tls = connect_tls(&account.host, stream).await?;
-                let mut client = async_imap::Client::new(tls);
-                read_greeting(&mut client).await?;
-                let session = login(client, account).await?;
-                fetch_message_session(session, mailbox_name, uid, expected_uid_validity).await
-            }
-            ConnectionSecurity::StartTls => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                client
-                    .run_command_and_check_ok("STARTTLS", None)
-                    .await
-                    .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
-                let tls = connect_tls(&account.host, client.into_inner()).await?;
-                let client = async_imap::Client::new(tls);
-                let session = login(client, account).await?;
-                fetch_message_session(session, mailbox_name, uid, expected_uid_validity).await
-            }
-        }
+        fetch_message_session(
+            connect_session(account).await?,
+            mailbox_name,
+            uid,
+            expected_uid_validity,
+        )
+        .await
     }
 
     async fn apply_operation(
@@ -116,33 +95,7 @@ impl ImapSyncProvider for AsyncImapProvider {
         account: &ImapAccountConfig,
         operation: &RemoteOperation,
     ) -> CommandResult<RemoteOperationOutcome> {
-        let stream = TcpStream::connect((account.host.as_str(), account.port))
-            .await
-            .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
-        match account.security {
-            ConnectionSecurity::None => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                apply_operation_session(login(client, account).await?, operation).await
-            }
-            ConnectionSecurity::Tls => {
-                let tls = connect_tls(&account.host, stream).await?;
-                let mut client = async_imap::Client::new(tls);
-                read_greeting(&mut client).await?;
-                apply_operation_session(login(client, account).await?, operation).await
-            }
-            ConnectionSecurity::StartTls => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                client
-                    .run_command_and_check_ok("STARTTLS", None)
-                    .await
-                    .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
-                let tls = connect_tls(&account.host, client.into_inner()).await?;
-                let client = async_imap::Client::new(tls);
-                apply_operation_session(login(client, account).await?, operation).await
-            }
-        }
+        apply_operation_session(connect_session(account).await?, operation).await
     }
 
     async fn append_message(
@@ -152,36 +105,7 @@ impl ImapSyncProvider for AsyncImapProvider {
         flags: &str,
         raw: &[u8],
     ) -> CommandResult<()> {
-        let stream = TcpStream::connect((account.host.as_str(), account.port))
-            .await
-            .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
-        match account.security {
-            ConnectionSecurity::None => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                append_message_session(login(client, account).await?, mailbox_name, flags, raw)
-                    .await
-            }
-            ConnectionSecurity::Tls => {
-                let tls = connect_tls(&account.host, stream).await?;
-                let mut client = async_imap::Client::new(tls);
-                read_greeting(&mut client).await?;
-                append_message_session(login(client, account).await?, mailbox_name, flags, raw)
-                    .await
-            }
-            ConnectionSecurity::StartTls => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                client
-                    .run_command_and_check_ok("STARTTLS", None)
-                    .await
-                    .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
-                let tls = connect_tls(&account.host, client.into_inner()).await?;
-                let client = async_imap::Client::new(tls);
-                append_message_session(login(client, account).await?, mailbox_name, flags, raw)
-                    .await
-            }
-        }
+        append_message_session(connect_session(account).await?, mailbox_name, flags, raw).await
     }
 
     async fn replace_draft(
@@ -191,36 +115,7 @@ impl ImapSyncProvider for AsyncImapProvider {
         draft_id: &str,
         raw: &[u8],
     ) -> CommandResult<RemoteOperationOutcome> {
-        let stream = TcpStream::connect((account.host.as_str(), account.port))
-            .await
-            .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
-        match account.security {
-            ConnectionSecurity::None => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                replace_draft_session(login(client, account).await?, mailbox_name, draft_id, raw)
-                    .await
-            }
-            ConnectionSecurity::Tls => {
-                let tls = connect_tls(&account.host, stream).await?;
-                let mut client = async_imap::Client::new(tls);
-                read_greeting(&mut client).await?;
-                replace_draft_session(login(client, account).await?, mailbox_name, draft_id, raw)
-                    .await
-            }
-            ConnectionSecurity::StartTls => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                client
-                    .run_command_and_check_ok("STARTTLS", None)
-                    .await
-                    .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
-                let tls = connect_tls(&account.host, client.into_inner()).await?;
-                let client = async_imap::Client::new(tls);
-                replace_draft_session(login(client, account).await?, mailbox_name, draft_id, raw)
-                    .await
-            }
-        }
+        replace_draft_session(connect_session(account).await?, mailbox_name, draft_id, raw).await
     }
 
     async fn wait_for_inbox_change(
@@ -228,435 +123,34 @@ impl ImapSyncProvider for AsyncImapProvider {
         account: &ImapAccountConfig,
         timeout: Duration,
     ) -> CommandResult<InboxWatchOutcome> {
-        let stream = TcpStream::connect((account.host.as_str(), account.port))
-            .await
-            .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
-        match account.security {
-            ConnectionSecurity::None => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                wait_for_change_session(login(client, account).await?, timeout).await
-            }
-            ConnectionSecurity::Tls => {
-                let tls = connect_tls(&account.host, stream).await?;
-                let mut client = async_imap::Client::new(tls);
-                read_greeting(&mut client).await?;
-                wait_for_change_session(login(client, account).await?, timeout).await
-            }
-            ConnectionSecurity::StartTls => {
-                let mut client = async_imap::Client::new(stream);
-                read_greeting(&mut client).await?;
-                client
-                    .run_command_and_check_ok("STARTTLS", None)
-                    .await
-                    .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
-                let tls = connect_tls(&account.host, client.into_inner()).await?;
-                let client = async_imap::Client::new(tls);
-                wait_for_change_session(login(client, account).await?, timeout).await
-            }
-        }
+        wait_for_change_session(connect_session(account).await?, timeout).await
     }
 }
 
-async fn apply_operation_session<T>(
-    mut session: Session<T>,
-    operation: &RemoteOperation,
-) -> CommandResult<RemoteOperationOutcome>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    let capabilities = session
-        .capabilities()
+async fn connect_session(
+    account: &ImapAccountConfig,
+) -> CommandResult<Session<BoxedImapTransport>> {
+    let stream = TcpStream::connect((account.host.as_str(), account.port))
         .await
-        .map_err(|_| CommandError::retryable("operation.capability_failed"))?;
-    let selected = if capabilities.has_str("CONDSTORE") {
-        session.select_condstore(&operation.source_mailbox).await
-    } else {
-        session.select(&operation.source_mailbox).await
-    }
-    .map_err(|_| CommandError::retryable("operation.mailbox_open_failed"))?;
-    if selected.uid_validity.unwrap_or_default() != operation.uid_validity {
-        return Err(CommandError::new("sync.uid_validity_changed"));
-    }
-    let uid = operation.uid.to_string();
-    let source_contains_uid = session
-        .uid_search(format!("UID {uid}"))
-        .await
-        .map_err(|_| CommandError::retryable("operation.message_check_failed"))?
-        .contains(&operation.uid);
-    if !source_contains_uid {
-        let _ = session.logout().await;
-        return if matches!(
-            operation.kind,
-            RemoteOperationKind::Move | RemoteOperationKind::Delete
-        ) {
-            Ok(RemoteOperationOutcome::default())
-        } else {
-            Err(CommandError::new("operation.message_missing"))
-        };
-    }
-    let mut cleanup_pending = false;
-    match operation.kind {
-        RemoteOperationKind::SetRead(value) => {
-            let action = if value { "+FLAGS" } else { "-FLAGS" };
-            store_flag_delta(
-                &mut session,
-                &uid,
-                operation.base_modseq,
-                capabilities.has_str("CONDSTORE"),
-                action,
-                "\\Seen",
-            )
-            .await?;
-        }
-        RemoteOperationKind::SetFlagged(value) => {
-            let action = if value { "+FLAGS" } else { "-FLAGS" };
-            store_flag_delta(
-                &mut session,
-                &uid,
-                operation.base_modseq,
-                capabilities.has_str("CONDSTORE"),
-                action,
-                "\\Flagged",
-            )
-            .await?;
-        }
-        RemoteOperationKind::Copy => {
-            let destination = operation
-                .destination_mailbox
-                .as_deref()
-                .ok_or_else(|| CommandError::new("operation.destination_required"))?;
-            session
-                .uid_copy(&uid, destination)
+        .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
+    let transport: BoxedImapTransport = match account.security {
+        ConnectionSecurity::None => Box::new(stream),
+        ConnectionSecurity::Tls => Box::new(connect_tls(&account.host, stream).await?),
+        ConnectionSecurity::StartTls => {
+            let mut client = async_imap::Client::new(stream);
+            read_greeting(&mut client).await?;
+            client
+                .run_command_and_check_ok("STARTTLS", None)
                 .await
-                .map_err(|_| CommandError::retryable("operation.copy_failed"))?;
+                .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
+            Box::new(connect_tls(&account.host, client.into_inner()).await?)
         }
-        RemoteOperationKind::Move => {
-            let destination = operation
-                .destination_mailbox
-                .as_deref()
-                .ok_or_else(|| CommandError::new("operation.destination_required"))?;
-            if capabilities.has_str("MOVE") {
-                session
-                    .uid_mv(&uid, destination)
-                    .await
-                    .map_err(|_| CommandError::retryable("operation.move_failed"))?;
-            } else {
-                session
-                    .uid_copy(&uid, destination)
-                    .await
-                    .map_err(|_| CommandError::retryable("operation.copy_failed"))?;
-                mark_deleted(&mut session, &uid).await?;
-                if capabilities.has_str("UIDPLUS") {
-                    session
-                        .uid_expunge(&uid)
-                        .await
-                        .map_err(|_| CommandError::retryable("operation.expunge_failed"))?
-                        .try_collect::<Vec<_>>()
-                        .await
-                        .map_err(|_| CommandError::retryable("operation.expunge_failed"))?;
-                } else {
-                    cleanup_pending = true;
-                }
-            }
-        }
-        RemoteOperationKind::Delete => {
-            mark_deleted(&mut session, &uid).await?;
-            if capabilities.has_str("UIDPLUS") {
-                session
-                    .uid_expunge(&uid)
-                    .await
-                    .map_err(|_| CommandError::retryable("operation.expunge_failed"))?
-                    .try_collect::<Vec<_>>()
-                    .await
-                    .map_err(|_| CommandError::retryable("operation.expunge_failed"))?;
-            } else {
-                cleanup_pending = true;
-            }
-        }
-    }
-    let _ = session.logout().await;
-    Ok(RemoteOperationOutcome { cleanup_pending })
-}
-
-async fn store_flag_delta<T>(
-    session: &mut Session<T>,
-    uid: &str,
-    base_modseq: Option<u64>,
-    condstore: bool,
-    action: &str,
-    flag: &str,
-) -> CommandResult<()>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    let query = conditional_store_query(base_modseq.filter(|_| condstore), action, flag);
-    let updates = session
-        .uid_store(uid, query)
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
-    if updates.iter().any(|update| update.uid.is_some()) {
-        return Ok(());
-    }
-    if !condstore {
-        return Err(CommandError::retryable("operation.store_failed"));
-    }
-    let latest = session
-        .uid_fetch(uid, "(UID FLAGS MODSEQ)")
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
-    let latest_modseq = latest
-        .iter()
-        .find_map(|message| message.modseq)
-        .ok_or_else(|| CommandError::new("operation.message_missing"))?;
-    let retry_query = conditional_store_query(Some(latest_modseq), action, flag);
-    let retry_updates = session
-        .uid_store(uid, retry_query)
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
-    if retry_updates.iter().any(|update| update.uid.is_some()) {
-        Ok(())
-    } else {
-        Err(CommandError::retryable("operation.flag_conflict"))
-    }
-}
-
-fn conditional_store_query(base_modseq: Option<u64>, action: &str, flag: &str) -> String {
-    match base_modseq {
-        Some(modseq) => format!("(UNCHANGEDSINCE {modseq}) {action} ({flag})"),
-        None => format!("{action} ({flag})"),
-    }
-}
-
-async fn mark_deleted<T>(session: &mut Session<T>, uid: &str) -> CommandResult<()>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    session
-        .uid_store(uid, "+FLAGS.SILENT (\\Deleted)")
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
-    Ok(())
-}
-
-async fn append_message_session<T>(
-    mut session: Session<T>,
-    mailbox_name: &str,
-    flags: &str,
-    raw: &[u8],
-) -> CommandResult<()>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    if let Some(message_id) = MessageParser::default()
-        .parse(raw)
-        .and_then(|message| message.message_id().map(str::to_owned))
-        .filter(|value| {
-            !value.is_empty()
-                && !value
-                    .chars()
-                    .any(|character| matches!(character, '"' | '\\' | '\r' | '\n'))
-        })
-    {
-        session
-            .select(mailbox_name)
-            .await
-            .map_err(|_| CommandError::retryable("operation.mailbox_open_failed"))?;
-        let existing = session
-            .uid_search(format!("HEADER Message-ID \"{message_id}\""))
-            .await
-            .map_err(|_| CommandError::retryable("operation.sent_search_failed"))?;
-        if !existing.is_empty() {
-            let _ = session.logout().await;
-            return Ok(());
-        }
-    }
-    session
-        .append(mailbox_name, Some(flags), None, raw)
-        .await
-        .map_err(|_| CommandError::retryable("operation.append_failed"))?;
-    let _ = session.logout().await;
-    Ok(())
-}
-
-async fn replace_draft_session<T>(
-    mut session: Session<T>,
-    mailbox_name: &str,
-    draft_id: &str,
-    raw: &[u8],
-) -> CommandResult<RemoteOperationOutcome>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    if !draft_id
-        .chars()
-        .all(|value| value.is_ascii_alphanumeric() || value == '-')
-    {
-        return Err(CommandError::new("draft.id_invalid"));
-    }
-    let capabilities = session
-        .capabilities()
-        .await
-        .map_err(|_| CommandError::retryable("operation.capability_failed"))?;
-    session
-        .select(mailbox_name)
-        .await
-        .map_err(|_| CommandError::retryable("operation.mailbox_open_failed"))?;
-    let mut old_uids = session
-        .uid_search(format!("HEADER X-NextMail-Draft-ID \"{draft_id}\""))
-        .await
-        .map_err(|_| CommandError::retryable("operation.draft_search_failed"))?
-        .into_iter()
-        .collect::<Vec<_>>();
-    old_uids.sort_unstable();
-    session
-        .append(mailbox_name, Some("(\\Draft)"), None, raw)
-        .await
-        .map_err(|_| CommandError::retryable("operation.append_failed"))?;
-    let mut cleanup_pending = false;
-    if !old_uids.is_empty() {
-        let uid_set = old_uids
-            .iter()
-            .map(u32::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        mark_deleted(&mut session, &uid_set).await?;
-        if capabilities.has_str("UIDPLUS") {
-            session
-                .uid_expunge(&uid_set)
-                .await
-                .map_err(|_| CommandError::retryable("operation.expunge_failed"))?
-                .try_collect::<Vec<_>>()
-                .await
-                .map_err(|_| CommandError::retryable("operation.expunge_failed"))?;
-        } else {
-            cleanup_pending = true;
-        }
-    }
-    let _ = session.logout().await;
-    Ok(RemoteOperationOutcome { cleanup_pending })
-}
-
-async fn wait_for_change_session<T>(
-    mut session: Session<T>,
-    timeout: Duration,
-) -> CommandResult<InboxWatchOutcome>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    let capabilities = session
-        .capabilities()
-        .await
-        .map_err(|_| CommandError::retryable("sync.imap_capability_failed"))?;
-    if !capabilities.has_str("IDLE") {
-        let _ = session.logout().await;
-        return Ok(InboxWatchOutcome::Unsupported);
-    }
-    session
-        .examine("INBOX")
-        .await
-        .map_err(|_| CommandError::retryable("sync.mailbox_open_failed"))?;
-    let mut handle = session.idle();
-    handle
-        .init()
-        .await
-        .map_err(|_| CommandError::retryable("sync.idle_failed"))?;
-    let outcome = {
-        let (wait, _) = handle.wait_with_timeout(timeout);
-        wait.await
-            .map_err(|_| CommandError::retryable("sync.idle_failed"))?
     };
-    let mut session = handle
-        .done()
-        .await
-        .map_err(|_| CommandError::retryable("sync.idle_failed"))?;
-    let _ = session.logout().await;
-    Ok(match outcome {
-        IdleResponse::NewData(_) => InboxWatchOutcome::Changed,
-        IdleResponse::Timeout | IdleResponse::ManualInterrupt => InboxWatchOutcome::Timeout,
-    })
-}
-
-async fn fetch_message_session<T>(
-    mut session: Session<T>,
-    mailbox_name: &str,
-    uid: u32,
-    expected_uid_validity: u32,
-) -> CommandResult<RemoteMessage>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    let selected = session
-        .examine(mailbox_name)
-        .await
-        .map_err(|_| CommandError::retryable("sync.mailbox_open_failed"))?;
-    let uid_validity = selected.uid_validity.unwrap_or_default();
-    if uid_validity == 0 || uid_validity != expected_uid_validity {
-        return Err(CommandError::new("sync.uid_validity_changed"));
+    let mut client = async_imap::Client::new(transport);
+    if account.security != ConnectionSecurity::StartTls {
+        read_greeting(&mut client).await?;
     }
-    let message = fetch_remote_message(&mut session, uid, uid_validity).await?;
-    let _ = session.logout().await;
-    Ok(message)
-}
-
-async fn fetch_remote_message<T>(
-    session: &mut Session<T>,
-    uid: u32,
-    uid_validity: u32,
-) -> CommandResult<RemoteMessage>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    let mut messages = session
-        .uid_fetch(
-            uid.to_string(),
-            "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[])",
-        )
-        .await
-        .map_err(|_| CommandError::retryable("sync.message_body_fetch_failed"))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|_| CommandError::retryable("sync.message_body_fetch_failed"))?;
-    let (raw, received_at, unread, flagged, size) = {
-        let fetched = messages
-            .pop()
-            .filter(|message| message.uid == Some(uid))
-            .ok_or_else(|| CommandError::new("sync.message_not_found"))?;
-        let raw = fetched
-            .body()
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| CommandError::new("sync.message_body_missing"))?;
-        let received_at = fetched
-            .internal_date()
-            .map(|value| value.timestamp())
-            .unwrap_or_default();
-        let (unread, flagged) = message_flag_state(fetched.flags());
-        let size = fetched.size.unwrap_or(raw.len() as u32) as u64;
-        (raw, received_at, unread, flagged, size)
-    };
-    parse_message_in_background(MessageParseInput {
-        uid,
-        uid_validity,
-        size,
-        received_at,
-        unread,
-        flagged,
-        header: Vec::new(),
-        raw: Some(raw),
-    })
-    .await
+    login(client, account).await
 }
 
 async fn read_greeting<T>(client: &mut async_imap::Client<T>) -> CommandResult<()>
@@ -712,196 +206,23 @@ where
             completed: folder_index as u64,
             total: folder_total,
         });
-        let selectable = !folder.attributes().contains(&NameAttribute::NoSelect);
         let name = folder.name().to_owned();
         let display_name = decode_modified_utf7(&name);
-        let role = mailbox_role(&display_name, folder.attributes());
-        if !selectable {
-            let mailbox = sink
-                .upsert_mailbox(
-                    &account.account_slot_id,
-                    &RemoteMailbox {
-                        name,
-                        display_name,
-                        delimiter: folder.delimiter().map(str::to_owned),
-                        role,
-                        selectable: false,
-                        uid_validity: 0,
-                        uid_next: 0,
-                        total_count: 0,
-                        unread_count: 0,
-                        highest_modseq: None,
-                    },
-                )
-                .await?;
-            observer.notify(SyncNotice::MailboxChanged {
-                mailbox_id: mailbox.id,
-                revision: 0,
-            });
-            continue;
-        }
-
-        let selected = if condstore {
-            session.select_condstore(&name).await
-        } else {
-            session.examine(&name).await
-        }
-        .map_err(|_| CommandError::retryable("sync.mailbox_open_failed"))?;
-        let uid_validity = selected.uid_validity.unwrap_or_default();
-        if uid_validity == 0 {
-            return Err(CommandError::new("sync.uid_not_supported"));
-        }
-        let unseen = session
-            .uid_search("UNSEEN")
-            .await
-            .map_err(|_| CommandError::retryable("sync.mailbox_search_failed"))?;
-        let mailbox = sink
-            .upsert_mailbox(
-                &account.account_slot_id,
-                &RemoteMailbox {
-                    name: name.clone(),
-                    display_name,
-                    delimiter: folder.delimiter().map(str::to_owned),
-                    role,
-                    selectable: true,
-                    uid_validity,
-                    uid_next: selected.uid_next.unwrap_or_default(),
-                    total_count: selected.exists,
-                    unread_count: unseen.len() as u32,
-                    highest_modseq: selected.highest_modseq,
-                },
-            )
-            .await?;
-        observer.notify(SyncNotice::MailboxChanged {
-            mailbox_id: mailbox.id.clone(),
-            revision: 0,
-        });
-        let mut uids = session
-            .uid_search("ALL")
-            .await
-            .map_err(|_| CommandError::retryable("sync.mailbox_search_failed"))?
-            .into_iter()
-            .filter(|uid| *uid > mailbox.last_uid)
-            .collect::<Vec<_>>();
-        uids.sort_unstable();
-        let total = uids.len() as u64;
-        let mut completed = 0u64;
-        let mut highest_uid = mailbox.last_uid;
-
-        for batch in uids.chunks(FETCH_BATCH_SIZE) {
-            let uid_set = batch
-                .iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            let summary_query = if condstore {
-                "(UID FLAGS MODSEQ INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
-            } else {
-                "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
-            };
-            let summaries = session
-                .uid_fetch(&uid_set, summary_query)
-                .await
-                .map_err(|_| CommandError::retryable("sync.message_fetch_failed"))?
-                .try_collect::<Vec<_>>()
-                .await
-                .map_err(|_| CommandError::retryable("sync.message_fetch_failed"))?;
-
-            for summary in summaries {
-                let (uid, received_at, raw, unread, flagged, header, size, modseq) = {
-                    let Some(uid) = summary.uid else { continue };
-                    let received_at = summary
-                        .internal_date()
-                        .map(|value| value.timestamp())
-                        .unwrap_or_default();
-                    let raw = if should_download_body(account.sync_policy.clone(), received_at) {
-                        fetch_raw(&mut session, uid).await?
-                    } else {
-                        None
-                    };
-                    let (unread, flagged) = message_flag_state(summary.flags());
-                    (
-                        uid,
-                        received_at,
-                        raw,
-                        unread,
-                        flagged,
-                        summary.header().unwrap_or_default().to_vec(),
-                        summary.size.unwrap_or_default() as u64,
-                        summary.modseq,
-                    )
-                };
-                let mut message = parse_message_in_background(MessageParseInput {
-                    uid,
-                    uid_validity,
-                    size,
-                    received_at,
-                    unread,
-                    flagged,
-                    header,
-                    raw,
-                })
-                .await?;
-                message.modseq = modseq;
-                sink.upsert_message(&account.account_slot_id, &mailbox.id, &message)
-                    .await?;
-                highest_uid = highest_uid.max(uid);
-                completed += 1;
-                observer.notify(SyncNotice::Summaries { completed, total });
-            }
-            observer.notify(SyncNotice::MailboxChanged {
-                mailbox_id: mailbox.id.clone(),
-                revision: 0,
-            });
-        }
-
-        let pending_bodies = sink
-            .pending_body_locations(&mailbox.id, sync_policy_cutoff(account.sync_policy.clone()))
-            .await?;
-        let body_total = pending_bodies.len() as u64;
-        for (index, location) in pending_bodies.into_iter().enumerate() {
-            if location.uid_validity != uid_validity {
-                continue;
-            }
-            let message = fetch_remote_message(&mut session, location.uid, uid_validity).await?;
-            sink.upsert_message(&account.account_slot_id, &mailbox.id, &message)
-                .await?;
-            observer.notify(SyncNotice::Bodies {
-                completed: index as u64 + 1,
-                total: body_total,
-            });
-        }
-        let flags_query = if condstore {
-            "(UID FLAGS MODSEQ)"
-        } else {
-            "(UID FLAGS)"
-        };
-        let states = session
-            .uid_fetch("1:*", flags_query)
-            .await
-            .map_err(|_| CommandError::retryable("sync.flags_fetch_failed"))?
-            .try_collect::<Vec<_>>()
-            .await
-            .map_err(|_| CommandError::retryable("sync.flags_fetch_failed"))?
-            .into_iter()
-            .filter_map(|item| {
-                let uid = item.uid?;
-                let flags = item.flags().collect::<Vec<_>>();
-                Some(RemoteMessageState {
-                    uid,
-                    unread: !flags.iter().any(|flag| matches!(flag, Flag::Seen)),
-                    flagged: flags.iter().any(|flag| matches!(flag, Flag::Flagged)),
-                    modseq: item.modseq,
-                })
-            })
-            .collect::<Vec<_>>();
-        sink.reconcile_mailbox(&mailbox.id, uid_validity, selected.highest_modseq, &states)
-            .await?;
-        sink.complete_mailbox(&mailbox.id, highest_uid).await?;
-        observer.notify(SyncNotice::MailboxChanged {
-            mailbox_id: mailbox.id,
-            revision: 0,
-        });
+        sync_folder(
+            &mut session,
+            account,
+            sink,
+            observer,
+            condstore,
+            FolderDescriptor {
+                role: mailbox_role(&display_name, folder.attributes()),
+                selectable: !folder.attributes().contains(&NameAttribute::NoSelect),
+                delimiter: folder.delimiter().map(str::to_owned),
+                name,
+                display_name,
+            },
+        )
+        .await?;
     }
     observer.notify(SyncNotice::Folders {
         completed: folder_total,
@@ -911,12 +232,291 @@ where
     Ok(())
 }
 
-async fn fetch_raw<T>(session: &mut Session<T>, uid: u32) -> CommandResult<Option<Vec<u8>>>
+async fn sync_folder<T>(
+    session: &mut Session<T>,
+    account: &ImapAccountConfig,
+    sink: &(dyn MailSyncSink + Send + Sync),
+    observer: &(dyn SyncObserver + Send + Sync),
+    condstore: bool,
+    folder: FolderDescriptor,
+) -> CommandResult<()>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
+    if !folder.selectable {
+        let mailbox = sink
+            .upsert_mailbox(
+                &account.account_slot_id,
+                &RemoteMailbox {
+                    name: folder.name,
+                    display_name: folder.display_name,
+                    delimiter: folder.delimiter,
+                    role: folder.role,
+                    selectable: false,
+                    uid_validity: 0,
+                    uid_next: 0,
+                    total_count: 0,
+                    unread_count: 0,
+                    highest_modseq: None,
+                },
+            )
+            .await?;
+        notify_mailbox(observer, mailbox.id);
+        return Ok(());
+    }
+
+    let selected = if condstore {
+        session.select_condstore(&folder.name).await
+    } else {
+        session.examine(&folder.name).await
+    }
+    .map_err(|_| CommandError::retryable("sync.mailbox_open_failed"))?;
+    let uid_validity = selected.uid_validity.unwrap_or_default();
+    if uid_validity == 0 {
+        return Err(CommandError::new("sync.uid_not_supported"));
+    }
+    let unseen = session
+        .uid_search("UNSEEN")
+        .await
+        .map_err(|_| CommandError::retryable("sync.mailbox_search_failed"))?;
+    let highest_modseq = selected.highest_modseq;
+    let mailbox = sink
+        .upsert_mailbox(
+            &account.account_slot_id,
+            &RemoteMailbox {
+                name: folder.name,
+                display_name: folder.display_name,
+                delimiter: folder.delimiter,
+                role: folder.role,
+                selectable: true,
+                uid_validity,
+                uid_next: selected.uid_next.unwrap_or_default(),
+                total_count: selected.exists,
+                unread_count: unseen.len() as u32,
+                highest_modseq,
+            },
+        )
+        .await?;
+    notify_mailbox(observer, mailbox.id.clone());
+
+    let highest_uid = fetch_summaries(
+        session,
+        account,
+        sink,
+        observer,
+        condstore,
+        uid_validity,
+        &mailbox,
+    )
+    .await?;
+    backfill_bodies(session, account, sink, observer, uid_validity, &mailbox).await?;
+    reconcile_flags(
+        session,
+        sink,
+        condstore,
+        uid_validity,
+        highest_modseq,
+        &mailbox,
+    )
+    .await?;
+    sink.complete_mailbox(&mailbox.id, highest_uid).await?;
+    notify_mailbox(observer, mailbox.id);
+    Ok(())
+}
+
+async fn fetch_summaries<T>(
+    session: &mut Session<T>,
+    account: &ImapAccountConfig,
+    sink: &(dyn MailSyncSink + Send + Sync),
+    observer: &(dyn SyncObserver + Send + Sync),
+    condstore: bool,
+    uid_validity: u32,
+    mailbox: &StoredMailbox,
+) -> CommandResult<u32>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let mut uids = session
+        .uid_search("ALL")
+        .await
+        .map_err(|_| CommandError::retryable("sync.mailbox_search_failed"))?
+        .into_iter()
+        .filter(|uid| *uid > mailbox.last_uid)
+        .collect::<Vec<_>>();
+    uids.sort_unstable();
+    let total = uids.len() as u64;
+    let mut completed = 0_u64;
+    let mut highest_uid = mailbox.last_uid;
+
+    for batch in uids.chunks(FETCH_BATCH_SIZE) {
+        let summaries = fetch_summary_batch(session, batch, condstore).await?;
+        let body_uids = summaries
+            .iter()
+            .filter(|summary| {
+                should_download_body(account.sync_policy.clone(), summary.received_at)
+            })
+            .map(|summary| summary.uid)
+            .collect::<Vec<_>>();
+        let mut raw_by_uid = fetch_raw_batch(session, &body_uids).await?;
+
+        for summary in summaries {
+            let mut message = parse_message_in_background(MessageParseInput {
+                uid: summary.uid,
+                uid_validity,
+                size: summary.size,
+                received_at: summary.received_at,
+                unread: summary.unread,
+                flagged: summary.flagged,
+                header: summary.header,
+                raw: raw_by_uid.remove(&summary.uid),
+            })
+            .await?;
+            message.modseq = summary.modseq;
+            sink.upsert_message(&account.account_slot_id, &mailbox.id, &message)
+                .await?;
+            highest_uid = highest_uid.max(summary.uid);
+            completed += 1;
+            observer.notify(SyncNotice::Summaries { completed, total });
+        }
+        notify_mailbox(observer, mailbox.id.clone());
+    }
+    Ok(highest_uid)
+}
+
+async fn fetch_summary_batch<T>(
+    session: &mut Session<T>,
+    uids: &[u32],
+    condstore: bool,
+) -> CommandResult<Vec<FetchedMessageSummary>>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let query = if condstore {
+        "(UID FLAGS MODSEQ INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
+    } else {
+        "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
+    };
+    Ok(session
+        .uid_fetch(format_uid_set(uids), query)
+        .await
+        .map_err(|_| CommandError::retryable("sync.message_fetch_failed"))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(|_| CommandError::retryable("sync.message_fetch_failed"))?
+        .into_iter()
+        .filter_map(|summary| {
+            let uid = summary.uid?;
+            let received_at = summary
+                .internal_date()
+                .map(|value| value.timestamp())
+                .unwrap_or_default();
+            let (unread, flagged) = message_flag_state(summary.flags());
+            Some(FetchedMessageSummary {
+                uid,
+                received_at,
+                unread,
+                flagged,
+                header: summary.header().unwrap_or_default().to_vec(),
+                size: summary.size.unwrap_or_default() as u64,
+                modseq: summary.modseq,
+            })
+        })
+        .collect())
+}
+
+async fn backfill_bodies<T>(
+    session: &mut Session<T>,
+    account: &ImapAccountConfig,
+    sink: &(dyn MailSyncSink + Send + Sync),
+    observer: &(dyn SyncObserver + Send + Sync),
+    uid_validity: u32,
+    mailbox: &StoredMailbox,
+) -> CommandResult<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let pending = sink
+        .pending_body_locations(&mailbox.id, sync_policy_cutoff(account.sync_policy.clone()))
+        .await?
+        .into_iter()
+        .filter(|location| location.uid_validity == uid_validity)
+        .collect::<Vec<_>>();
+    let total = pending.len() as u64;
+    let mut completed = 0_u64;
+
+    for batch in pending.chunks(FETCH_BATCH_SIZE) {
+        let uids = batch
+            .iter()
+            .map(|location| location.uid)
+            .collect::<Vec<_>>();
+        for message in fetch_remote_messages(session, &uids, uid_validity).await? {
+            sink.upsert_message(&account.account_slot_id, &mailbox.id, &message)
+                .await?;
+            completed += 1;
+            observer.notify(SyncNotice::Bodies { completed, total });
+        }
+    }
+    Ok(())
+}
+
+async fn reconcile_flags<T>(
+    session: &mut Session<T>,
+    sink: &(dyn MailSyncSink + Send + Sync),
+    condstore: bool,
+    uid_validity: u32,
+    highest_modseq: Option<u64>,
+    mailbox: &StoredMailbox,
+) -> CommandResult<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let query = if condstore {
+        "(UID FLAGS MODSEQ)"
+    } else {
+        "(UID FLAGS)"
+    };
+    let states = session
+        .uid_fetch("1:*", query)
+        .await
+        .map_err(|_| CommandError::retryable("sync.flags_fetch_failed"))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(|_| CommandError::retryable("sync.flags_fetch_failed"))?
+        .into_iter()
+        .filter_map(|item| {
+            let uid = item.uid?;
+            let flags = item.flags().collect::<Vec<_>>();
+            Some(RemoteMessageState {
+                uid,
+                unread: !flags.iter().any(|flag| matches!(flag, Flag::Seen)),
+                flagged: flags.iter().any(|flag| matches!(flag, Flag::Flagged)),
+                modseq: item.modseq,
+            })
+        })
+        .collect::<Vec<_>>();
+    sink.reconcile_mailbox(&mailbox.id, uid_validity, highest_modseq, &states)
+        .await
+}
+
+fn notify_mailbox(observer: &(dyn SyncObserver + Send + Sync), mailbox_id: String) {
+    observer.notify(SyncNotice::MailboxChanged {
+        mailbox_id,
+        revision: 0,
+    });
+}
+
+async fn fetch_raw_batch<T>(
+    session: &mut Session<T>,
+    uids: &[u32],
+) -> CommandResult<HashMap<u32, Vec<u8>>>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    if uids.is_empty() {
+        return Ok(HashMap::new());
+    }
     let messages = session
-        .uid_fetch(uid.to_string(), "(UID BODY.PEEK[])")
+        .uid_fetch(format_uid_set(uids), "(UID BODY.PEEK[])")
         .await
         .map_err(|_| CommandError::retryable("sync.message_body_fetch_failed"))?
         .try_collect::<Vec<_>>()
@@ -924,281 +524,24 @@ where
         .map_err(|_| CommandError::retryable("sync.message_body_fetch_failed"))?;
     Ok(messages
         .into_iter()
-        .find(|message| message.uid == Some(uid))
-        .and_then(|message| message.body().map(ToOwned::to_owned)))
+        .filter_map(|message| Some((message.uid?, message.body()?.to_vec())))
+        .collect())
 }
 
-#[cfg(test)]
-fn parse_message<'a>(
-    uid: u32,
-    uid_validity: u32,
-    size: u64,
-    received_at: i64,
-    flags: impl Iterator<Item = Flag<'a>>,
-    header: &[u8],
-    raw: Option<Vec<u8>>,
-) -> CommandResult<RemoteMessage> {
-    let (unread, flagged) = message_flag_state(flags);
-    parse_message_with_state(MessageParseInput {
-        uid,
-        uid_validity,
-        size,
-        received_at,
-        unread,
-        flagged,
-        header: header.to_vec(),
-        raw,
-    })
-}
-
-fn message_flag_state<'a>(flags: impl Iterator<Item = Flag<'a>>) -> (bool, bool) {
-    let flags = flags.collect::<Vec<_>>();
-    (
-        !flags.iter().any(|flag| matches!(flag, Flag::Seen)),
-        flags.iter().any(|flag| matches!(flag, Flag::Flagged)),
-    )
-}
-
-struct MessageParseInput {
-    uid: u32,
-    uid_validity: u32,
-    size: u64,
-    received_at: i64,
-    unread: bool,
-    flagged: bool,
-    header: Vec<u8>,
-    raw: Option<Vec<u8>>,
-}
-
-async fn parse_message_in_background(input: MessageParseInput) -> CommandResult<RemoteMessage> {
-    tokio::task::spawn_blocking(move || parse_message_with_state(input))
-        .await
-        .map_err(|_| CommandError::new("sync.message_parse_failed"))?
-}
-
-fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMessage> {
-    let parsed = input
-        .raw
-        .as_deref()
-        .and_then(|value| MessageParser::default().parse(value));
-    let parsed_headers = if parsed.is_none() {
-        MessageParser::default().parse_headers(&input.header)
-    } else {
-        None
-    };
-    let message = parsed.as_ref().or(parsed_headers.as_ref());
-    let plain_text = parsed
-        .as_ref()
-        .and_then(|message| message.body_text(0))
-        .map(|value| value.into_owned());
-    let sanitized = parsed
-        .as_ref()
-        .and_then(|message| message.body_html(0))
-        .map(|value| sanitize_mail_html(&value));
-    let attachments = parsed
-        .as_ref()
-        .map(attachment_summaries)
-        .unwrap_or_default();
-    let preview = parsed
-        .as_ref()
-        .and_then(|message| message.body_preview(180))
-        .map(|value| value.into_owned())
-        .unwrap_or_default();
-    Ok(RemoteMessage {
-        uid: input.uid,
-        uid_validity: input.uid_validity,
-        subject: message
-            .and_then(|message| message.subject())
-            .unwrap_or_default()
-            .to_owned(),
-        from: message
-            .and_then(|message| message.from())
-            .map(addresses)
-            .unwrap_or_default(),
-        to: message
-            .and_then(|message| message.to())
-            .map(addresses)
-            .unwrap_or_default(),
-        cc: message
-            .and_then(|message| message.cc())
-            .map(addresses)
-            .unwrap_or_default(),
-        received_at: message
-            .and_then(|message| message.date())
-            .map(|value| value.to_timestamp())
-            .unwrap_or(input.received_at),
-        preview,
-        unread: input.unread,
-        flagged: input.flagged,
-        size: input.size,
-        message_id: message
-            .and_then(|message| message.message_id())
-            .map(str::to_owned),
-        references: message
-            .and_then(|message| message.references().as_text_list())
-            .map(|values| values.iter().map(ToString::to_string).collect())
-            .unwrap_or_default(),
-        in_reply_to: message
-            .and_then(|message| message.in_reply_to().as_text())
-            .map(str::to_owned),
-        plain_text,
-        safe_html: sanitized.as_ref().map(|value| value.document.clone()),
-        raw: input.raw,
-        attachments,
-        remote_images_blocked: sanitized
-            .as_ref()
-            .is_some_and(|value| value.remote_images_blocked),
-        modseq: None,
-    })
-}
-
-fn attachment_summaries(message: &Message<'_>) -> Vec<RemoteAttachment> {
-    message
-        .attachments()
-        .enumerate()
-        .map(|(index, attachment)| {
-            let content_type = attachment
-                .content_type()
-                .map(|value| {
-                    format!(
-                        "{}/{}",
-                        value.ctype(),
-                        value.subtype().unwrap_or("octet-stream")
-                    )
-                })
-                .unwrap_or_else(|| "application/octet-stream".to_owned());
-            RemoteAttachment {
-                part_index: index as u32,
-                file_name: attachment
-                    .attachment_name()
-                    .unwrap_or("attachment")
-                    .to_owned(),
-                content_type,
-                size: attachment.len() as u64,
-                content_id: attachment.content_id().map(str::to_owned),
-            }
-        })
-        .collect()
-}
-
-fn addresses(address: &Address<'_>) -> Vec<MessageAddress> {
-    address
-        .iter()
-        .filter_map(|value| {
-            Some(MessageAddress {
-                name: value.name.as_deref().map(str::to_owned),
-                email: value.address.as_deref()?.to_owned(),
-            })
-        })
-        .collect()
-}
-
-fn mailbox_role(name: &str, attributes: &[NameAttribute<'_>]) -> MailboxRole {
-    if name.eq_ignore_ascii_case("INBOX") {
-        return MailboxRole::Inbox;
-    }
-    for attribute in attributes {
-        match attribute {
-            NameAttribute::Archive => return MailboxRole::Archive,
-            NameAttribute::Drafts => return MailboxRole::Drafts,
-            NameAttribute::Junk => return MailboxRole::Junk,
-            NameAttribute::Sent => return MailboxRole::Sent,
-            NameAttribute::Trash => return MailboxRole::Trash,
-            _ => {}
-        }
-    }
-    match name.trim().to_ascii_lowercase().as_str() {
-        "sent" | "sent items" | "sent messages" => MailboxRole::Sent,
-        "draft" | "drafts" => MailboxRole::Drafts,
-        "trash" | "deleted" | "deleted items" => MailboxRole::Trash,
-        "junk" | "junk e-mail" | "junk email" | "spam" => MailboxRole::Junk,
-        "archive" | "archives" => MailboxRole::Archive,
-        _ => MailboxRole::Other,
-    }
-}
-
-pub fn decode_modified_utf7(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut cursor = 0;
-
-    while let Some(relative_start) = input[cursor..].find('&') {
-        let start = cursor + relative_start;
-        output.push_str(&input[cursor..start]);
-        let Some(relative_end) = input[start + 1..].find('-') else {
-            output.push_str(&input[start..]);
-            return output;
-        };
-        let end = start + 1 + relative_end;
-        let encoded = &input[start + 1..end];
-        if encoded.is_empty() {
-            output.push('&');
-        } else if let Some(decoded) = decode_modified_utf7_segment(encoded) {
-            output.push_str(&decoded);
-        } else {
-            output.push_str(&input[start..=end]);
-        }
-        cursor = end + 1;
-    }
-
-    output.push_str(&input[cursor..]);
-    output
-}
-
-fn decode_modified_utf7_segment(encoded: &str) -> Option<String> {
-    let mut standard = encoded.replace(',', "/");
-    while !standard.len().is_multiple_of(4) {
-        standard.push('=');
-    }
-    let bytes = STANDARD.decode(standard).ok()?;
-    if bytes.len() % 2 != 0 {
-        return None;
-    }
-    let utf16 = bytes
-        .chunks_exact(2)
-        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
-        .collect::<Vec<_>>();
-    String::from_utf16(&utf16).ok()
-}
-
-fn should_download_body(policy: SyncPolicy, received_at: i64) -> bool {
-    sync_policy_cutoff(policy).is_none_or(|cutoff| received_at >= cutoff)
-}
-
-fn sync_policy_cutoff(policy: SyncPolicy) -> Option<i64> {
-    let days = match policy {
-        SyncPolicy::Days30 => 30,
-        SyncPolicy::Days90 => 90,
-        SyncPolicy::Days365 => 365,
-        SyncPolicy::All => return None,
-    };
-    Some(now().saturating_sub(Duration::from_secs(days * 86_400).as_secs() as i64))
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
+pub(super) fn format_uid_set(uids: &[u32]) -> String {
+    uids.iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 async fn connect_tls(
     host: &str,
     stream: TcpStream,
 ) -> CommandResult<tokio_rustls::client::TlsStream<TcpStream>> {
-    let native = rustls_native_certs::load_native_certs();
-    if native.certs.is_empty() {
-        return Err(CommandError::new("sync.system_certificates_unavailable"));
-    }
-    let mut roots = RootCertStore::empty();
-    for certificate in native.certs {
-        let _ = roots.add(certificate);
-    }
-    let config = ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
     let server_name = ServerName::try_from(host.to_owned())
         .map_err(|_| CommandError::new("sync.server_name_invalid"))?;
-    TlsConnector::from(Arc::new(config))
+    native_tls_connector("sync.system_certificates_unavailable")?
         .connect(server_name, stream)
         .await
         .map_err(|_| CommandError::retryable("sync.imap_tls_failed"))
@@ -1207,6 +550,8 @@ async fn connect_tls(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocols::imap::parse::parse_message;
+    use mail_parser::MessageParser;
 
     #[test]
     fn conditional_store_preserves_delta_semantics() {
@@ -1218,6 +563,12 @@ mod tests {
             conditional_store_query(None, "-FLAGS.SILENT", "\\Flagged"),
             "-FLAGS.SILENT (\\Flagged)"
         );
+    }
+
+    #[test]
+    fn formats_a_batch_as_one_uid_set() {
+        assert_eq!(format_uid_set(&[3, 7, 9]), "3,7,9");
+        assert_eq!(format_uid_set(&[]), "");
     }
 
     #[test]
@@ -1342,22 +693,5 @@ Message-ID: <safe@example.com>\r\n\r\nbody";
         assert!(message.subject.starts_with("prefix "));
         assert!(message.subject.ends_with(" suffix"));
         assert_eq!(message.message_id.as_deref(), Some("safe@example.com"));
-    }
-
-    #[test]
-    fn sync_policy_uses_expected_window() {
-        assert!(should_download_body(SyncPolicy::All, 0));
-        assert!(should_download_body(SyncPolicy::Days30, now()));
-        assert!(!should_download_body(SyncPolicy::Days30, 0));
-    }
-
-    #[test]
-    fn decodes_modified_utf7_mailbox_names() {
-        assert_eq!(decode_modified_utf7("INBOX"), "INBOX");
-        assert_eq!(decode_modified_utf7("A&-B"), "A&B");
-        assert_eq!(decode_modified_utf7("&U,BTFw-"), "台北");
-        assert_eq!(decode_modified_utf7("&ZeVnLIqe-"), "日本語");
-        assert_eq!(mailbox_role("Drafts", &[]), MailboxRole::Drafts);
-        assert_eq!(mailbox_role("Sent Items", &[]), MailboxRole::Sent);
     }
 }

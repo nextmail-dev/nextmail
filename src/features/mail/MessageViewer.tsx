@@ -34,6 +34,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { SafeMailFrame } from "./SafeMailFrame";
 import { MessageAttachment } from "./MessageAttachment";
 import { activateMessageAttachment } from "./message-attachment-actions";
+import { messageQueryKeys } from "./message-query-keys";
 
 export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMessageRemoved }: {
   accountId: string;
@@ -53,7 +54,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
 
   useEffect(() => setRemoteImagesAllowed(false), [messageId]);
   const query = useQuery({
-    queryKey: ["message", accountId, mailboxId, messageId],
+    queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId),
     queryFn: () => api.getMessageDetail(accountId, messageId, mailboxId),
     enabled: Boolean(accountId && mailboxId && messageId),
   });
@@ -67,15 +68,15 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
         open: (attachmentId) => api.openMessageAttachment(accountId, attachmentId),
       });
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["message", accountId, mailboxId, messageId] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId) }),
   });
   const saveAttachmentMutation = useMutation({
     mutationFn: (attachment: AttachmentSummary) => api.saveMessageAttachmentAs(accountId, attachment.id),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["message", accountId, mailboxId, messageId] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId) }),
   });
   const bodyMutation = useMutation({
     mutationFn: () => api.requestMessageBody(accountId, messageId, mailboxId),
-    onSuccess: (detail) => queryClient.setQueryData(["message", accountId, mailboxId, messageId], detail),
+    onSuccess: (detail) => queryClient.setQueryData(messageQueryKeys.detail(accountId, mailboxId, messageId), detail),
   });
   const rawMutation = useMutation({ mutationFn: () => api.requestRawMessage(accountId, messageId), onSuccess: setRawSource });
   const messageOperation = useMutation({
@@ -91,7 +92,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
     onSuccess: (kind) => {
       void queryClient.invalidateQueries({ queryKey: ["mailboxes", accountId] });
       void queryClient.invalidateQueries({ queryKey: ["messages", accountId] });
-      void queryClient.invalidateQueries({ queryKey: ["message", accountId] });
+      void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(accountId) });
       if (["move", "archive", "delete"].includes(kind)) onMessageRemoved();
     },
   });

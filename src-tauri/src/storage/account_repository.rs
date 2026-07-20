@@ -58,10 +58,12 @@ mod tests {
             .unwrap();
         let repository = MailRepository::open(directory.path()).await.unwrap();
         let draft_a = repository
+            .drafts()
             .create_draft("account-a", "slot-a")
             .await
             .unwrap();
         let draft_b = repository
+            .drafts()
             .create_draft("account-b", "slot-b")
             .await
             .unwrap();
@@ -71,10 +73,12 @@ mod tests {
         assert!(draft_only.can_remove);
 
         let mime_hash = repository
+            .send_jobs()
             .write_send_mime(b"From: a@example.com\r\n\r\nbody")
             .await
             .unwrap();
         repository
+            .send_jobs()
             .queue_send_job(
                 "account-b",
                 "slot-b",
@@ -93,6 +97,7 @@ mod tests {
         );
 
         repository
+            .send_jobs()
             .queue_send_job(
                 "account-a",
                 "slot-a",

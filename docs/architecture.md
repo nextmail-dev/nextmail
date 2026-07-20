@@ -9,8 +9,8 @@ NextMail 使用单个 Tauri 进程。React 仅通过稳定的 Tauri Command DTO 
 Rust 代码只使用 `src-tauri` 下的单一 Cargo package，避免仓库根目录和 Tauri 目录各自产生一套 `Cargo.lock` 与 `target`：
 
 - `src-tauri/src/core`：不依赖 Tauri、数据库和具体协议库的领域 DTO、稳定错误与 ports。
-- `src-tauri/src/storage`：SQLx Repository、内容寻址文件存储；嵌入式迁移位于 `src-tauri/migrations`。
-- `src-tauri/src/protocols`：IMAP 同步与写操作、MIME 解析/生成和 HTML 清洗；后续继续承载 POP3 Adapter。
+- `src-tauri/src/storage`：共享 SQLite/内容存储之上的读取、同步写入、草稿、发件任务、待办操作和文件夹角色子仓库；嵌入式迁移位于 `src-tauri/migrations`。
+- `src-tauri/src/protocols`：IMAP 同步与写操作、MIME 解析/生成和 HTML 清洗；IMAP 内部再按会话、解析、文件夹编码和同步策略拆分，后续继续承载 POP3 Adapter。
 - `src-tauri/src/application`、`adapters`、`commands` 与运行时模块：首次启动用例、Keyring、自动发现、Command/Event、窗口和 Worker 装配。
 
 仓库根目录不放置 Cargo manifest、lockfile 或 Rust 构建目录。唯一的 `Cargo.toml`、`Cargo.lock` 和 `target` 均由 `src-tauri` 管理。
@@ -36,6 +36,8 @@ NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src
 
 依赖方向仍保持为宿主和 Adapter 指向核心，核心不得依赖 Tauri、SQLx 或具体协议库。协议库与 SQLx 类型不得越过模块边界；模块级单元测试、公共 DTO 审查和受控可见性用于维持原有隔离。除非未来出现独立发布、独立版本或被其他二进制复用的实际需求，不再为形式上的分层创建 Cargo Workspace 或子 crate。
 
+账户、Bootstrap 与本机偏好的配置读写以 `core::ports` 注入 application service；IMAP Provider、Repository Provider 和系统附件打开能力同样从 `state.rs` 组合进运行时。Application 不构造具体 JSON Store，Worker 不构造具体 IMAP/SQLite Adapter。写信与邮件运行时复用同一个 Repository 实例和 SQLite 连接池。
+
 ## 存储边界
 
 用户选择的数据目录是可迁移数据集，当前包含：
@@ -55,7 +57,7 @@ NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src
 ## 连接安全
 
 - 全进程统一使用 rustls `ring` CryptoProvider，并在 Tauri 初始化前显式安装；直接 TLS 依赖关闭默认 provider 特性，避免依赖合并后出现 provider 歧义。
-- IMAP 支持无加密、STARTTLS 和隐式 TLS；TLS 使用系统根证书并严格校验主机名。
+- IMAP 支持无加密、STARTTLS 和隐式 TLS；TLS 使用系统根证书并严格校验主机名。IMAP 同步与首次账户连接测试共享进程级 rustls 配置，系统根证书只在首次 TLS 连接时加载一次。
 - SMTP 使用 lettre、Tokio 和 rustls；连接测试只认证账户，正式发件使用持久化 MIME 和 `send_raw`。
 - 无加密连接必须由用户显式确认，后端在保存时再次校验该确认。
 - 自动发现顺序为内置服务商、DNS SRV、域名 HTTPS autoconfig。自动配置响应限制为 1 MiB 且不接受 HTTP 降级。
@@ -66,12 +68,13 @@ NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src
 - `MailRuntime` 作为 Supervisor Registry，按 `account_id` 维护至多一个 `AccountSupervisor`。每个账户独立拥有唤醒、启动同步、退避、待办重放和 Inbox IDLE 生命周期；所有账户共享一个 Repository/SQLite 连接池，并始终通过匿名 `account_slot_id` 隔离数据。
 - 主动 IMAP 同步和写操作共享两个全局许可，同一账户由自身 Supervisor 保持串行；IDLE 等待不占主动网络许可。新增、编辑、重新认证和移除账户均在运行期协调，旧代次任务返回的状态和界面事件会被丢弃。
 - Supervisor 只在主工作区完成首帧后启动；启动同步在内存中预先进入 `connecting` 状态，进度查询即使错过最早事件也能读到当前阶段。运行时启动和发件 Worker 启动均为幂等操作，可安全承受 React Strict Mode 或窗口状态变化导致的重复通知。
-- 同步按 UIDVALIDITY/UID 定位邮件，拉取新 UID，并对账当前 UID 集合、Flags 和 MODSEQ。UIDVALIDITY 改变时重建文件夹位置，不使用消息序号作为持久身份。
+- 同步按 UIDVALIDITY/UID 定位邮件，拉取新 UID，并对账当前 UID 集合、Flags 和 MODSEQ。新邮件正文与旧正文回填均按最多 100 个 UID 批量 FETCH；文件夹对账通过事务内远端 UID 集合做集合删除，不按本地位置逐行查询。UIDVALIDITY 改变时重建文件夹位置，不使用消息序号作为持久身份。
 - 用户修改在 SQLite 事务中同时更新本地投影和 `pending_operations`。Worker 按顺序执行，`running` 状态可在重启后恢复。
 - Flags 以增量意图写回；CONDSTORE 可用时使用条件 STORE 并在冲突后基于最新 MODSEQ 重放一次。
 - MOVE、UIDPLUS、CONDSTORE 和 IDLE 全部在自有 Adapter 内做 Capability 分支。缺失 UIDPLUS 时不执行可能影响其他邮件的宽泛 EXPUNGE。
-- React 事件只收到账户、文件夹、消息或操作 ID 与修订状态，并通过 TanStack Query 重新读取本地视图。
+- React 事件只收到账户、文件夹、消息或操作 ID 与修订状态，并通过 TanStack Query 重新读取本地视图。邮件详情 key 统一为账户、文件夹、消息四段；缺少文件夹 ID 的正文事件按账户前缀失效，避免把消息 ID 放入错误槽位。
 - 网络读取仍在异步 IMAP 会话中完成；MIME 解码、正文预览、附件分析和 HTML 清洗在顺序提交的 Tokio blocking worker 中执行，避免大邮件解析占用异步调度线程。文件夹元数据落库后立即发布 `mailbox-changed`，其后每批最多 100 封摘要落库再次发布，既不等待整个文件夹，也不等待整个账户同步结束。
+- 单封邮件的规范记录、远端位置、正文和附件元数据在同一 SQLite 事务内提交，附件元数据使用批量 UPSERT。内容寻址原始 EML 在事务前完成幂等文件写入，数据库失败不会留下可见的半成品邮件。
 - Supervisor 区分“仅执行待办”和“执行同步”：本地 Flags、移动、复制、删除及 APPEND 只唤醒待办 Worker，不再先完整同步。首次启动和手动收取发布可见进度；IDLE/定时/轮询同步静默落库并只通知数据变化。
 - 支持 IDLE 时由服务器变化即时唤醒，并以 5 分钟全文件夹对账兜底；无 IDLE 时每 60 秒轮询。网络错误退避范围为 2 秒到 5 分钟。
 
@@ -85,7 +88,7 @@ NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src
 - 本地草稿停止编辑 10 秒或关闭窗口时排队同步到映射的 Drafts。远端版本用 `X-NextMail-Draft-ID` 关联，先追加新版本再安全清理旧 UID；服务器草稿可转换成本地可编辑草稿。
 - Tiptap 写信代码按窗口动态加载，不进入主窗口首包。
 - 完全未修改的空草稿在写信窗口关闭时由 Rust 条件删除；前端不能直接删除任意草稿。SMTP 成功通过 ID/状态事件通知主窗口，由主窗口显示站内成功通知。
-- 回复、回复全部和转发由 Rust 从本地规范邮件生成新草稿。回复草稿保存 `In-Reply-To`/`References` 并在 MIME 生成时安全注入；回复全部排除自身并去重，转发按需取得原附件后复用内容寻址副本。
+- 回复、回复全部和转发由 application 层的纯用例从本地规范邮件生成新草稿，Repository 只读取源邮件并持久化组合结果。回复草稿保存 `In-Reply-To`/`References` 并在 MIME 生成时安全注入；回复全部排除自身并去重，转发按需取得原附件后复用内容寻址副本。
 
 ## 邮件与文件夹编码
 

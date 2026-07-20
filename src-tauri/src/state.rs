@@ -3,11 +3,16 @@ use std::sync::Arc;
 use tauri::AppHandle;
 
 use crate::{
-    adapters::{AppPaths, MailConnectionTester, SystemCredentialStore},
+    adapters::{
+        AccountsStore, AppPaths, BootstrapStore, MailConnectionTester, PreferencesStore,
+        ReadingPreferencesStore, SystemAttachmentOpener, SystemCredentialStore,
+    },
     application::AppService,
     composer_runtime::ComposerRuntime,
     error::CommandResult,
     mail_runtime::MailRuntime,
+    protocols::AsyncImapProvider,
+    storage::SqliteMailRepositoryProvider,
 };
 
 pub struct AppState {
@@ -19,12 +24,26 @@ pub struct AppState {
 impl AppState {
     pub fn from_handle(app: &AppHandle) -> CommandResult<Self> {
         let paths = AppPaths::from_handle(app)?;
+        let bootstrap = Arc::new(BootstrapStore::new(&paths));
+        let accounts = Arc::new(AccountsStore::new(&paths));
+        let preferences = Arc::new(PreferencesStore::new(&paths));
+        let reading_preferences = Arc::new(ReadingPreferencesStore::new(&paths));
         let service = Arc::new(AppService::new(
             paths,
+            bootstrap,
+            accounts,
+            preferences,
+            reading_preferences,
             Arc::new(SystemCredentialStore),
             Arc::new(MailConnectionTester),
         ));
-        let mail = Arc::new(MailRuntime::new(app.clone(), Arc::clone(&service)));
+        let mail = Arc::new(MailRuntime::new(
+            app.clone(),
+            Arc::clone(&service),
+            Arc::new(AsyncImapProvider),
+            Arc::new(SqliteMailRepositoryProvider),
+            Arc::new(SystemAttachmentOpener),
+        ));
         let composer = Arc::new(ComposerRuntime::new(
             app.clone(),
             Arc::clone(&service),

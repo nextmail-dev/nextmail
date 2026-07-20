@@ -1,6 +1,29 @@
 use async_trait::async_trait;
 
-use super::{CommandResult, ConnectionSecurity, MailboxRole, MessageAddress, SyncPolicy};
+use super::{
+    AccountsFile, AppearancePreferences, BootstrapConfig, CommandResult, ConnectionSecurity,
+    MailboxRole, MessageAddress, ReadingPreferences, SyncPolicy,
+};
+
+pub trait AccountsConfigStore: Send + Sync {
+    fn load(&self) -> CommandResult<AccountsFile>;
+    fn save(&self, value: &AccountsFile) -> CommandResult<()>;
+}
+
+pub trait BootstrapConfigStore: Send + Sync {
+    fn load(&self) -> CommandResult<Option<BootstrapConfig>>;
+    fn save(&self, value: &BootstrapConfig) -> CommandResult<()>;
+}
+
+pub trait AppearancePreferencesStore: Send + Sync {
+    fn load(&self) -> CommandResult<AppearancePreferences>;
+    fn save(&self, value: &AppearancePreferences) -> CommandResult<()>;
+}
+
+pub trait ReadingPreferencesConfigStore: Send + Sync {
+    fn load(&self) -> CommandResult<ReadingPreferences>;
+    fn save(&self, value: &ReadingPreferences) -> CommandResult<()>;
+}
 
 #[derive(Clone, Debug)]
 pub struct ImapAccountConfig {

@@ -1,5 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
+use crate::{
+    domain::{AccountDraft, ConnectionSecurity, ConnectionTestResult, ServerConfig},
+    error::{CommandError, CommandResult},
+    protocols::native_tls_connector,
+};
 use async_trait::async_trait;
 use lettre::{
     address::Envelope,
@@ -9,14 +14,8 @@ use lettre::{
     },
     AsyncSmtpTransport, AsyncTransport, Tokio1Executor,
 };
-use rustls::{pki_types::ServerName, ClientConfig, RootCertStore};
+use rustls::pki_types::ServerName;
 use tokio::{net::TcpStream, time::timeout};
-use tokio_rustls::TlsConnector;
-
-use crate::{
-    domain::{AccountDraft, ConnectionSecurity, ConnectionTestResult, ServerConfig},
-    error::{CommandError, CommandResult},
-};
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -211,23 +210,9 @@ async fn connect_tls(
     stream: TcpStream,
     code: &str,
 ) -> CommandResult<tokio_rustls::client::TlsStream<TcpStream>> {
-    let native = rustls_native_certs::load_native_certs();
-    if native.certs.is_empty() {
-        return Err(CommandError::new("account.system_certificates_unavailable"));
-    }
-    let mut roots = RootCertStore::empty();
-    for certificate in native.certs {
-        let _ = roots.add(certificate);
-    }
-    if roots.is_empty() {
-        return Err(CommandError::new("account.system_certificates_unavailable"));
-    }
-    let config = ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth();
     let server_name = ServerName::try_from(host.to_owned())
         .map_err(|_| CommandError::new("account.server_name_invalid"))?;
-    TlsConnector::from(Arc::new(config))
+    native_tls_connector("account.system_certificates_unavailable")?
         .connect(server_name, stream)
         .await
         .map_err(|_| CommandError::new(code))

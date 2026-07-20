@@ -12,8 +12,12 @@ use crate::{
     adapters::{
         cleanup_initialized_files, create_account_slot, delete_account_slot,
         discover_account_config, initialize_content_database, read_data_marker, write_data_marker,
-        AccountsStore, AppPaths, BootstrapStore, ConnectionTester, CredentialStore,
-        PreferencesStore, ReadingPreferencesStore, CONTENT_DATABASE_FILENAME, DATA_MARKER_FILENAME,
+        AppPaths, ConnectionTester, CredentialStore, CONTENT_DATABASE_FILENAME,
+        DATA_MARKER_FILENAME,
+    },
+    core::{
+        AccountsConfigStore, AppearancePreferencesStore, BootstrapConfigStore,
+        ReadingPreferencesConfigStore,
     },
     domain::{
         AccountConnectionDraft, AccountDraft, AccountRecord, AccountSummary, AccountsFile,
@@ -26,10 +30,10 @@ use crate::{
 
 pub struct AppService {
     paths: AppPaths,
-    bootstrap: BootstrapStore,
-    accounts: AccountsStore,
-    preferences: PreferencesStore,
-    reading_preferences: ReadingPreferencesStore,
+    bootstrap: Arc<dyn BootstrapConfigStore>,
+    accounts: Arc<dyn AccountsConfigStore>,
+    preferences: Arc<dyn AppearancePreferencesStore>,
+    reading_preferences: Arc<dyn ReadingPreferencesConfigStore>,
     credentials: Arc<dyn CredentialStore>,
     connection_tester: Arc<dyn ConnectionTester>,
     account_mutation: Mutex<()>,
@@ -38,14 +42,18 @@ pub struct AppService {
 impl AppService {
     pub fn new(
         paths: AppPaths,
+        bootstrap: Arc<dyn BootstrapConfigStore>,
+        accounts: Arc<dyn AccountsConfigStore>,
+        preferences: Arc<dyn AppearancePreferencesStore>,
+        reading_preferences: Arc<dyn ReadingPreferencesConfigStore>,
         credentials: Arc<dyn CredentialStore>,
         connection_tester: Arc<dyn ConnectionTester>,
     ) -> Self {
         Self {
-            bootstrap: BootstrapStore::new(&paths),
-            accounts: AccountsStore::new(&paths),
-            preferences: PreferencesStore::new(&paths),
-            reading_preferences: ReadingPreferencesStore::new(&paths),
+            bootstrap,
+            accounts,
+            preferences,
+            reading_preferences,
             paths,
             credentials,
             connection_tester,
@@ -640,6 +648,9 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
+    use crate::adapters::{
+        AccountsStore, BootstrapStore, PreferencesStore, ReadingPreferencesStore,
+    };
 
     #[derive(Default)]
     struct MemoryCredentialStore {
@@ -723,8 +734,16 @@ mod tests {
             default_data_dir: directory.path().join("default-data"),
         };
         let credentials = Arc::new(MemoryCredentialStore::default());
+        let bootstrap = Arc::new(BootstrapStore::new(&paths));
+        let accounts = Arc::new(AccountsStore::new(&paths));
+        let preferences = Arc::new(PreferencesStore::new(&paths));
+        let reading_preferences = Arc::new(ReadingPreferencesStore::new(&paths));
         let service = AppService::new(
             paths,
+            bootstrap,
+            accounts,
+            preferences,
+            reading_preferences,
             credentials.clone(),
             Arc::new(PassingConnectionTester),
         );

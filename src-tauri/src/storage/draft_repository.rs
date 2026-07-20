@@ -1,12 +1,24 @@
 use crate::core::{
-    CommandError, CommandResult, DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem,
-    DraftRecipientFields, DraftStatus, MessageAddress, MessageComposeAction, SendJobStatus,
-    SendJobSummary,
+    CommandError, CommandResult, ComposedMessageActionDraft, DraftAttachmentSummary, DraftContent,
+    DraftDetail, DraftListItem, DraftRecipientFields, DraftStatus, ImportedDraftSource,
+    MessageActionSource, MessageAddress, MessageComposeAction, SendJobStatus, SendJobSummary,
 };
-use sqlx::Row;
+use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
-use super::{repository::now, MailRepository};
+use super::{repository::now, ContentStore};
+
+#[derive(Clone)]
+pub struct DraftRepository {
+    pub(crate) pool: SqlitePool,
+    pub(crate) content: ContentStore,
+}
+
+#[derive(Clone)]
+pub struct SendJobRepository {
+    pub(crate) pool: SqlitePool,
+    pub(crate) content: ContentStore,
+}
 
 #[derive(Clone, Debug)]
 pub struct StoredDraftAttachment {
@@ -35,17 +47,20 @@ pub struct SaveDraftRequest<'a> {
     pub expected_revision: u64,
 }
 
-pub struct CreateMessageActionDraftRequest<'a> {
+pub struct PersistMessageActionDraftRequest<'a> {
     pub account_id: &'a str,
     pub account_slot_id: &'a str,
-    pub own_email: &'a str,
     pub message_id: &'a str,
     pub action: MessageComposeAction,
-    pub original_message_label: &'a str,
-    pub wrote_label: &'a str,
-    pub from_label: &'a str,
-    pub to_label: &'a str,
-    pub subject_label: &'a str,
+    pub draft: &'a ComposedMessageActionDraft,
+}
+
+pub struct PersistImportedDraftRequest<'a> {
+    pub account_id: &'a str,
+    pub account_slot_id: &'a str,
+    pub message_id: &'a str,
+    pub source: &'a ImportedDraftSource,
+    pub content: &'a DraftContent,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -54,7 +69,7 @@ pub struct DraftThreadingHeaders {
     pub references: Vec<String>,
 }
 
-impl MailRepository {
+impl DraftRepository {
     pub async fn list_editing_drafts(
         &self,
         account_id: &str,
@@ -101,22 +116,11 @@ impl MailRepository {
         self.get_draft(account_id, account_slot_id, &id).await
     }
 
-    pub async fn create_message_action_draft(
+    pub async fn message_action_source(
         &self,
-        request: CreateMessageActionDraftRequest<'_>,
-    ) -> CommandResult<DraftDetail> {
-        let CreateMessageActionDraftRequest {
-            account_id,
-            account_slot_id,
-            own_email,
-            message_id,
-            action,
-            original_message_label,
-            wrote_label,
-            from_label,
-            to_label,
-            subject_label,
-        } = request;
+        account_slot_id: &str,
+        message_id: &str,
+    ) -> CommandResult<MessageActionSource> {
         let message = sqlx::query(
             "SELECT subject, from_json, to_json, cc_json, message_id, references_json \
              FROM messages WHERE id = ? AND account_slot_id = ?",
@@ -127,24 +131,7 @@ impl MailRepository {
         .await
         .map_err(|_| CommandError::new("draft.create_from_message_failed"))?
         .ok_or_else(|| CommandError::new("message.not_found"))?;
-        let from = decode_addresses(message.try_get("from_json").map_err(read_error)?)?;
-        let to = decode_addresses(message.try_get("to_json").map_err(read_error)?)?;
-        let cc = decode_addresses(message.try_get("cc_json").map_err(read_error)?)?;
-        let original_subject: String = message.try_get("subject").map_err(read_error)?;
-        let header_message_id: Option<String> =
-            message.try_get("message_id").map_err(read_error)?;
-        let mut references: Vec<String> = serde_json::from_str(
-            &message
-                .try_get::<String, _>("references_json")
-                .map_err(read_error)?,
-        )
-        .map_err(json_error)?;
-        if let Some(value) = header_message_id.as_ref() {
-            if !references.iter().any(|current| current == value) {
-                references.push(value.clone());
-            }
-        }
-        let body = sqlx::query_scalar::<_, Option<String>>(
+        let plain_text = sqlx::query_scalar::<_, Option<String>>(
             "SELECT plain_text FROM message_bodies WHERE message_id = ?",
         )
         .bind(message_id)
@@ -153,41 +140,33 @@ impl MailRepository {
         .map_err(|_| CommandError::new("draft.create_from_message_failed"))?
         .flatten()
         .unwrap_or_default();
+        Ok(MessageActionSource {
+            subject: message.try_get("subject").map_err(read_error)?,
+            from: decode_addresses(message.try_get("from_json").map_err(read_error)?)?,
+            to: decode_addresses(message.try_get("to_json").map_err(read_error)?)?,
+            cc: decode_addresses(message.try_get("cc_json").map_err(read_error)?)?,
+            message_id: message.try_get("message_id").map_err(read_error)?,
+            references: serde_json::from_str(
+                &message
+                    .try_get::<String, _>("references_json")
+                    .map_err(read_error)?,
+            )
+            .map_err(json_error)?,
+            plain_text,
+        })
+    }
 
-        let mut recipients = DraftRecipientFields::default();
-        match action {
-            MessageComposeAction::Reply => {
-                recipients.to = reply_recipients(&from, &to, own_email);
-            }
-            MessageComposeAction::ReplyAll => {
-                recipients.to = reply_recipients(&from, &to, own_email);
-                recipients.cc = unique_addresses(
-                    to.iter().cloned().chain(cc.iter().cloned()).collect(),
-                    own_email,
-                    &recipients.to,
-                );
-            }
-            MessageComposeAction::Forward => {}
-        }
-
-        let sender = format_addresses(&from);
-        let plain_text = match action {
-            MessageComposeAction::Reply | MessageComposeAction::ReplyAll => {
-                let quoted = body
-                    .lines()
-                    .map(|line| format!("> {line}"))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                format!("\n\n{sender} {wrote_label}\n{quoted}")
-            }
-            MessageComposeAction::Forward => format!(
-                "\n\n---------- {original_message_label} ----------\n{from_label}: {sender}\n{to_label}: {}\n{subject_label}: {}\n\n{}",
-                format_addresses(&to),
-                original_subject,
-                body,
-            ),
-        };
-        let subject = prefixed_subject(&original_subject, action);
+    pub async fn persist_message_action_draft(
+        &self,
+        request: PersistMessageActionDraftRequest<'_>,
+    ) -> CommandResult<DraftDetail> {
+        let PersistMessageActionDraftRequest {
+            account_id,
+            account_slot_id,
+            message_id,
+            action,
+            draft,
+        } = request;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
         let mut transaction = self
@@ -203,17 +182,14 @@ impl MailRepository {
         .bind(&id)
         .bind(account_slot_id)
         .bind(message_id)
-        .bind(match action {
-            MessageComposeAction::Forward => None,
-            _ => header_message_id,
-        })
-        .bind(serde_json::to_string(&references).map_err(json_error)?)
-        .bind(encode_addresses(&recipients.to)?)
-        .bind(encode_addresses(&recipients.cc)?)
-        .bind(subject)
-        .bind(editor_document_from_text(&plain_text)?)
-        .bind(format!("<p>{}</p>", escape_html(&plain_text).replace('\n', "<br>")))
-        .bind(plain_text)
+        .bind(&draft.in_reply_to)
+        .bind(serde_json::to_string(&draft.references).map_err(json_error)?)
+        .bind(encode_addresses(&draft.recipients.to)?)
+        .bind(encode_addresses(&draft.recipients.cc)?)
+        .bind(&draft.subject)
+        .bind(&draft.content.editor_json)
+        .bind(&draft.content.html)
+        .bind(&draft.content.plain_text)
         .bind(timestamp)
         .bind(timestamp)
         .execute(&mut *transaction)
@@ -278,12 +254,12 @@ impl MailRepository {
         })
     }
 
-    pub async fn import_message_as_draft(
+    pub async fn existing_imported_draft(
         &self,
         account_id: &str,
         account_slot_id: &str,
         message_id: &str,
-    ) -> CommandResult<DraftDetail> {
+    ) -> CommandResult<Option<DraftDetail>> {
         if let Some(existing) = sqlx::query_scalar::<_, String>(
             "SELECT id FROM drafts WHERE account_slot_id = ? AND source_message_id = ? AND status = 'editing'",
         )
@@ -293,8 +269,19 @@ impl MailRepository {
         .await
         .map_err(|_| CommandError::new("draft.import_failed"))?
         {
-            return self.get_draft(account_id, account_slot_id, &existing).await;
+            return self
+                .get_draft(account_id, account_slot_id, &existing)
+                .await
+                .map(Some);
         }
+        Ok(None)
+    }
+
+    pub async fn imported_draft_source(
+        &self,
+        account_slot_id: &str,
+        message_id: &str,
+    ) -> CommandResult<ImportedDraftSource> {
         let message = sqlx::query(
             "SELECT subject, to_json, cc_json FROM messages WHERE id = ? AND account_slot_id = ?",
         )
@@ -315,12 +302,33 @@ impl MailRepository {
             .and_then(|row| row.try_get::<Option<String>, _>("plain_text").ok())
             .flatten()
             .unwrap_or_default();
-        let html = body
+        let safe_html = body
             .as_ref()
             .and_then(|row| row.try_get::<Option<String>, _>("safe_html").ok())
-            .flatten()
-            .unwrap_or_else(|| format!("<p>{}</p>", escape_html(&plain_text)));
-        let editor_json = editor_document_from_text(&plain_text)?;
+            .flatten();
+        Ok(ImportedDraftSource {
+            recipients: DraftRecipientFields {
+                to: decode_addresses(message.try_get("to_json").map_err(read_error)?)?,
+                cc: decode_addresses(message.try_get("cc_json").map_err(read_error)?)?,
+                bcc: Vec::new(),
+            },
+            subject: message.try_get("subject").map_err(read_error)?,
+            plain_text,
+            safe_html,
+        })
+    }
+
+    pub async fn persist_imported_draft(
+        &self,
+        request: PersistImportedDraftRequest<'_>,
+    ) -> CommandResult<DraftDetail> {
+        let PersistImportedDraftRequest {
+            account_id,
+            account_slot_id,
+            message_id,
+            source,
+            content,
+        } = request;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
         let mut transaction = self
@@ -335,12 +343,12 @@ impl MailRepository {
         .bind(&id)
         .bind(account_slot_id)
         .bind(message_id)
-        .bind(message.try_get::<String, _>("to_json").map_err(read_error)?)
-        .bind(message.try_get::<String, _>("cc_json").map_err(read_error)?)
-        .bind(message.try_get::<String, _>("subject").map_err(read_error)?)
-        .bind(editor_json)
-        .bind(html)
-        .bind(plain_text)
+        .bind(encode_addresses(&source.recipients.to)?)
+        .bind(encode_addresses(&source.recipients.cc)?)
+        .bind(&source.subject)
+        .bind(&content.editor_json)
+        .bind(&content.html)
+        .bind(&content.plain_text)
         .bind(timestamp)
         .bind(timestamp)
         .execute(&mut *transaction)
@@ -597,7 +605,9 @@ impl MailRepository {
     pub async fn attachment_bytes(&self, hash: &str) -> CommandResult<Vec<u8>> {
         self.content.read_attachment(hash).await
     }
+}
 
+impl SendJobRepository {
     pub async fn queue_send_job(
         &self,
         account_id: &str,
@@ -946,74 +956,6 @@ fn decode_addresses(value: String) -> CommandResult<Vec<MessageAddress>> {
     serde_json::from_str(&value).map_err(json_error)
 }
 
-fn reply_recipients(
-    from: &[MessageAddress],
-    original_to: &[MessageAddress],
-    own_email: &str,
-) -> Vec<MessageAddress> {
-    let preferred = unique_addresses(from.to_vec(), own_email, &[]);
-    if preferred.is_empty() {
-        unique_addresses(original_to.to_vec(), own_email, &[])
-    } else {
-        preferred
-    }
-}
-
-fn unique_addresses(
-    values: Vec<MessageAddress>,
-    own_email: &str,
-    excluded: &[MessageAddress],
-) -> Vec<MessageAddress> {
-    let own_email = own_email.trim().to_ascii_lowercase();
-    let mut seen = excluded
-        .iter()
-        .map(|address| address.email.trim().to_ascii_lowercase())
-        .collect::<std::collections::HashSet<_>>();
-    values
-        .into_iter()
-        .filter(|address| {
-            let email = address.email.trim().to_ascii_lowercase();
-            !email.is_empty() && email != own_email && seen.insert(email)
-        })
-        .collect()
-}
-
-fn format_addresses(values: &[MessageAddress]) -> String {
-    values
-        .iter()
-        .map(|address| {
-            address
-                .name
-                .as_deref()
-                .filter(|name| !name.trim().is_empty())
-                .map_or_else(
-                    || address.email.clone(),
-                    |name| format!("{name} <{}>", address.email),
-                )
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn prefixed_subject(subject: &str, action: MessageComposeAction) -> String {
-    let trimmed = subject.trim();
-    match action {
-        MessageComposeAction::Reply | MessageComposeAction::ReplyAll
-            if trimmed.to_ascii_lowercase().starts_with("re:") =>
-        {
-            trimmed.to_owned()
-        }
-        MessageComposeAction::Forward
-            if trimmed.to_ascii_lowercase().starts_with("fwd:")
-                || trimmed.to_ascii_lowercase().starts_with("fw:") =>
-        {
-            trimmed.to_owned()
-        }
-        MessageComposeAction::Reply | MessageComposeAction::ReplyAll => format!("Re: {trimmed}"),
-        MessageComposeAction::Forward => format!("Fwd: {trimmed}"),
-    }
-}
-
 fn draft_status(value: String) -> DraftStatus {
     match value.as_str() {
         "queued" => DraftStatus::Queued,
@@ -1039,46 +981,13 @@ fn json_error(_: serde_json::Error) -> CommandError {
     CommandError::new("storage.json_failed")
 }
 
-fn editor_document_from_text(value: &str) -> CommandResult<String> {
-    let content = value
-        .split("\n\n")
-        .map(|paragraph| {
-            if paragraph.is_empty() {
-                serde_json::json!({ "type": "paragraph" })
-            } else {
-                let mut lines = Vec::new();
-                for (index, line) in paragraph.split('\n').enumerate() {
-                    if index > 0 {
-                        lines.push(serde_json::json!({ "type": "hardBreak" }));
-                    }
-                    if !line.is_empty() {
-                        lines.push(serde_json::json!({ "type": "text", "text": line }));
-                    }
-                }
-                serde_json::json!({
-                    "type": "paragraph",
-                    "content": lines
-                })
-            }
-        })
-        .collect::<Vec<_>>();
-    serde_json::to_string(&serde_json::json!({ "type": "doc", "content": content }))
-        .map_err(json_error)
-}
-
-fn escape_html(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\n', "<br>")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::{create_account_slot, initialize_content_database};
+    use crate::application::{
+        compose_imported_draft, compose_message_action_draft, MessageActionLabels,
+    };
+    use crate::storage::{create_account_slot, initialize_content_database, MailRepository};
 
     #[tokio::test]
     async fn imports_a_server_message_as_an_editable_local_draft() {
@@ -1103,8 +1012,21 @@ mod tests {
         .await
         .unwrap();
 
+        let source = repository
+            .drafts()
+            .imported_draft_source("slot", "message")
+            .await
+            .unwrap();
+        let content = compose_imported_draft(&source).unwrap();
         let draft = repository
-            .import_message_as_draft("account", "slot", "message")
+            .drafts()
+            .persist_imported_draft(PersistImportedDraftRequest {
+                account_id: "account",
+                account_slot_id: "slot",
+                message_id: "message",
+                source: &source,
+                content: &content,
+            })
             .await
             .unwrap();
         assert_eq!(draft.subject, "Imported");
@@ -1141,18 +1063,32 @@ mod tests {
         .await
         .unwrap();
 
+        let source = repository
+            .drafts()
+            .message_action_source("slot", "message")
+            .await
+            .unwrap();
+        let composed = compose_message_action_draft(
+            &source,
+            "me@example.com",
+            MessageComposeAction::ReplyAll,
+            MessageActionLabels {
+                original_message: "Forwarded message",
+                wrote: "wrote:",
+                from: "From",
+                to: "To",
+                subject: "Subject",
+            },
+        )
+        .unwrap();
         let draft = repository
-            .create_message_action_draft(CreateMessageActionDraftRequest {
+            .drafts()
+            .persist_message_action_draft(PersistMessageActionDraftRequest {
                 account_id: "account",
                 account_slot_id: "slot",
-                own_email: "me@example.com",
                 message_id: "message",
                 action: MessageComposeAction::ReplyAll,
-                original_message_label: "Forwarded message",
-                wrote_label: "wrote:",
-                from_label: "From",
-                to_label: "To",
-                subject_label: "Subject",
+                draft: &composed,
             })
             .await
             .unwrap();
@@ -1164,6 +1100,7 @@ mod tests {
         assert!(draft.content.plain_text.contains("> Original body"));
         assert!(draft.content.editor_json.contains("hardBreak"));
         let threading = repository
+            .drafts()
             .draft_threading_headers("slot", &draft.id)
             .await
             .unwrap();
@@ -1182,10 +1119,18 @@ mod tests {
             .await
             .unwrap();
         let repository = MailRepository::open(directory.path()).await.unwrap();
-        let empty = repository.create_draft("account", "slot").await.unwrap();
-        repository.discard_empty_draft("slot", &empty.id).await;
+        let empty = repository
+            .drafts()
+            .create_draft("account", "slot")
+            .await
+            .unwrap();
+        repository
+            .drafts()
+            .discard_empty_draft("slot", &empty.id)
+            .await;
         assert_eq!(
             repository
+                .drafts()
                 .get_draft("account", "slot", &empty.id)
                 .await
                 .unwrap_err()
@@ -1193,8 +1138,13 @@ mod tests {
             "draft.not_found"
         );
 
-        let retained = repository.create_draft("account", "slot").await.unwrap();
+        let retained = repository
+            .drafts()
+            .create_draft("account", "slot")
+            .await
+            .unwrap();
         repository
+            .drafts()
             .save_draft(SaveDraftRequest {
                 account_id: "account",
                 account_slot_id: "slot",
@@ -1210,8 +1160,12 @@ mod tests {
             })
             .await
             .unwrap();
-        repository.discard_empty_draft("slot", &retained.id).await;
+        repository
+            .drafts()
+            .discard_empty_draft("slot", &retained.id)
+            .await;
         assert!(repository
+            .drafts()
             .get_draft("account", "slot", &retained.id)
             .await
             .is_ok());
@@ -1225,13 +1179,19 @@ mod tests {
             .await
             .unwrap();
         let repository = MailRepository::open(directory.path()).await.unwrap();
-        let draft = repository.create_draft("account", "slot").await.unwrap();
+        let draft = repository
+            .drafts()
+            .create_draft("account", "slot")
+            .await
+            .unwrap();
         repository
+            .drafts()
             .delete_editing_draft("slot", &draft.id)
             .await
             .unwrap();
         assert_eq!(
             repository
+                .drafts()
                 .get_draft("account", "slot", &draft.id)
                 .await
                 .unwrap_err()
@@ -1248,8 +1208,13 @@ mod tests {
             .await
             .unwrap();
         let repository = MailRepository::open(directory.path()).await.unwrap();
-        let draft = repository.create_draft("account", "slot").await.unwrap();
+        let draft = repository
+            .drafts()
+            .create_draft("account", "slot")
+            .await
+            .unwrap();
         let saved = repository
+            .drafts()
             .save_draft(SaveDraftRequest {
                 account_id: "account",
                 account_slot_id: "slot",
@@ -1273,20 +1238,24 @@ mod tests {
             .unwrap();
         assert_eq!(saved.subject, "中文主题");
         let drafts = repository
+            .drafts()
             .list_editing_drafts("account", "slot")
             .await
             .unwrap();
         assert_eq!(drafts.len(), 1);
         assert_eq!(drafts[0].id, draft.id);
         repository
+            .drafts()
             .add_draft_attachment("slot", &draft.id, "报告.txt", "text/plain", b"file")
             .await
             .unwrap();
         let mime_hash = repository
+            .send_jobs()
             .write_send_mime(b"From: a@example.com\r\n\r\nbody")
             .await
             .unwrap();
         let job = repository
+            .send_jobs()
             .queue_send_job(
                 "account",
                 "slot",
@@ -1300,14 +1269,33 @@ mod tests {
         drop(repository);
 
         let repository = MailRepository::open(directory.path()).await.unwrap();
-        let claimed = repository.claim_next_send_job().await.unwrap().unwrap();
+        let claimed = repository
+            .send_jobs()
+            .claim_next_send_job()
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(claimed.id, job.id);
-        repository.recover_interrupted_send_jobs().await.unwrap();
-        let reclaimed = repository.claim_next_send_job().await.unwrap().unwrap();
+        repository
+            .send_jobs()
+            .recover_interrupted_send_jobs()
+            .await
+            .unwrap();
+        let reclaimed = repository
+            .send_jobs()
+            .claim_next_send_job()
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(reclaimed.id, job.id);
-        repository.complete_send_job(&job.id).await.unwrap();
+        repository
+            .send_jobs()
+            .complete_send_job(&job.id)
+            .await
+            .unwrap();
         assert_eq!(
             repository
+                .send_jobs()
                 .get_send_job("account", "slot", &job.id)
                 .await
                 .unwrap()
@@ -1328,21 +1316,25 @@ mod tests {
             .unwrap();
         let repository = MailRepository::open(directory.path()).await.unwrap();
         let draft = repository
+            .drafts()
             .create_draft("account-a", "slot-a")
             .await
             .unwrap();
         let attachment = repository
+            .drafts()
             .add_draft_attachment("slot-a", &draft.id, "private.txt", "text/plain", b"secret")
             .await
             .unwrap();
 
         assert!(repository
+            .drafts()
             .draft_attachments("slot-b", &draft.id)
             .await
             .unwrap()
             .is_empty());
         assert_eq!(
             repository
+                .drafts()
                 .remove_draft_attachment("slot-b", &draft.id, &attachment.id)
                 .await
                 .unwrap_err()
@@ -1351,6 +1343,7 @@ mod tests {
         );
         assert_eq!(
             repository
+                .drafts()
                 .draft_attachments("slot-a", &draft.id)
                 .await
                 .unwrap()
@@ -1371,22 +1364,27 @@ mod tests {
             .unwrap();
         let repository = MailRepository::open(directory.path()).await.unwrap();
         let draft_a1 = repository
+            .drafts()
             .create_draft("account-a", "slot-a")
             .await
             .unwrap();
         let draft_a2 = repository
+            .drafts()
             .create_draft("account-a", "slot-a")
             .await
             .unwrap();
         let draft_b = repository
+            .drafts()
             .create_draft("account-b", "slot-b")
             .await
             .unwrap();
         let mime_hash = repository
+            .send_jobs()
             .write_send_mime(b"From: a@example.com\r\n\r\nbody")
             .await
             .unwrap();
         let job_a1 = repository
+            .send_jobs()
             .queue_send_job(
                 "account-a",
                 "slot-a",
@@ -1397,6 +1395,7 @@ mod tests {
             .await
             .unwrap();
         let job_a2 = repository
+            .send_jobs()
             .queue_send_job(
                 "account-a",
                 "slot-a",
@@ -1407,6 +1406,7 @@ mod tests {
             .await
             .unwrap();
         let job_b = repository
+            .send_jobs()
             .queue_send_job(
                 "account-b",
                 "slot-b",
@@ -1417,10 +1417,15 @@ mod tests {
             .await
             .unwrap();
 
-        let slots = repository.ready_send_account_slots().await.unwrap();
+        let slots = repository
+            .send_jobs()
+            .ready_send_account_slots()
+            .await
+            .unwrap();
         assert_eq!(slots, vec!["slot-a", "slot-b"]);
         assert_eq!(
             repository
+                .send_jobs()
                 .claim_next_send_job_for_account("slot-a")
                 .await
                 .unwrap()
@@ -1430,6 +1435,7 @@ mod tests {
         );
         assert_eq!(
             repository
+                .send_jobs()
                 .claim_next_send_job_for_account("slot-a")
                 .await
                 .unwrap()
@@ -1439,6 +1445,7 @@ mod tests {
         );
         assert_eq!(
             repository
+                .send_jobs()
                 .claim_next_send_job_for_account("slot-b")
                 .await
                 .unwrap()
@@ -1447,6 +1454,7 @@ mod tests {
             job_b.id
         );
         assert!(repository
+            .send_jobs()
             .claim_next_send_job_for_account("slot-b")
             .await
             .unwrap()

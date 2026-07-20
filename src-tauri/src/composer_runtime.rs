@@ -15,14 +15,21 @@ use crate::core::{
 };
 use crate::protocols::{build_outgoing_message, OutgoingAttachment};
 use crate::storage::{
-    ClaimedSendJob, CreateMessageActionDraftRequest, MailRepository, SaveDraftRequest,
+    ClaimedSendJob, MailRepository, PersistImportedDraftRequest, PersistMessageActionDraftRequest,
+    SaveDraftRequest,
 };
 use lettre::{address::Envelope, Address};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
-use tokio::sync::{Notify, OnceCell};
+use tokio::sync::Notify;
 
-use crate::{adapters::send_raw_smtp, application::AppService, mail_runtime::MailRuntime};
+use crate::{
+    adapters::send_raw_smtp,
+    application::{
+        compose_imported_draft, compose_message_action_draft, AppService, MessageActionLabels,
+    },
+    mail_runtime::MailRuntime,
+};
 
 const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_TOTAL_ATTACHMENT_BYTES: u64 = 100 * 1024 * 1024;
@@ -30,7 +37,6 @@ const MAX_TOTAL_ATTACHMENT_BYTES: u64 = 100 * 1024 * 1024;
 pub struct ComposerRuntime {
     app: AppHandle,
     service: Arc<AppService>,
-    repository: OnceCell<Arc<MailRepository>>,
     wake_worker: Notify,
     mail: Arc<MailRuntime>,
     started: AtomicBool,
@@ -41,7 +47,6 @@ impl ComposerRuntime {
         Self {
             app,
             service,
-            repository: OnceCell::new(),
             wake_worker: Notify::new(),
             mail,
             started: AtomicBool::new(false),
@@ -59,13 +64,13 @@ impl ComposerRuntime {
                 runtime.started.store(false, Ordering::Release);
                 return;
             };
-            let _ = repository.recover_interrupted_send_jobs().await;
+            let _ = repository.send_jobs().recover_interrupted_send_jobs().await;
             let mut active_accounts = HashSet::new();
             let mut workers = tokio::task::JoinSet::new();
             let mut fair_cursor = 0_usize;
             loop {
                 while active_accounts.len() < 2 {
-                    let Ok(slots) = repository.ready_send_account_slots().await else {
+                    let Ok(slots) = repository.send_jobs().ready_send_account_slots().await else {
                         break;
                     };
                     if slots.is_empty() {
@@ -76,7 +81,10 @@ impl ComposerRuntime {
                     else {
                         break;
                     };
-                    let Ok(Some(job)) = repository.claim_next_send_job_for_account(&slot).await
+                    let Ok(Some(job)) = repository
+                        .send_jobs()
+                        .claim_next_send_job_for_account(&slot)
+                        .await
                     else {
                         break;
                     };
@@ -115,12 +123,14 @@ impl ComposerRuntime {
         match result {
             Ok(()) => {
                 let sent_mailbox = repository
+                    .mailbox_roles()
                     .mailbox_for_role(&job.account_slot_id, MailboxRole::Sent)
                     .await
                     .ok()
                     .flatten()
                     .map(|(id, _)| id);
                 let _ = repository
+                    .send_jobs()
                     .complete_send_job_and_queue_sent(&job.id, sent_mailbox.as_deref())
                     .await;
                 self.mail.wake_account_by_slot(&job.account_slot_id);
@@ -130,13 +140,17 @@ impl ComposerRuntime {
                     .report_account_error_by_slot(&job.account_slot_id, &error);
                 let delay = 5_i64.saturating_mul(1_i64 << (job.attempt_count - 1));
                 let _ = repository
+                    .send_jobs()
                     .defer_send_job(&job.id, &error.code, unix_timestamp().saturating_add(delay))
                     .await;
             }
             Err(error) => {
                 self.mail
                     .report_account_error_by_slot(&job.account_slot_id, &error);
-                let _ = repository.fail_send_job(&job.id, &error.code).await;
+                let _ = repository
+                    .send_jobs()
+                    .fail_send_job(&job.id, &error.code)
+                    .await;
             }
         }
         self.emit_job(&job.id, &job.account_slot_id).await;
@@ -148,11 +162,13 @@ impl ComposerRuntime {
         let draft = self
             .repository()
             .await?
+            .drafts()
             .create_draft(account_id, &account.data_slot_id)
             .await?;
         if let Err(error) = self.show_composer_window(&account.id, &draft.id).await {
             self.repository()
                 .await?
+                .drafts()
                 .discard_empty_draft(&account.data_slot_id, &draft.id)
                 .await;
             return Err(error);
@@ -164,6 +180,7 @@ impl ComposerRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .drafts()
             .list_editing_drafts(account_id, &account.data_slot_id)
             .await
     }
@@ -173,6 +190,7 @@ impl ComposerRuntime {
         let drafts = self
             .repository()
             .await?
+            .drafts()
             .list_editing_drafts(account_id, &account.data_slot_id)
             .await?;
         let labels = drafts
@@ -207,6 +225,7 @@ impl ComposerRuntime {
         let draft = self
             .repository()
             .await?
+            .drafts()
             .get_draft(account_id, &account.data_slot_id, draft_id)
             .await?;
         if draft.status != DraftStatus::Editing {
@@ -235,11 +254,28 @@ impl ComposerRuntime {
                     .await?;
             }
         }
-        let draft = self
-            .repository()
+        let repository = self.repository().await?;
+        let drafts = repository.drafts();
+        let draft = if let Some(existing) = drafts
+            .existing_imported_draft(account_id, &account.data_slot_id, message_id)
             .await?
-            .import_message_as_draft(account_id, &account.data_slot_id, message_id)
-            .await?;
+        {
+            existing
+        } else {
+            let source = drafts
+                .imported_draft_source(&account.data_slot_id, message_id)
+                .await?;
+            let content = compose_imported_draft(&source)?;
+            drafts
+                .persist_imported_draft(PersistImportedDraftRequest {
+                    account_id,
+                    account_slot_id: &account.data_slot_id,
+                    message_id,
+                    source: &source,
+                    content: &content,
+                })
+                .await?
+        };
         self.show_composer_window(account_id, &draft.id).await
     }
 
@@ -270,33 +306,42 @@ impl ComposerRuntime {
                 }
             }
         }
-        let (original_message_label, wrote_label, from_label, to_label, subject_label) =
-            match self.service.get_preferences()?.language {
-                LanguagePreference::ZhCn => ("转发邮件", "写道：", "发件人", "收件人", "主题"),
-                LanguagePreference::EnUs => {
-                    ("Forwarded message", "wrote:", "From", "To", "Subject")
-                }
-            };
-        let draft = self
-            .repository()
-            .await?
-            .create_message_action_draft(CreateMessageActionDraftRequest {
+        let labels = match self.service.get_preferences()?.language {
+            LanguagePreference::ZhCn => MessageActionLabels {
+                original_message: "转发邮件",
+                wrote: "写道：",
+                from: "发件人",
+                to: "收件人",
+                subject: "主题",
+            },
+            LanguagePreference::EnUs => MessageActionLabels {
+                original_message: "Forwarded message",
+                wrote: "wrote:",
+                from: "From",
+                to: "To",
+                subject: "Subject",
+            },
+        };
+        let repository = self.repository().await?;
+        let drafts = repository.drafts();
+        let source = drafts
+            .message_action_source(&account.data_slot_id, message_id)
+            .await?;
+        let composed = compose_message_action_draft(&source, &account.email, action, labels)?;
+        let draft = drafts
+            .persist_message_action_draft(PersistMessageActionDraftRequest {
                 account_id,
                 account_slot_id: &account.data_slot_id,
-                own_email: &account.email,
                 message_id,
                 action,
-                original_message_label,
-                wrote_label,
-                from_label,
-                to_label,
-                subject_label,
+                draft: &composed,
             })
             .await?;
         if let Err(error) = self.show_composer_window(account_id, &draft.id).await {
             let _ = self
                 .repository()
                 .await?
+                .drafts()
                 .delete_editing_draft(&account.data_slot_id, &draft.id)
                 .await;
             return Err(error);
@@ -347,6 +392,7 @@ impl ComposerRuntime {
         let draft = self
             .repository()
             .await?
+            .drafts()
             .get_draft(account_id, &account.data_slot_id, draft_id)
             .await?;
         Ok(ComposerBootstrap {
@@ -368,6 +414,7 @@ impl ComposerRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .drafts()
             .save_draft(SaveDraftRequest {
                 account_id,
                 account_slot_id: &account.data_slot_id,
@@ -392,7 +439,8 @@ impl ComposerRuntime {
         }
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
-        let draft = repository
+        let drafts = repository.drafts();
+        let draft = drafts
             .get_draft(account_id, &account.data_slot_id, draft_id)
             .await?;
         let mut total = draft.attachments.iter().map(|item| item.size).sum::<u64>();
@@ -425,7 +473,7 @@ impl ComposerRuntime {
                 .essence_str()
                 .to_owned();
             added.push(
-                repository
+                drafts
                     .add_draft_attachment(
                         &account.data_slot_id,
                         draft_id,
@@ -449,10 +497,12 @@ impl ComposerRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .drafts()
             .get_draft(account_id, &account.data_slot_id, draft_id)
             .await?;
         self.repository()
             .await?
+            .drafts()
             .remove_draft_attachment(&account.data_slot_id, draft_id, attachment_id)
             .await
     }
@@ -460,10 +510,11 @@ impl ComposerRuntime {
     pub async fn discard_empty_draft(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
-        repository
+        let drafts = repository.drafts();
+        drafts
             .get_draft(account_id, &account.data_slot_id, draft_id)
             .await?;
-        repository
+        drafts
             .discard_empty_draft(&account.data_slot_id, draft_id)
             .await;
         Ok(())
@@ -481,6 +532,7 @@ impl ComposerRuntime {
         }
         self.repository()
             .await?
+            .drafts()
             .delete_editing_draft(&account.data_slot_id, draft_id)
             .await
     }
@@ -489,7 +541,8 @@ impl ComposerRuntime {
         self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
-        let draft = repository
+        let drafts = repository.drafts();
+        let draft = drafts
             .get_draft(account_id, &account.data_slot_id, draft_id)
             .await?;
         let is_empty = draft.subject.trim().is_empty()
@@ -503,20 +556,21 @@ impl ComposerRuntime {
             return Ok(());
         }
         let Some((drafts_mailbox_id, _)) = repository
+            .mailbox_roles()
             .mailbox_for_role(&account.data_slot_id, MailboxRole::Drafts)
             .await?
         else {
             return Ok(());
         };
         let mut attachments = Vec::new();
-        for stored in repository
+        for stored in drafts
             .draft_attachments(&account.data_slot_id, draft_id)
             .await?
         {
             attachments.push(OutgoingAttachment {
                 file_name: stored.summary.file_name,
                 content_type: stored.summary.content_type,
-                bytes: repository.attachment_bytes(&stored.content_hash).await?,
+                bytes: drafts.attachment_bytes(&stored.content_hash).await?,
             });
         }
         let sender = MessageAddress {
@@ -530,13 +584,14 @@ impl ComposerRuntime {
             &draft.content,
             attachments,
         )?;
-        let threading = repository
+        let threading = drafts
             .draft_threading_headers(&account.data_slot_id, draft_id)
             .await?;
         let raw = add_threading_headers(raw, &threading)?;
         let raw = add_draft_identity_headers(raw, draft_id, draft.revision)?;
-        let hash = repository.write_send_mime(&raw).await?;
+        let hash = repository.send_jobs().write_send_mime(&raw).await?;
         repository
+            .operations()
             .queue_draft_append(
                 &account.data_slot_id,
                 &drafts_mailbox_id,
@@ -557,20 +612,21 @@ impl ComposerRuntime {
         self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
-        let draft = repository
+        let drafts = repository.drafts();
+        let draft = drafts
             .get_draft(account_id, &account.data_slot_id, draft_id)
             .await?;
         validate_recipient_fields(&draft.recipients, true)?;
         validate_content(&draft.content)?;
         let mut attachments = Vec::new();
-        for stored in repository
+        for stored in drafts
             .draft_attachments(&account.data_slot_id, draft_id)
             .await?
         {
             attachments.push(OutgoingAttachment {
                 file_name: stored.summary.file_name,
                 content_type: stored.summary.content_type,
-                bytes: repository.attachment_bytes(&stored.content_hash).await?,
+                bytes: drafts.attachment_bytes(&stored.content_hash).await?,
             });
         }
         let sender = MessageAddress {
@@ -584,13 +640,14 @@ impl ComposerRuntime {
             &draft.content,
             attachments,
         )?;
-        let threading = repository
+        let threading = drafts
             .draft_threading_headers(&account.data_slot_id, draft_id)
             .await?;
         let raw = add_threading_headers(raw, &threading)?;
-        let hash = repository.write_send_mime(&raw).await?;
+        let send_jobs = repository.send_jobs();
+        let hash = send_jobs.write_send_mime(&raw).await?;
         let envelope = envelope_recipients(&draft.recipients);
-        let job = repository
+        let job = send_jobs
             .queue_send_job(
                 account_id,
                 &account.data_slot_id,
@@ -611,14 +668,15 @@ impl ComposerRuntime {
         self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
-        repository
+        let send_jobs = repository.send_jobs();
+        send_jobs
             .get_send_job(account_id, &account.data_slot_id, job_id)
             .await?;
-        repository
+        send_jobs
             .retry_send_job(&account.data_slot_id, job_id)
             .await?;
         self.wake_worker.notify_one();
-        repository
+        send_jobs
             .get_send_job(account_id, &account.data_slot_id, job_id)
             .await
     }
@@ -631,6 +689,7 @@ impl ComposerRuntime {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
+            .send_jobs()
             .get_send_job(account_id, &account.data_slot_id, job_id)
             .await
     }
@@ -660,7 +719,12 @@ impl ComposerRuntime {
             .collect::<CommandResult<Vec<_>>>()?;
         let envelope = Envelope::new(Some(from), to)
             .map_err(|_| CommandError::new("send.envelope_invalid"))?;
-        let raw = self.repository().await?.read_send_mime(mime_hash).await?;
+        let raw = self
+            .repository()
+            .await?
+            .send_jobs()
+            .read_send_mime(mime_hash)
+            .await?;
         send_raw_smtp(&account.outgoing, &password, &envelope, &raw).await
     }
 
@@ -672,12 +736,14 @@ impl ComposerRuntime {
             return;
         };
         let Ok(job) = repository
+            .send_jobs()
             .get_send_job(&account.id, account_slot_id, job_id)
             .await
         else {
             return;
         };
         let subject = repository
+            .drafts()
             .get_draft(&account.id, account_slot_id, &job.draft_id)
             .await
             .map(|draft| draft.subject)
@@ -696,13 +762,7 @@ impl ComposerRuntime {
     }
 
     async fn repository(&self) -> CommandResult<&Arc<MailRepository>> {
-        self.repository
-            .get_or_try_init(|| async {
-                MailRepository::open(&self.service.configured_data_dir()?)
-                    .await
-                    .map(Arc::new)
-            })
-            .await
+        self.mail.repository().await
     }
 }
 

@@ -9,6 +9,10 @@ use tauri::{AppHandle, Manager};
 use tempfile::NamedTempFile;
 
 use crate::{
+    core::{
+        AccountsConfigStore, AppearancePreferencesStore, BootstrapConfigStore,
+        ReadingPreferencesConfigStore,
+    },
     domain::{
         AccountsFile, AppearancePreferences, BootstrapConfig, DataDirectoryMarker,
         LanguagePreference, ReadingPreferences,
@@ -81,6 +85,16 @@ impl BootstrapStore {
     }
 }
 
+impl BootstrapConfigStore for BootstrapStore {
+    fn load(&self) -> CommandResult<Option<BootstrapConfig>> {
+        BootstrapStore::load(self)
+    }
+
+    fn save(&self, value: &BootstrapConfig) -> CommandResult<()> {
+        BootstrapStore::save(self, value)
+    }
+}
+
 #[derive(Clone)]
 pub struct AccountsStore {
     path: PathBuf,
@@ -99,6 +113,16 @@ impl AccountsStore {
 
     pub fn save(&self, value: &AccountsFile) -> CommandResult<()> {
         write_json_atomic(&self.path, value, "storage.accounts_write_failed")
+    }
+}
+
+impl AccountsConfigStore for AccountsStore {
+    fn load(&self) -> CommandResult<AccountsFile> {
+        AccountsStore::load(self)
+    }
+
+    fn save(&self, value: &AccountsFile) -> CommandResult<()> {
+        AccountsStore::save(self, value)
     }
 }
 
@@ -136,6 +160,16 @@ impl PreferencesStore {
     }
 }
 
+impl AppearancePreferencesStore for PreferencesStore {
+    fn load(&self) -> CommandResult<AppearancePreferences> {
+        PreferencesStore::load(self)
+    }
+
+    fn save(&self, value: &AppearancePreferences) -> CommandResult<()> {
+        PreferencesStore::save(self, value)
+    }
+}
+
 #[derive(Clone)]
 pub struct ReadingPreferencesStore {
     path: PathBuf,
@@ -161,6 +195,16 @@ impl ReadingPreferencesStore {
             value,
             "storage.reading_preferences_write_failed",
         )
+    }
+}
+
+impl ReadingPreferencesConfigStore for ReadingPreferencesStore {
+    fn load(&self) -> CommandResult<ReadingPreferences> {
+        ReadingPreferencesStore::load(self)
+    }
+
+    fn save(&self, value: &ReadingPreferences) -> CommandResult<()> {
+        ReadingPreferencesStore::save(self, value)
     }
 }
 

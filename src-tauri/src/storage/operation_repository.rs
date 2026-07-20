@@ -1,12 +1,17 @@
 use crate::core::{
-    CommandError, CommandResult, MailboxRole, PendingOperationKind, PendingOperationStatus,
+    CommandError, CommandResult, PendingOperationKind, PendingOperationStatus,
     PendingOperationSummary,
 };
 use serde_json::{json, Value};
-use sqlx::Row;
+use sqlx::{FromRow, Row, SqlitePool};
 use uuid::Uuid;
 
-use super::{now, MailRepository};
+use super::now;
+
+#[derive(Clone)]
+pub struct OperationRepository {
+    pub(crate) pool: SqlitePool,
+}
 
 #[derive(Clone, Debug)]
 pub struct PendingOperationWork {
@@ -36,7 +41,31 @@ struct NewOperation<'a> {
     payload: &'a Value,
 }
 
-impl MailRepository {
+#[derive(FromRow)]
+struct FlagOperationRow {
+    uid: i64,
+    uid_validity: i64,
+    modseq: Option<i64>,
+    unread: i64,
+    flagged: i64,
+}
+
+#[derive(FromRow)]
+struct PendingOperationRow {
+    id: String,
+    kind: String,
+    message_id: Option<String>,
+    source_mailbox_id: Option<String>,
+    source_name: Option<String>,
+    destination_name: Option<String>,
+    uid: Option<i64>,
+    uid_validity: Option<i64>,
+    base_modseq: Option<i64>,
+    payload_json: String,
+    attempt_count: i64,
+}
+
+impl OperationRepository {
     pub async fn queue_set_read(
         &self,
         account_slot_id: &str,
@@ -89,67 +118,13 @@ impl MailRepository {
             .map_err(|_| CommandError::new("operation.queue_failed"))?;
         let mut ids = Vec::with_capacity(message_ids.len());
         for message_id in message_ids {
-            let row = sqlx::query(
-                "SELECT l.uid, l.uid_validity, l.modseq, l.unread, l.flagged \
-                 FROM message_locations l JOIN mailboxes b ON b.id = l.mailbox_id \
-                 JOIN messages m ON m.id = l.message_id \
-                 WHERE l.message_id = ? AND l.mailbox_id = ? AND b.account_slot_id = ? \
-                 AND m.account_slot_id = ? AND l.local_hidden = 0",
-            )
-            .bind(message_id)
-            .bind(mailbox_id)
-            .bind(account_slot_id)
-            .bind(account_slot_id)
-            .fetch_optional(&mut *transaction)
-            .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?
-            .ok_or_else(|| CommandError::new("message.remote_location_missing"))?;
-            let previous = match kind {
-                PendingOperationKind::SetRead => {
-                    row.try_get::<i64, _>("unread").unwrap_or_default() == 0
-                }
-                PendingOperationKind::SetFlagged => {
-                    row.try_get::<i64, _>("flagged").unwrap_or_default() != 0
-                }
-                _ => false,
-            };
-            match kind {
-                PendingOperationKind::SetRead => {
-                    sqlx::query("UPDATE message_locations SET unread = ? WHERE message_id = ? AND mailbox_id = ?")
-                        .bind(i64::from(!value))
-                        .bind(message_id)
-                        .bind(mailbox_id)
-                        .execute(&mut *transaction)
-                        .await
-                        .map_err(|_| CommandError::new("operation.queue_failed"))?;
-                }
-                PendingOperationKind::SetFlagged => {
-                    sqlx::query("UPDATE message_locations SET flagged = ? WHERE message_id = ? AND mailbox_id = ?")
-                        .bind(i64::from(value))
-                        .bind(message_id)
-                        .bind(mailbox_id)
-                        .execute(&mut *transaction)
-                        .await
-                        .map_err(|_| CommandError::new("operation.queue_failed"))?;
-                }
-                _ => unreachable!(),
-            }
-            let id = Uuid::new_v4().to_string();
-            let payload = json!({ "value": value, "previous": previous });
-            insert_operation(
+            let id = queue_flag_operation(
                 &mut transaction,
-                NewOperation {
-                    id: &id,
-                    account_slot_id,
-                    kind: &kind,
-                    message_id: Some(message_id),
-                    source_mailbox_id: Some(mailbox_id),
-                    destination_mailbox_id: None,
-                    uid: Some(row.try_get::<i64, _>("uid").unwrap_or_default()),
-                    uid_validity: Some(row.try_get::<i64, _>("uid_validity").unwrap_or_default()),
-                    base_modseq: row.try_get::<Option<i64>, _>("modseq").unwrap_or_default(),
-                    payload: &payload,
-                },
+                account_slot_id,
+                mailbox_id,
+                message_id,
+                &kind,
+                value,
             )
             .await?;
             ids.push(id);
@@ -327,104 +302,9 @@ impl MailRepository {
             .map_err(|_| CommandError::new("operation.queue_failed"))?;
         Ok(())
     }
+}
 
-    pub async fn mailbox_for_role(
-        &self,
-        account_slot_id: &str,
-        role: MailboxRole,
-    ) -> CommandResult<Option<(String, String)>> {
-        let role = role_to_db(&role);
-        let row = sqlx::query(
-            "SELECT b.id, b.remote_name FROM mailboxes b \
-             LEFT JOIN mailbox_role_overrides o ON o.mailbox_id = b.id AND o.account_slot_id = b.account_slot_id \
-             WHERE b.account_slot_id = ? AND b.selectable = 1 \
-             AND (o.role = ? OR (o.role IS NULL AND b.role = ?)) \
-             ORDER BY CASE WHEN o.role IS NOT NULL THEN 0 ELSE 1 END LIMIT 1",
-        )
-        .bind(account_slot_id)
-        .bind(role)
-        .bind(role)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| CommandError::new("storage.mailboxes_read_failed"))?;
-        row.map(|row| {
-            Ok((
-                row.try_get("id").map_err(storage_read_error)?,
-                row.try_get("remote_name").map_err(storage_read_error)?,
-            ))
-        })
-        .transpose()
-    }
-
-    pub async fn mailbox_role_for_id(
-        &self,
-        account_slot_id: &str,
-        mailbox_id: &str,
-    ) -> CommandResult<MailboxRole> {
-        let value = sqlx::query_scalar::<_, String>(
-            "SELECT CASE WHEN o.role IS NOT NULL THEN o.role \
-               WHEN EXISTS(SELECT 1 FROM mailbox_role_overrides x WHERE x.account_slot_id = b.account_slot_id AND x.role = b.role) \
-               THEN 'other' ELSE b.role END FROM mailboxes b \
-             LEFT JOIN mailbox_role_overrides o ON o.mailbox_id = b.id AND o.account_slot_id = b.account_slot_id \
-             WHERE b.id = ? AND b.account_slot_id = ?",
-        )
-        .bind(mailbox_id)
-        .bind(account_slot_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| CommandError::new("storage.mailboxes_read_failed"))?
-        .ok_or_else(|| CommandError::new("mailbox.not_found"))?;
-        Ok(role_from_db(&value))
-    }
-
-    pub async fn set_mailbox_role_mapping(
-        &self,
-        account_slot_id: &str,
-        role: MailboxRole,
-        mailbox_id: Option<&str>,
-    ) -> CommandResult<()> {
-        if matches!(
-            role,
-            MailboxRole::Inbox | MailboxRole::Junk | MailboxRole::Other
-        ) {
-            return Err(CommandError::new("mailbox.role_not_mappable"));
-        }
-        if let Some(mailbox_id) = mailbox_id {
-            self.ensure_mailbox(account_slot_id, mailbox_id).await?;
-            sqlx::query(
-                "DELETE FROM mailbox_role_overrides WHERE account_slot_id = ? AND mailbox_id = ? AND role != ?",
-            )
-            .bind(account_slot_id)
-            .bind(mailbox_id)
-            .bind(role_to_db(&role))
-            .execute(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("mailbox.role_mapping_failed"))?;
-            sqlx::query(
-                "INSERT INTO mailbox_role_overrides(account_slot_id, role, mailbox_id, updated_at) \
-                 VALUES (?, ?, ?, ?) ON CONFLICT(account_slot_id, role) DO UPDATE SET \
-                 mailbox_id = excluded.mailbox_id, updated_at = excluded.updated_at",
-            )
-            .bind(account_slot_id)
-            .bind(role_to_db(&role))
-            .bind(mailbox_id)
-            .bind(now())
-            .execute(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("mailbox.role_mapping_failed"))?;
-        } else {
-            sqlx::query(
-                "DELETE FROM mailbox_role_overrides WHERE account_slot_id = ? AND role = ?",
-            )
-            .bind(account_slot_id)
-            .bind(role_to_db(&role))
-            .execute(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("mailbox.role_mapping_failed"))?;
-        }
-        Ok(())
-    }
-
+impl OperationRepository {
     pub async fn recover_pending_operations(&self) -> CommandResult<()> {
         sqlx::query(
             "UPDATE pending_operations SET status = 'queued', updated_at = ? WHERE status = 'running'",
@@ -445,7 +325,7 @@ impl MailRepository {
             .begin()
             .await
             .map_err(|_| CommandError::new("operation.claim_failed"))?;
-        let row = sqlx::query(
+        let row: Option<PendingOperationRow> = sqlx::query_as(
             "SELECT o.id, o.kind, o.message_id, o.source_mailbox_id, sb.remote_name AS source_name, \
                     db.remote_name AS destination_name, o.uid, o.uid_validity, o.base_modseq, \
                     o.payload_json, o.attempt_count \
@@ -468,54 +348,14 @@ impl MailRepository {
                 .map_err(|_| CommandError::new("operation.claim_failed"))?;
             return Ok(None);
         };
-        let id: String = row.try_get("id").map_err(storage_read_error)?;
-        let changed = sqlx::query(
-            "UPDATE pending_operations SET status = 'running', attempt_count = attempt_count + 1, \
-             updated_at = ? WHERE id = ? AND status IN ('queued', 'retry_wait')",
-        )
-        .bind(now())
-        .bind(&id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|_| CommandError::new("operation.claim_failed"))?;
-        if changed.rows_affected() != 1 {
+        if !mark_operation_running(&mut transaction, &row.id).await? {
             transaction
                 .rollback()
                 .await
                 .map_err(|_| CommandError::new("operation.claim_failed"))?;
             return Ok(None);
         }
-        let payload_text: String = row.try_get("payload_json").map_err(storage_read_error)?;
-        let work = PendingOperationWork {
-            id,
-            kind: operation_kind_from_db(row.try_get("kind").map_err(storage_read_error)?),
-            message_id: row.try_get("message_id").map_err(storage_read_error)?,
-            source_mailbox_id: row
-                .try_get("source_mailbox_id")
-                .map_err(storage_read_error)?,
-            source_mailbox_name: row.try_get("source_name").map_err(storage_read_error)?,
-            destination_mailbox_name: row
-                .try_get("destination_name")
-                .map_err(storage_read_error)?,
-            uid: row
-                .try_get::<Option<i64>, _>("uid")
-                .map_err(storage_read_error)?
-                .map(|value| value as u32),
-            uid_validity: row
-                .try_get::<Option<i64>, _>("uid_validity")
-                .map_err(storage_read_error)?
-                .map(|value| value as u32),
-            base_modseq: row
-                .try_get::<Option<i64>, _>("base_modseq")
-                .map_err(storage_read_error)?
-                .map(|value| value as u64),
-            payload: serde_json::from_str(&payload_text)
-                .map_err(|_| CommandError::new("storage.json_decode_failed"))?,
-            attempt_count: row
-                .try_get::<i64, _>("attempt_count")
-                .map_err(storage_read_error)? as u32
-                + 1,
-        };
+        let work = pending_operation_work(row)?;
         transaction
             .commit()
             .await
@@ -708,20 +548,162 @@ impl MailRepository {
     }
 
     async fn ensure_mailbox(&self, account_slot_id: &str, mailbox_id: &str) -> CommandResult<()> {
-        let exists = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM mailboxes WHERE id = ? AND account_slot_id = ? AND selectable = 1",
-        )
-        .bind(mailbox_id)
-        .bind(account_slot_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|_| CommandError::new("storage.mailboxes_read_failed"))?;
-        if exists == 1 {
-            Ok(())
-        } else {
-            Err(CommandError::new("mailbox.not_found"))
-        }
+        ensure_mailbox(&self.pool, account_slot_id, mailbox_id).await
     }
+}
+
+async fn ensure_mailbox(
+    pool: &SqlitePool,
+    account_slot_id: &str,
+    mailbox_id: &str,
+) -> CommandResult<()> {
+    let exists = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM mailboxes WHERE id = ? AND account_slot_id = ? AND selectable = 1",
+    )
+    .bind(mailbox_id)
+    .bind(account_slot_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|_| CommandError::new("storage.mailboxes_read_failed"))?;
+    if exists == 1 {
+        Ok(())
+    } else {
+        Err(CommandError::new("mailbox.not_found"))
+    }
+}
+
+async fn mark_operation_running(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    operation_id: &str,
+) -> CommandResult<bool> {
+    let changed = sqlx::query(
+        "UPDATE pending_operations SET status = 'running', attempt_count = attempt_count + 1, \
+         updated_at = ? WHERE id = ? AND status IN ('queued', 'retry_wait')",
+    )
+    .bind(now())
+    .bind(operation_id)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| CommandError::new("operation.claim_failed"))?;
+    Ok(changed.rows_affected() == 1)
+}
+
+fn pending_operation_work(row: PendingOperationRow) -> CommandResult<PendingOperationWork> {
+    Ok(PendingOperationWork {
+        id: row.id,
+        kind: operation_kind_from_db(row.kind),
+        message_id: row.message_id,
+        source_mailbox_id: row.source_mailbox_id,
+        source_mailbox_name: row.source_name,
+        destination_mailbox_name: row.destination_name,
+        uid: row.uid.map(|value| value as u32),
+        uid_validity: row.uid_validity.map(|value| value as u32),
+        base_modseq: row.base_modseq.map(|value| value as u64),
+        payload: serde_json::from_str(&row.payload_json)
+            .map_err(|_| CommandError::new("storage.json_decode_failed"))?,
+        attempt_count: row.attempt_count as u32 + 1,
+    })
+}
+
+async fn queue_flag_operation(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    account_slot_id: &str,
+    mailbox_id: &str,
+    message_id: &str,
+    kind: &PendingOperationKind,
+    value: bool,
+) -> CommandResult<String> {
+    let row = flag_operation_row(transaction, account_slot_id, mailbox_id, message_id).await?;
+    apply_local_flag_value(transaction, mailbox_id, message_id, kind, value).await?;
+
+    let id = Uuid::new_v4().to_string();
+    let payload = json!({
+        "value": value,
+        "previous": previous_flag_value(&row, kind),
+    });
+    insert_operation(
+        transaction,
+        NewOperation {
+            id: &id,
+            account_slot_id,
+            kind,
+            message_id: Some(message_id),
+            source_mailbox_id: Some(mailbox_id),
+            destination_mailbox_id: None,
+            uid: Some(row.uid),
+            uid_validity: Some(row.uid_validity),
+            base_modseq: row.modseq,
+            payload: &payload,
+        },
+    )
+    .await?;
+    Ok(id)
+}
+
+async fn flag_operation_row(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    account_slot_id: &str,
+    mailbox_id: &str,
+    message_id: &str,
+) -> CommandResult<FlagOperationRow> {
+    sqlx::query_as(
+        "SELECT l.uid, l.uid_validity, l.modseq, l.unread, l.flagged \
+         FROM message_locations l JOIN mailboxes b ON b.id = l.mailbox_id \
+         JOIN messages m ON m.id = l.message_id \
+         WHERE l.message_id = ? AND l.mailbox_id = ? AND b.account_slot_id = ? \
+         AND m.account_slot_id = ? AND l.local_hidden = 0",
+    )
+    .bind(message_id)
+    .bind(mailbox_id)
+    .bind(account_slot_id)
+    .bind(account_slot_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| CommandError::new("operation.queue_failed"))?
+    .ok_or_else(|| CommandError::new("message.remote_location_missing"))
+}
+
+fn previous_flag_value(row: &FlagOperationRow, kind: &PendingOperationKind) -> bool {
+    match kind {
+        PendingOperationKind::SetRead => row.unread == 0,
+        PendingOperationKind::SetFlagged => row.flagged != 0,
+        _ => unreachable!("only flag operations use this helper"),
+    }
+}
+
+async fn apply_local_flag_value(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    mailbox_id: &str,
+    message_id: &str,
+    kind: &PendingOperationKind,
+    value: bool,
+) -> CommandResult<()> {
+    match kind {
+        PendingOperationKind::SetRead => {
+            sqlx::query(
+                "UPDATE message_locations SET unread = ? WHERE message_id = ? AND mailbox_id = ?",
+            )
+            .bind(i64::from(!value))
+            .bind(message_id)
+            .bind(mailbox_id)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        }
+        PendingOperationKind::SetFlagged => {
+            sqlx::query(
+                "UPDATE message_locations SET flagged = ? WHERE message_id = ? AND mailbox_id = ?",
+            )
+            .bind(i64::from(value))
+            .bind(message_id)
+            .bind(mailbox_id)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        }
+        _ => unreachable!("only flag operations use this helper"),
+    }
+    Ok(())
 }
 
 async fn insert_operation(
@@ -828,30 +810,6 @@ fn operation_status_from_db(value: String) -> PendingOperationStatus {
     }
 }
 
-fn role_to_db(role: &MailboxRole) -> &'static str {
-    match role {
-        MailboxRole::Inbox => "inbox",
-        MailboxRole::Sent => "sent",
-        MailboxRole::Drafts => "drafts",
-        MailboxRole::Trash => "trash",
-        MailboxRole::Junk => "junk",
-        MailboxRole::Archive => "archive",
-        MailboxRole::Other => "other",
-    }
-}
-
-fn role_from_db(value: &str) -> MailboxRole {
-    match value {
-        "inbox" => MailboxRole::Inbox,
-        "sent" => MailboxRole::Sent,
-        "drafts" => MailboxRole::Drafts,
-        "trash" => MailboxRole::Trash,
-        "junk" => MailboxRole::Junk,
-        "archive" => MailboxRole::Archive,
-        _ => MailboxRole::Other,
-    }
-}
-
 fn storage_read_error(_: sqlx::Error) -> CommandError {
     CommandError::new("storage.read_failed")
 }
@@ -861,7 +819,7 @@ mod tests {
     use crate::core::{MailSyncSink, MailboxRole, MessageAddress, RemoteMailbox, RemoteMessage};
 
     use super::*;
-    use crate::storage::{create_account_slot, initialize_content_database};
+    use crate::storage::{create_account_slot, initialize_content_database, MailRepository};
 
     async fn seeded_repository() -> (tempfile::TempDir, MailRepository, String, String, String) {
         let directory = tempfile::tempdir().unwrap();
@@ -871,6 +829,7 @@ mod tests {
             .unwrap();
         let repository = MailRepository::open(directory.path()).await.unwrap();
         let inbox = repository
+            .sync_sink()
             .upsert_mailbox(
                 "slot",
                 &RemoteMailbox {
@@ -889,6 +848,7 @@ mod tests {
             .await
             .unwrap();
         let archive = repository
+            .sync_sink()
             .upsert_mailbox(
                 "slot",
                 &RemoteMailbox {
@@ -907,6 +867,7 @@ mod tests {
             .await
             .unwrap();
         repository
+            .sync_sink()
             .upsert_message(
                 "slot",
                 &inbox.id,
@@ -939,6 +900,7 @@ mod tests {
             .await
             .unwrap();
         let message_id = repository
+            .read()
             .list_messages("slot", &inbox.id, None, 10)
             .await
             .unwrap()
@@ -952,10 +914,12 @@ mod tests {
     async fn flag_operation_updates_projection_and_is_claimed_durably() {
         let (_directory, repository, inbox_id, _, message_id) = seeded_repository().await;
         repository
+            .operations()
             .queue_set_read("slot", &inbox_id, std::slice::from_ref(&message_id), true)
             .await
             .unwrap();
         let page = repository
+            .read()
             .list_messages("slot", &inbox_id, None, 10)
             .await
             .unwrap();
@@ -963,6 +927,7 @@ mod tests {
         assert!(page.items[0].pending_operation);
 
         let work = repository
+            .operations()
             .claim_pending_operation("slot")
             .await
             .unwrap()
@@ -970,10 +935,12 @@ mod tests {
         assert_eq!(work.kind, PendingOperationKind::SetRead);
         assert_eq!(work.payload["value"], true);
         repository
+            .operations()
             .complete_pending_operation(&work, false)
             .await
             .unwrap();
         assert!(repository
+            .operations()
             .claim_pending_operation("slot")
             .await
             .unwrap()
@@ -984,6 +951,7 @@ mod tests {
     async fn failed_move_restores_hidden_source_projection() {
         let (_directory, repository, inbox_id, archive_id, message_id) = seeded_repository().await;
         repository
+            .operations()
             .queue_transfer(
                 "slot",
                 &inbox_id,
@@ -994,22 +962,26 @@ mod tests {
             .await
             .unwrap();
         assert!(repository
+            .read()
             .list_messages("slot", &inbox_id, None, 10)
             .await
             .unwrap()
             .items
             .is_empty());
         let work = repository
+            .operations()
             .claim_pending_operation("slot")
             .await
             .unwrap()
             .unwrap();
         repository
+            .operations()
             .fail_pending_operation(&work, "operation.move_failed", false)
             .await
             .unwrap();
         assert_eq!(
             repository
+                .read()
                 .list_messages("slot", &inbox_id, None, 10)
                 .await
                 .unwrap()

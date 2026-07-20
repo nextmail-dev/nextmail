@@ -2,6 +2,13 @@
 
 本文档汇总对 NextMail（Tauri 2 + React 19 + TypeScript + Rust）项目结构与代码的优化建议，供 Codex 逐条实施。每条包含：**位置**（file:line）、**问题**、**实施**、**验收**。
 
+## 实施状态
+
+- 2026-07-20：P0 批次 F1、R1–R4 已实施并通过用户实机验收；详见 `iterations/0008-refactor-hardening.md` 与 `changes/0028-refactor-p0-hardening.md`。
+- F1 的附件失效 key 在本清单形成后已由附件体验阶段修正为完整四段 key，本批保留该精确失效并补测试；仍然错位的后台正文事件改为账户级两段前缀。
+- 2026-07-20：P1 Rust 分层批次 R5–R13 已实施并通过用户实机验收；详见 `changes/0029-refactor-p1-rust-layering.md`。
+- P1 前端与 P2–P3 尚未实施，不能把“建议”误读为已经落地的架构现状。
+
 ## 使用说明
 
 - **优先级**：P0 = 正确性 bug / 热路径性能；P1 = 架构与可维护性；P2 = 性能与重渲染；P3 = 清理与工具链。
@@ -16,9 +23,11 @@
 pnpm test
 pnpm build
 
-# Rust（在项目根目录）
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
+# Rust（项目只有 src-tauri 一个 Cargo package）
+Push-Location src-tauri
+cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+Pop-Location
 ```
 
 ### 建议落地顺序（跨区域）
