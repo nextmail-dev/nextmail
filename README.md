@@ -85,10 +85,10 @@ Pop-Location
 - [架构基线](docs/architecture.md)
 - [开发与验证指南](docs/development.md)
 - [总体实施计划](docs/plans/master-plan.md)
-- [下一实施批次](docs/plans/next-implementation.md)
+- [阶段实施记录](docs/iterations/)
 - [架构决策记录](docs/adr/)
 - [第三方资源与许可证](docs/third-party-notices.md)
 
 ## 开发方式
 
-NextMail 采用渐进式实施：每个批次先写明范围，完成自动验证后由维护者进行桌面实机验收，确认后才提交并规划下一批。功能、架构和安全变化必须与代码一起记录在 `docs/`。
+NextMail 采用渐进式实施：每个阶段在 `docs/iterations/` 写明范围和当前状态，完成自动验证后由维护者进行桌面实机验收，确认后才提交并规划后续阶段。功能、架构和安全变化必须与代码一起记录在 `docs/`。

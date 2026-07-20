@@ -14,6 +14,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, Text } from "@/components/ui/typography";
 import { formatMessageListTimestamp } from "./messageDate";
+import { mailQueryKeys, messageQueryKeys } from "./mail-query-keys";
 
 interface MessageListPaneProps {
   accountId: string;
@@ -37,7 +38,7 @@ export function MessageListPane({
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const query = useInfiniteQuery({
-    queryKey: ["messages", accountId, mailboxId],
+    queryKey: mailQueryKeys.messagesForMailbox(accountId, mailboxId),
     queryFn: ({ pageParam }) => api.listMessages(accountId, mailboxId, pageParam, 50),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
@@ -58,9 +59,9 @@ export function MessageListPane({
       else await api.setMessageFlagged(accountId, mailboxId, [message.id], !message.flagged);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["mailboxes", accountId] });
-      void queryClient.invalidateQueries({ queryKey: ["messages", accountId, mailboxId] });
-      void queryClient.invalidateQueries({ queryKey: ["message", accountId] });
+      void queryClient.invalidateQueries({ queryKey: mailQueryKeys.mailboxes(accountId) });
+      void queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForMailbox(accountId, mailboxId) });
+      void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(accountId) });
     },
   });
   const mailboxName = mailbox

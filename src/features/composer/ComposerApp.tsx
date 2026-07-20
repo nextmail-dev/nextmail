@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
-import { applyAppearance } from "@/app/appearance";
+import { useAppearancePreferences } from "@/app/appearance";
 import type {
   ComposerBootstrap,
   DraftAttachmentSummary,
@@ -30,18 +30,12 @@ interface ComposerAppProps {
 }
 
 export function ComposerApp({ accountId, draftId }: ComposerAppProps) {
-  const { t, i18n } = useTranslation();
-  const preferences = useQuery({ queryKey: ["preferences"], queryFn: api.getPreferences });
+  const { t } = useTranslation();
+  const preferences = useAppearancePreferences();
   const bootstrap = useQuery({
     queryKey: ["composer", accountId, draftId],
     queryFn: () => api.getComposerBootstrap(accountId, draftId),
   });
-
-  useEffect(() => {
-    if (!preferences.data) return;
-    applyAppearance(preferences.data);
-    void i18n.changeLanguage(preferences.data.language);
-  }, [i18n, preferences.data]);
 
   if (preferences.isPending || bootstrap.isPending) {
     return <AppShell className="grid place-items-center"><Spinner size={24} /></AppShell>;
@@ -119,6 +113,10 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       }
     }
   }, [bcc, cc, content, dirty, draft.id, editable, sender.id, subject, to]);
+  const saveNowRef = useRef(saveNow);
+  saveNowRef.current = saveNow;
+  const closeStateRef = useRef({ dirty, editable, sendJob, submitting });
+  closeStateRef.current = { dirty, editable, sendJob, submitting };
 
   useEffect(() => {
     if (!dirty || !editable) return;
@@ -139,7 +137,8 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     const currentWindow = getCurrentWindow();
     const unlisten = currentWindow.onCloseRequested(async (event) => {
       event.preventDefault();
-      if (sendJob?.status === "sent") {
+      const closeState = closeStateRef.current;
+      if (closeState.sendJob?.status === "sent") {
         try {
           await currentWindow.destroy();
         } catch (error) {
@@ -147,9 +146,9 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         }
         return;
       }
-      if (sendJob || submitting) return;
-      if (dirty && editable) {
-        const saved = await saveNow();
+      if (closeState.sendJob || closeState.submitting) return;
+      if (closeState.dirty && closeState.editable) {
+        const saved = await saveNowRef.current();
         if (!saved) return;
       }
       try {
@@ -161,7 +160,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       }
     });
     return () => { void unlisten.then((dispose) => dispose()); };
-  }, [dirty, draft.id, editable, saveNow, sendJob, sender.id, submitting]);
+  }, [draft.id, sender.id]);
 
   useEffect(() => {
     if (!sendJob) return;

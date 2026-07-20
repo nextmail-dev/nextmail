@@ -1,12 +1,16 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Component, lazy, Suspense, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
-import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Mail } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import i18n from "./i18n";
 import { api, normalizeCommandError } from "./api";
-import { applyAppearance, useAppearanceStore } from "./appearance";
+import {
+  useAppearanceEventBridge,
+  useAppearancePreferences,
+  useUpdateAppearancePreferences,
+} from "./appearance";
 import type { AppearancePreferences, ReadingPreferences } from "./types";
 import { AccountStep } from "../features/onboarding/AccountStep";
 import { DataDirectoryStep } from "../features/onboarding/DataDirectoryStep";
@@ -102,17 +106,7 @@ class WindowContentBoundary extends Component<
 }
 
 function AppearanceEventBridge() {
-  const queryCache = useQueryClient();
-  const appearance = useAppearanceStore();
-  useEffect(() => {
-    const unlisten = listen<AppearancePreferences>("appearance-preferences-changed", (event) => {
-      queryCache.setQueryData(["preferences"], event.payload);
-      appearance.setPreferences(event.payload);
-      applyAppearance(event.payload);
-      void i18n.changeLanguage(event.payload.language);
-    });
-    return () => { void unlisten.then((dispose) => dispose()); };
-  }, [appearance.setPreferences, queryCache]);
+  useAppearanceEventBridge();
   return null;
 }
 
@@ -177,42 +171,16 @@ function ScrollActivityBridge() {
 function AppContent() {
   const { t } = useTranslation();
   const queryCache = useQueryClient();
-  const preferencesState = useAppearanceStore();
   const [welcomeCompleted, setWelcomeCompleted] = useState(false);
   const bootstrapQuery = useQuery({
     queryKey: ["bootstrap"],
     queryFn: api.getBootstrapStatus,
   });
-  const preferencesQuery = useQuery({
-    queryKey: ["preferences"],
-    queryFn: api.getPreferences,
-  });
-  const preferencesMutation = useMutation({
-    mutationFn: api.setAppearancePreferences,
-    onSuccess: (preferences) => {
-      queryCache.setQueryData(["preferences"], preferences);
-    },
-  });
-
-  useEffect(() => {
-    if (!preferencesQuery.data) return;
-    preferencesState.setPreferences(preferencesQuery.data);
-    applyAppearance(preferencesQuery.data);
-    void i18n.changeLanguage(preferencesQuery.data.language);
-  }, [preferencesQuery.data, preferencesState.setPreferences]);
+  const preferencesQuery = useAppearancePreferences();
+  const preferencesMutation = useUpdateAppearancePreferences();
 
   function changePreferences(preferences: AppearancePreferences) {
-    const previous = preferencesState.preferences;
-    preferencesState.setPreferences(preferences);
-    applyAppearance(preferences);
-    void i18n.changeLanguage(preferences.language);
-    preferencesMutation.mutate(preferences, {
-      onError: () => {
-        preferencesState.setPreferences(previous);
-        applyAppearance(previous);
-        void i18n.changeLanguage(previous.language);
-      },
-    });
+    preferencesMutation.mutate(preferences);
   }
 
   async function refreshBootstrap() {
@@ -256,7 +224,7 @@ function AppContent() {
   if (status.stage === "needs_data_directory" && !welcomeCompleted) {
     return (
       <WelcomeStep
-        preferences={preferencesState.preferences}
+        preferences={preferencesQuery.data}
         onPreferencesChange={changePreferences}
         onContinue={() => setWelcomeCompleted(true)}
       />
@@ -266,7 +234,7 @@ function AppContent() {
     return (
       <DataDirectoryStep
         status={status}
-        preferences={preferencesState.preferences}
+        preferences={preferencesQuery.data}
         onPreferencesChange={changePreferences}
         onCompleted={() => void refreshBootstrap()}
       />
@@ -275,7 +243,7 @@ function AppContent() {
   if (status.stage === "needs_account") {
     return (
       <AccountStep
-        preferences={preferencesState.preferences}
+        preferences={preferencesQuery.data}
         onPreferencesChange={changePreferences}
         onCompleted={() => void refreshBootstrap()}
       />

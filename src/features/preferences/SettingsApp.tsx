@@ -14,8 +14,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
-import { applyAppearance, useAppearanceStore } from "@/app/appearance";
-import i18n from "@/app/i18n";
+import { useAppearancePreferences, useUpdateAppearancePreferences } from "@/app/appearance";
 import type { AccountDraft, AccountSummary, AppearancePreferences, LanguagePreference, ReadingPreferences, ThemePreference } from "@/app/types";
 import { AccountManagementPanel } from "@/features/accounts/AccountManagementDialog";
 import { PasswordAccountForm } from "@/features/accounts/PasswordAccountForm";
@@ -68,17 +67,13 @@ const themeColors = [
 export function SettingsApp() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const appearance = useAppearanceStore();
   const [category, setCategory] = useState<SettingsCategory>("general");
   const [selectedAccountId, setSelectedAccountId] = useState("");
-  const preferencesQuery = useQuery({ queryKey: ["preferences"], queryFn: api.getPreferences });
+  const preferencesQuery = useAppearancePreferences();
   const readingPreferencesQuery = useQuery({ queryKey: ["reading-preferences"], queryFn: api.getReadingPreferences });
   const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.listAccountSummaries });
   const aboutQuery = useQuery({ queryKey: ["about"], queryFn: api.getAppAbout });
-  const mutation = useMutation({
-    mutationFn: api.setAppearancePreferences,
-    onSuccess: (preferences) => queryClient.setQueryData(["preferences"], preferences),
-  });
+  const mutation = useUpdateAppearancePreferences();
   const readingMutation = useMutation({
     mutationFn: api.setReadingPreferences,
     onSuccess: (preferences) => queryClient.setQueryData(["reading-preferences"], preferences),
@@ -90,25 +85,8 @@ export function SettingsApp() {
     setSelectedAccountId(accounts[0]?.id ?? "");
   }, [accountsQuery.data, selectedAccountId]);
 
-  useEffect(() => {
-    if (!preferencesQuery.data) return;
-    appearance.setPreferences(preferencesQuery.data);
-    applyAppearance(preferencesQuery.data);
-    void i18n.changeLanguage(preferencesQuery.data.language);
-  }, [appearance.setPreferences, preferencesQuery.data]);
-
   function updatePreferences(preferences: AppearancePreferences) {
-    const previous = appearance.preferences;
-    appearance.setPreferences(preferences);
-    applyAppearance(preferences);
-    void i18n.changeLanguage(preferences.language);
-    mutation.mutate(preferences, {
-      onError: () => {
-        appearance.setPreferences(previous);
-        applyAppearance(previous);
-        void i18n.changeLanguage(previous.language);
-      },
-    });
+    mutation.mutate(preferences);
   }
 
   function updateReadingPreferences(preferences: ReadingPreferences) {

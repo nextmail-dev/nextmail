@@ -1,5 +1,4 @@
-import { listen } from "@tauri-apps/api/event";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleUserRound, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,7 +16,10 @@ import { AccountSwitcher } from "./AccountSwitcher";
 import { MailboxPane } from "./MailboxPane";
 import { MessageListPane } from "./MessageListPane";
 import { MessageViewer } from "./MessageViewer";
-import { messageQueryKeys } from "./message-query-keys";
+import { useMailboxSelection } from "./hooks/useMailboxSelection";
+import { useMailRuntimeEvents } from "./hooks/useMailRuntimeEvents";
+import { usePaneLayout } from "./hooks/usePaneLayout";
+import { mailQueryKeys } from "./mail-query-keys";
 
 interface MainShellProps {
   accounts: AccountSummary[];
@@ -28,56 +30,65 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const accountsQuery = useQuery({
-    queryKey: ["accounts"],
+    queryKey: mailQueryKeys.accounts,
     queryFn: api.listAccountSummaries,
     initialData: initialAccounts,
   });
   const runtimeQuery = useQuery({
-    queryKey: ["account-runtimes"],
+    queryKey: mailQueryKeys.accountRuntimes,
     queryFn: api.listAccountRuntimeSummaries,
     refetchInterval: 10_000,
   });
   const accounts = accountsQuery.data ?? [];
-  const initialAccountId = accounts.some((account) => account.id === lastSelectedAccountId)
-    ? lastSelectedAccountId ?? ""
-    : accounts[0]?.id ?? "";
-  const [selectedAccountId, setSelectedAccountId] = useState(initialAccountId);
-  const [selectedMailboxId, setSelectedMailboxId] = useState("");
-  const [selectedMessageId, setSelectedMessageId] = useState("");
   const [composeError, setComposeError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
   const [sentNotice, setSentNotice] = useState<{ id: string; subject: string } | null>(null);
-  const [folderPaneWidth, setFolderPaneWidth] = useState(250);
-  const [messagePaneWidth, setMessagePaneWidth] = useState(370);
-  const [folderPaneCollapsed, setFolderPaneCollapsed] = useState(false);
-  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
-  const mailboxesQuery = useQuery({
-    queryKey: ["mailboxes", selectedAccountId],
-    queryFn: () => api.listMailboxes(selectedAccountId),
-    enabled: Boolean(selectedAccountId),
+  const {
+    mailboxesQuery,
+    searchQuery,
+    selectAccount,
+    selectMailbox,
+    selectedAccountId,
+    selectedMailboxId,
+    selectedMessageId,
+    setSearchQuery,
+    setSelectedMessageId,
+  } = useMailboxSelection({
+    accounts,
+    lastSelectedAccountId,
+    onError: setComposeError,
   });
+  const {
+    folderPaneCollapsed,
+    folderPaneMax,
+    folderPaneWidth,
+    messagePaneMax,
+    messagePaneWidth,
+    setFolderPaneCollapsed,
+    setFolderPaneWidth,
+    setMessagePaneWidth,
+    visibleFolderWidth,
+  } = usePaneLayout(accounts.length > 0);
+  useMailRuntimeEvents({ selectedAccountId, onSent: setSentNotice });
   const progressQuery = useQuery({
-    queryKey: ["sync-progress", selectedAccountId],
+    queryKey: mailQueryKeys.syncProgress(selectedAccountId),
     queryFn: () => api.getSyncProgress(selectedAccountId),
     enabled: Boolean(selectedAccountId),
     refetchInterval: (query) => ["complete", "failed"].includes(query.state.data?.phase ?? "idle") ? false : 1_500,
   });
   const draftsQuery = useQuery({
-    queryKey: ["drafts", selectedAccountId],
+    queryKey: mailQueryKeys.drafts(selectedAccountId),
     queryFn: () => api.listDrafts(selectedAccountId),
     enabled: Boolean(selectedAccountId),
     refetchInterval: 3_000,
   });
   const pendingOperationsQuery = useQuery({
-    queryKey: ["pending-operations", selectedAccountId],
+    queryKey: mailQueryKeys.pendingOperations(selectedAccountId),
     queryFn: () => api.listPendingOperationStatus(selectedAccountId),
     enabled: Boolean(selectedAccountId),
     refetchInterval: 5_000,
   });
   const pendingIssue = pendingOperationsQuery.data?.find((operation) =>
     operation.cleanupPending || operation.status === "failed" || operation.status === "needs_reconcile");
-  const visibleFolderWidth = folderPaneCollapsed ? 72 : folderPaneWidth;
-  const titlebarSidebarWidth = accounts.length ? visibleFolderWidth : 0;
   const selectedMailbox = mailboxesQuery.data?.find((mailbox) => mailbox.id === selectedMailboxId);
   const receiving = !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
 
@@ -85,62 +96,9 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     if (!selectedAccountId) return;
     return afterFirstPaint(() => {
       void api.startBackgroundServices()
-        .then(() => queryClient.invalidateQueries({ queryKey: ["sync-progress", selectedAccountId] }))
+        .then(() => queryClient.invalidateQueries({ queryKey: mailQueryKeys.syncProgress(selectedAccountId) }))
         .catch((error) => setComposeError(normalizeCommandError(error).code));
     });
-  }, [queryClient, selectedAccountId]);
-
-  useEffect(() => {
-    if (selectedAccountId && accounts.some((account) => account.id === selectedAccountId)) return;
-    setSelectedAccountId(accounts[0]?.id ?? "");
-  }, [accounts, selectedAccountId]);
-
-  function selectAccount(accountId: string) {
-    setSelectedAccountId(accountId);
-    void api.setLastSelectedAccount(accountId).catch((error) => {
-      setComposeError(normalizeCommandError(error).code);
-    });
-  }
-
-  useEffect(() => {
-    setSelectedMailboxId("");
-    setSelectedMessageId("");
-    setSearchQuery("");
-  }, [selectedAccountId]);
-
-  useEffect(() => {
-    const mailboxes = mailboxesQuery.data ?? [];
-    if (selectedMailboxId && mailboxes.some((mailbox) => mailbox.id === selectedMailboxId)) return;
-    const initial = mailboxes.find((mailbox) => mailbox.role === "inbox" && mailbox.selectable)
-      ?? mailboxes.find((mailbox) => mailbox.selectable);
-    setSelectedMailboxId(initial?.id ?? "");
-  }, [mailboxesQuery.data, selectedMailboxId]);
-
-  useEffect(() => {
-    const unlisteners = Promise.all([
-      listen<{ accountId: string; mailboxId: string }>("mailbox-changed", (event) => {
-        void queryClient.invalidateQueries({ queryKey: ["mailboxes", event.payload.accountId] });
-        void queryClient.invalidateQueries({ queryKey: ["messages", event.payload.accountId, event.payload.mailboxId] });
-      }),
-      listen<{ accountId: string }>("sync-progress", (event) => {
-        void queryClient.invalidateQueries({ queryKey: ["sync-progress", event.payload.accountId] });
-      }),
-      listen<{ accountId: string; messageId: string }>("message-content-changed", (event) => {
-        void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(event.payload.accountId) });
-      }),
-      listen<{ accountId: string; jobId: string; status: string; subject: string }>("send-job-changed", (event) => {
-        if (event.payload.accountId !== selectedAccountId || event.payload.status !== "sent") return;
-        setSentNotice({ id: event.payload.jobId, subject: event.payload.subject });
-        void queryClient.invalidateQueries({ queryKey: ["drafts", selectedAccountId] });
-      }),
-      listen<{ accountId: string }>("pending-operation-changed", (event) => {
-        void queryClient.invalidateQueries({ queryKey: ["mailboxes", event.payload.accountId] });
-        void queryClient.invalidateQueries({ queryKey: ["messages", event.payload.accountId] });
-        void queryClient.invalidateQueries({ queryKey: ["message", event.payload.accountId] });
-        void queryClient.invalidateQueries({ queryKey: ["pending-operations", event.payload.accountId] });
-      }),
-    ]);
-    return () => { void unlisteners.then((values) => values.forEach((unlisten) => unlisten())); };
   }, [queryClient, selectedAccountId]);
 
   useEffect(() => {
@@ -149,42 +107,11 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     return () => window.clearTimeout(timeout);
   }, [sentNotice]);
 
-  useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  useEffect(() => {
-    const available = Math.max(500, windowWidth - 372);
-    let folder = folderPaneCollapsed ? 72 : Math.min(350, Math.max(220, folderPaneWidth));
-    let messages = Math.min(520, Math.max(310, messagePaneWidth));
-    let overflow = folder + messages - available;
-    if (overflow > 0) {
-      const messageReduction = Math.min(overflow, messages - 310);
-      messages -= messageReduction;
-      overflow -= messageReduction;
-    }
-    if (overflow > 0 && !folderPaneCollapsed) folder -= Math.min(overflow, folder - 220);
-    if (!folderPaneCollapsed) setFolderPaneWidth(folder);
-    setMessagePaneWidth(messages);
-  }, [windowWidth, folderPaneCollapsed]);
-
-  useLayoutEffect(() => {
-    document.documentElement.style.setProperty("--shell-sidebar-width", `${titlebarSidebarWidth}px`);
-    return () => {
-      document.documentElement.style.removeProperty("--shell-sidebar-width");
-    };
-  }, [titlebarSidebarWidth]);
-
-  const folderPaneMax = Math.max(220, Math.min(350, windowWidth - messagePaneWidth - 372));
-  const messagePaneMax = Math.max(310, Math.min(520, windowWidth - visibleFolderWidth - 372));
-
   function receive() {
     if (!selectedAccountId) return;
     setComposeError(null);
     void api.syncNow(selectedAccountId)
-      .then(() => queryClient.invalidateQueries({ queryKey: ["sync-progress", selectedAccountId] }))
+      .then(() => queryClient.invalidateQueries({ queryKey: mailQueryKeys.syncProgress(selectedAccountId) }))
       .catch((error) => setComposeError(normalizeCommandError(error).code));
   }
 
@@ -217,18 +144,14 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
         <MailboxPane
           mailboxes={mailboxesQuery.data ?? []}
           selectedMailboxId={selectedMailboxId}
-          onSelect={(mailboxId) => {
-            setSelectedMailboxId(mailboxId);
-            setSelectedMessageId("");
-            setSearchQuery("");
-          }}
+          onSelect={selectMailbox}
           progress={progressQuery.data}
           error={mailboxesQuery.error}
           onCompose={() => {
             if (!selectedAccountId) return;
             setComposeError(null);
             void api.openComposer(selectedAccountId)
-              .then(() => queryClient.invalidateQueries({ queryKey: ["drafts", selectedAccountId] }))
+              .then(() => queryClient.invalidateQueries({ queryKey: mailQueryKeys.drafts(selectedAccountId) }))
               .catch((error) => setComposeError(normalizeCommandError(error).code));
           }}
           drafts={draftsQuery.data ?? []}
@@ -236,7 +159,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           onDeleteDraft={async (draftId) => {
             try {
               await api.deleteDraft(selectedAccountId, draftId);
-              await queryClient.invalidateQueries({ queryKey: ["drafts", selectedAccountId] });
+              await queryClient.invalidateQueries({ queryKey: mailQueryKeys.drafts(selectedAccountId) });
             } catch (error) {
               setComposeError(normalizeCommandError(error).code);
               throw error;
@@ -297,7 +220,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
               {pendingIssue.cleanupPending ? t("mail.serverCleanupPending") : t(`errors.${pendingIssue.errorCode}`, { defaultValue: t("mail.syncActionFailed") })}
             </Text>
             {!pendingIssue.cleanupPending ? (
-              <Button variant="secondary" size="sm" onClick={() => void api.retryPendingOperation(selectedAccountId, pendingIssue.id).then(() => queryClient.invalidateQueries({ queryKey: ["pending-operations", selectedAccountId] }))}>{t("common.retry")}</Button>
+              <Button variant="secondary" size="sm" onClick={() => void api.retryPendingOperation(selectedAccountId, pendingIssue.id).then(() => queryClient.invalidateQueries({ queryKey: mailQueryKeys.pendingOperations(selectedAccountId) }))}>{t("common.retry")}</Button>
             ) : null}
           </Stack>
         </Alert>

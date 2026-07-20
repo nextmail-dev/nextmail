@@ -5,7 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { api } from "@/app/api";
 import i18n from "@/app/i18n";
 import { MessageViewer } from "./MessageViewer";
-import { messageQueryKeys } from "./message-query-keys";
+import { messageQueryKeys } from "./mail-query-keys";
 
 vi.mock("@/app/api", () => ({
   api: {

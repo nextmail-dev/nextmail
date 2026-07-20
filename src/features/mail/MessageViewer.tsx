@@ -34,7 +34,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { SafeMailFrame } from "./SafeMailFrame";
 import { MessageAttachment } from "./MessageAttachment";
 import { activateMessageAttachment } from "./message-attachment-actions";
-import { messageQueryKeys } from "./message-query-keys";
+import { mailQueryKeys, messageQueryKeys } from "./mail-query-keys";
 
 export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMessageRemoved }: {
   accountId: string;
@@ -90,8 +90,8 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
       return operation.kind;
     },
     onSuccess: (kind) => {
-      void queryClient.invalidateQueries({ queryKey: ["mailboxes", accountId] });
-      void queryClient.invalidateQueries({ queryKey: ["messages", accountId] });
+      void queryClient.invalidateQueries({ queryKey: mailQueryKeys.mailboxes(accountId) });
+      void queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(accountId) });
       void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(accountId) });
       if (["move", "archive", "delete"].includes(kind)) onMessageRemoved();
     },
@@ -99,7 +99,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
   const editDraftMutation = useMutation({ mutationFn: () => api.openRemoteDraft(accountId, messageId) });
   const composeMutation = useMutation({
     mutationFn: (action: MessageComposeAction) => api.openMessageActionComposer(accountId, messageId, action),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["drafts", accountId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: mailQueryKeys.drafts(accountId) }),
   });
 
   if (!messageId) return <EmptyState icon={<MailOpen size={28} />} title={t("mail.selectMessage")} />;
