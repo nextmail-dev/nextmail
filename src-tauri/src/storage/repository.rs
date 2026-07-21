@@ -1339,6 +1339,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn functional_selector_policy_migration_invalidates_cached_html() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE messages(
+                id TEXT PRIMARY KEY,
+                body_availability TEXT NOT NULL,
+                remote_images_blocked INTEGER NOT NULL,
+                revision INTEGER NOT NULL
+             );
+             CREATE TABLE message_bodies(
+                message_id TEXT PRIMARY KEY,
+                plain_text TEXT,
+                safe_html TEXT
+             );
+             CREATE TABLE schema_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO schema_metadata(key, value) VALUES ('data_format_version', '13');
+             INSERT INTO messages VALUES ('html', 'available', 1, 7);
+             INSERT INTO messages VALUES ('plain', 'available', 0, 3);
+             INSERT INTO message_bodies VALUES ('html', 'fallback', '<table>stale</table>');
+             INSERT INTO message_bodies VALUES ('plain', 'plain only', NULL);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0014_functional_selector_fidelity.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sqlx::query_as::<_, (String, i64, i64)>(
+                "SELECT body_availability, remote_images_blocked, revision FROM messages WHERE id = 'html'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            ("missing".to_owned(), 0, 8)
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM message_bodies WHERE message_id = 'html'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT plain_text FROM message_bodies WHERE message_id = 'plain'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "plain only"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM schema_metadata WHERE key = 'data_format_version'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "14"
+        );
+    }
+
+    #[tokio::test]
     async fn rebuilt_message_bodies_are_written_atomically_with_account_isolation() {
         let (_directory, repository, mailbox) = repository_with_mailbox(1).await;
         repository

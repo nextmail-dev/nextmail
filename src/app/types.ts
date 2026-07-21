@@ -233,6 +233,9 @@ export interface DraftAttachmentSummary {
   fileName: string;
   contentType: string;
   size: number;
+  contentId: string | null;
+  isInline: boolean;
+  previewDataUrl: string | null;
 }
 
 export interface DraftDetail {

@@ -94,6 +94,7 @@ pub fn run() {
             commands::render_mail_signature,
             commands::save_draft,
             commands::add_draft_attachments,
+            commands::add_draft_inline_image,
             commands::remove_draft_attachment,
             commands::discard_empty_draft,
             commands::delete_draft,

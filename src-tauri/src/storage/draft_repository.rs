@@ -6,7 +6,7 @@ use crate::core::{
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
-use super::{repository::now, ContentStore};
+use super::{repository::now, sanitize_attachment_file_name, ContentStore};
 
 #[derive(Clone)]
 pub struct DraftRepository {
@@ -156,15 +156,27 @@ impl DraftRepository {
         .await
         .map_err(|_| CommandError::new("draft.create_from_message_failed"))?
         .ok_or_else(|| CommandError::new("message.not_found"))?;
-        let plain_text = sqlx::query_scalar::<_, Option<String>>(
-            "SELECT plain_text FROM message_bodies WHERE message_id = ?",
+        let body = sqlx::query(
+            "SELECT b.plain_text, b.safe_html FROM message_bodies b \
+             INNER JOIN messages m ON m.id = b.message_id \
+             WHERE b.message_id = ? AND m.account_slot_id = ?",
         )
         .bind(message_id)
+        .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.create_from_message_failed"))?
-        .flatten()
-        .unwrap_or_default();
+        .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+        let (plain_text, safe_html) = if let Some(row) = body {
+            (
+                row.try_get::<Option<String>, _>("plain_text")
+                    .map_err(read_error)?
+                    .unwrap_or_default(),
+                row.try_get::<Option<String>, _>("safe_html")
+                    .map_err(read_error)?,
+            )
+        } else {
+            (String::new(), None)
+        };
         Ok(MessageActionSource {
             subject: message.try_get("subject").map_err(read_error)?,
             from: decode_addresses(message.try_get("from_json").map_err(read_error)?)?,
@@ -178,6 +190,7 @@ impl DraftRepository {
             )
             .map_err(json_error)?,
             plain_text,
+            safe_html,
         })
     }
 
@@ -224,7 +237,7 @@ impl DraftRepository {
         if action == MessageComposeAction::Forward {
             let attachments = sqlx::query(
                 "SELECT file_name, content_type, size, content_hash FROM attachments \
-                 WHERE message_id = ? AND content_hash IS NOT NULL ORDER BY part_index",
+                 WHERE message_id = ? AND content_hash IS NOT NULL AND content_id IS NULL ORDER BY part_index",
             )
             .bind(message_id)
             .fetch_all(&mut *transaction)
@@ -380,7 +393,7 @@ impl DraftRepository {
         .await
         .map_err(|_| CommandError::new("draft.import_failed"))?;
         let attachments = sqlx::query(
-            "SELECT file_name, content_type, size, content_hash FROM attachments \
+            "SELECT file_name, content_type, size, content_hash, content_id FROM attachments \
              WHERE message_id = ? AND content_hash IS NOT NULL ORDER BY part_index",
         )
         .bind(message_id)
@@ -389,8 +402,8 @@ impl DraftRepository {
         .map_err(|_| CommandError::new("draft.import_failed"))?;
         for (index, attachment) in attachments.into_iter().enumerate() {
             sqlx::query(
-                "INSERT INTO draft_attachments(id, draft_id, file_name, content_type, size, content_hash, sort_order, created_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO draft_attachments(id, draft_id, file_name, content_type, size, content_hash, content_id, is_inline, sort_order, created_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(Uuid::new_v4().to_string())
             .bind(&id)
@@ -398,6 +411,13 @@ impl DraftRepository {
             .bind(attachment.try_get::<String, _>("content_type").map_err(read_error)?)
             .bind(attachment.try_get::<i64, _>("size").map_err(read_error)?)
             .bind(attachment.try_get::<String, _>("content_hash").map_err(read_error)?)
+            .bind(attachment.try_get::<Option<String>, _>("content_id").map_err(read_error)?)
+            .bind(i64::from(
+                attachment
+                    .try_get::<Option<String>, _>("content_id")
+                    .map_err(read_error)?
+                    .is_some(),
+            ))
             .bind(index as i64)
             .bind(timestamp)
             .execute(&mut *transaction)
@@ -571,6 +591,84 @@ impl DraftRepository {
             file_name: file_name.to_owned(),
             content_type: content_type.to_owned(),
             size: bytes.len() as u64,
+            content_id: None,
+            is_inline: false,
+            preview_data_url: None,
+        })
+    }
+
+    pub async fn add_draft_inline_image(
+        &self,
+        account_slot_id: &str,
+        draft_id: &str,
+        file_name: &str,
+        content_type: &str,
+        content_id: Option<&str>,
+        bytes: &[u8],
+    ) -> CommandResult<DraftAttachmentSummary> {
+        let editable = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM drafts WHERE id = ? AND account_slot_id = ? AND status = 'editing'",
+        )
+        .bind(draft_id)
+        .bind(account_slot_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("draft.read_failed"))?;
+        if editable != 1 {
+            return Err(CommandError::new("draft.not_editable"));
+        }
+        let content_id = content_id
+            .map(str::trim)
+            .map(|value| value.trim_matches(['<', '>']))
+            .filter(|value| {
+                !value.is_empty()
+                    && value.len() <= 255
+                    && value
+                        .chars()
+                        .all(|character| !character.is_control() && !character.is_whitespace())
+            })
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{}@nextmail.local", Uuid::new_v4()));
+        let hash = self.content.write_attachment(bytes).await?;
+        let id = Uuid::new_v4().to_string();
+        let file_name = sanitize_attachment_file_name(file_name);
+        let sort_order = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM draft_attachments WHERE draft_id = ?",
+        )
+        .bind(draft_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("draft.attachment_write_failed"))?;
+        sqlx::query(
+            "INSERT INTO draft_attachments(id, draft_id, file_name, content_type, size, content_hash, content_id, is_inline, sort_order, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        )
+        .bind(&id)
+        .bind(draft_id)
+        .bind(&file_name)
+        .bind(content_type)
+        .bind(bytes.len() as i64)
+        .bind(hash)
+        .bind(&content_id)
+        .bind(sort_order)
+        .bind(now())
+        .execute(&self.pool)
+        .await
+        .map_err(|error| {
+            if error.to_string().contains("draft_attachments_inline_cid_idx") {
+                CommandError::new("draft.inline_image_duplicate")
+            } else {
+                CommandError::new("draft.attachment_write_failed")
+            }
+        })?;
+        Ok(DraftAttachmentSummary {
+            id,
+            file_name,
+            content_type: content_type.to_owned(),
+            size: bytes.len() as u64,
+            content_id: Some(content_id),
+            is_inline: true,
+            preview_data_url: None,
         })
     }
 
@@ -603,7 +701,7 @@ impl DraftRepository {
         draft_id: &str,
     ) -> CommandResult<Vec<StoredDraftAttachment>> {
         let rows = sqlx::query(
-            "SELECT a.id, a.file_name, a.content_type, a.size, a.content_hash FROM draft_attachments a \
+            "SELECT a.id, a.file_name, a.content_type, a.size, a.content_hash, a.content_id, a.is_inline FROM draft_attachments a \
              JOIN drafts d ON d.id = a.draft_id WHERE a.draft_id = ? AND d.account_slot_id = ? \
              ORDER BY a.sort_order, a.id",
         )
@@ -620,6 +718,9 @@ impl DraftRepository {
                         file_name: row.try_get("file_name").map_err(read_error)?,
                         content_type: row.try_get("content_type").map_err(read_error)?,
                         size: row.try_get::<i64, _>("size").map_err(read_error)? as u64,
+                        content_id: row.try_get("content_id").map_err(read_error)?,
+                        is_inline: row.try_get::<i64, _>("is_inline").map_err(read_error)? != 0,
+                        preview_data_url: None,
                     },
                     content_hash: row.try_get("content_hash").map_err(read_error)?,
                 })
@@ -1122,8 +1223,13 @@ mod tests {
         assert_eq!(draft.recipients.to[0].email, "sender@example.com");
         assert_eq!(draft.recipients.cc.len(), 1);
         assert_eq!(draft.recipients.cc[0].email, "other@example.com");
-        assert!(draft.content.plain_text.contains("> Original body"));
-        assert!(draft.content.editor_json.contains("hardBreak"));
+        assert!(draft.content.plain_text.contains("Original body"));
+        assert!(!draft.content.plain_text.contains("> Original body"));
+        assert!(draft
+            .content
+            .editor_json
+            .contains("nextmailOriginalMessage"));
+        assert!(draft.content.html.contains("<p>Original body</p>"));
         let threading = repository
             .drafts()
             .draft_threading_headers("slot", &draft.id)
@@ -1350,6 +1456,20 @@ mod tests {
             .add_draft_attachment("slot-a", &draft.id, "private.txt", "text/plain", b"secret")
             .await
             .unwrap();
+        let inline = repository
+            .drafts()
+            .add_draft_inline_image(
+                "slot-a",
+                &draft.id,
+                "logo.png",
+                "image/png",
+                Some("logo@example.test"),
+                b"image",
+            )
+            .await
+            .unwrap();
+        assert!(inline.is_inline);
+        assert_eq!(inline.content_id.as_deref(), Some("logo@example.test"));
 
         assert!(repository
             .drafts()
@@ -1373,7 +1493,7 @@ mod tests {
                 .await
                 .unwrap()
                 .len(),
-            1
+            2
         );
     }
 

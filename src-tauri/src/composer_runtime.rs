@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -21,6 +21,7 @@ use crate::storage::{
     ClaimedSendJob, MailRepository, PersistImportedDraftRequest, PersistMessageActionDraftRequest,
     SaveDraftRequest,
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use lettre::{address::Envelope, Address};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -343,9 +344,34 @@ impl ComposerRuntime {
         };
         let repository = self.repository().await?;
         let drafts = repository.drafts();
-        let source = drafts
+        let mut source = drafts
             .message_action_source(&account.data_slot_id, message_id)
             .await?;
+        source.safe_html = source
+            .safe_html
+            .as_deref()
+            .map(crate::protocols::sanitize_mail_html_for_composer);
+        let mut inline_images = Vec::new();
+        if let Some(raw) = repository
+            .read()
+            .raw_message(&account.data_slot_id, message_id)
+            .await?
+        {
+            let body = tokio::task::spawn_blocking(move || {
+                crate::protocols::sanitize_raw_message_for_composer(&raw)
+            })
+            .await
+            .map_err(|_| CommandError::new("message.mime_parse_failed"))?;
+            if let Some(body) = body {
+                inline_images = body.inline_images;
+                if let Some(plain_text) = body.plain_text {
+                    source.plain_text = plain_text;
+                }
+                if body.safe_html.is_some() {
+                    source.safe_html = body.safe_html;
+                }
+            }
+        }
         let mut composed = compose_message_action_draft(&source, &account.email, action, labels)?;
         let scene = match action {
             MessageComposeAction::Reply => CompositionScene::Reply,
@@ -371,6 +397,33 @@ impl ComposerRuntime {
                 action,
                 draft: &composed,
             })
+            .await?;
+        let mut inline_total = 0u64;
+        for image in inline_images {
+            let size = image.bytes.len() as u64;
+            inline_total = inline_total.saturating_add(size);
+            if size > MAX_ATTACHMENT_BYTES || inline_total > MAX_TOTAL_ATTACHMENT_BYTES {
+                continue;
+            }
+            if let Err(error) = drafts
+                .add_draft_inline_image(
+                    &account.data_slot_id,
+                    &draft.id,
+                    &image.file_name,
+                    &image.content_type,
+                    Some(&image.content_id),
+                    &image.bytes,
+                )
+                .await
+            {
+                let _ = drafts
+                    .delete_editing_draft(&account.data_slot_id, &draft.id)
+                    .await;
+                return Err(error);
+            }
+        }
+        let draft = drafts
+            .get_draft(account_id, &account.data_slot_id, &draft.id)
             .await?;
         if let Err(error) = self.show_composer_window(account_id, &draft.id).await {
             let _ = self
@@ -425,10 +478,30 @@ impl ComposerRuntime {
     ) -> CommandResult<ComposerBootstrap> {
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
-        let draft = repository
-            .drafts()
+        let drafts = repository.drafts();
+        let mut draft = drafts
             .get_draft(account_id, &account.data_slot_id, draft_id)
             .await?;
+        let mut inline_previews = HashMap::new();
+        for stored in drafts
+            .draft_attachments(&account.data_slot_id, draft_id)
+            .await?
+        {
+            if stored.summary.is_inline {
+                let bytes = drafts.attachment_bytes(&stored.content_hash).await?;
+                inline_previews.insert(
+                    stored.summary.id,
+                    format!(
+                        "data:{};base64,{}",
+                        stored.summary.content_type,
+                        STANDARD.encode(bytes)
+                    ),
+                );
+            }
+        }
+        for attachment in &mut draft.attachments {
+            attachment.preview_data_url = inline_previews.remove(&attachment.id);
+        }
         let definitions = repository.composition_definitions();
         let templates = definitions
             .available_mail_templates(account_id, &account.data_slot_id)
@@ -478,6 +551,8 @@ impl ComposerRuntime {
         account_id: Option<&str>,
         draft: MailTemplateDraft,
     ) -> CommandResult<MailTemplate> {
+        let mut draft = draft;
+        draft.content = sanitize_draft_content(draft.content)?;
         let draft = normalize_mail_template_draft(draft)?;
         let account = self.definition_account(account_id)?;
         self.repository()
@@ -498,6 +573,8 @@ impl ComposerRuntime {
         draft: MailTemplateDraft,
         expected_revision: u64,
     ) -> CommandResult<MailTemplate> {
+        let mut draft = draft;
+        draft.content = sanitize_draft_content(draft.content)?;
         let draft = normalize_mail_template_draft(draft)?;
         let account = self.definition_account(account_id)?;
         self.repository()
@@ -552,6 +629,8 @@ impl ComposerRuntime {
         account_id: Option<&str>,
         draft: MailSignatureDraft,
     ) -> CommandResult<MailSignature> {
+        let mut draft = draft;
+        draft.content = sanitize_draft_content(draft.content)?;
         let draft = normalize_mail_signature_draft(draft)?;
         let account = self.definition_account(account_id)?;
         self.repository()
@@ -572,6 +651,8 @@ impl ComposerRuntime {
         draft: MailSignatureDraft,
         expected_revision: u64,
     ) -> CommandResult<MailSignature> {
+        let mut draft = draft;
+        draft.content = sanitize_draft_content(draft.content)?;
         let draft = normalize_mail_signature_draft(draft)?;
         let account = self.definition_account(account_id)?;
         self.repository()
@@ -684,6 +765,7 @@ impl ComposerRuntime {
         content: DraftContent,
         expected_revision: u64,
     ) -> CommandResult<DraftDetail> {
+        let content = sanitize_draft_content(content)?;
         validate_content(&content)?;
         let account = self.service.account_record(account_id)?;
         self.repository()
@@ -759,6 +841,70 @@ impl ComposerRuntime {
             );
         }
         Ok(added)
+    }
+
+    pub async fn add_inline_image(
+        &self,
+        account_id: &str,
+        draft_id: &str,
+        file_name: String,
+        content_type: String,
+        content_base64: String,
+    ) -> CommandResult<DraftAttachmentSummary> {
+        self.mail.ensure_account_writable(account_id)?;
+        let content_type = content_type.trim().to_ascii_lowercase();
+        if !matches!(
+            content_type.as_str(),
+            "image/gif" | "image/jpeg" | "image/png" | "image/webp"
+        ) {
+            return Err(CommandError::new("attachment.image_type_unsupported"));
+        }
+        if content_base64.len() as u64 > (MAX_ATTACHMENT_BYTES * 4 / 3) + 8 {
+            return Err(CommandError::new("attachment.too_large"));
+        }
+        let bytes = STANDARD
+            .decode(content_base64.trim())
+            .map_err(|_| CommandError::new("attachment.image_invalid"))?;
+        if bytes.is_empty() {
+            return Err(CommandError::new("attachment.image_invalid"));
+        }
+        if !valid_image_signature(&content_type, &bytes) {
+            return Err(CommandError::new("attachment.image_invalid"));
+        }
+        if bytes.len() as u64 > MAX_ATTACHMENT_BYTES {
+            return Err(CommandError::new("attachment.too_large"));
+        }
+        let account = self.service.account_record(account_id)?;
+        let repository = self.repository().await?;
+        let drafts = repository.drafts();
+        let draft = drafts
+            .get_draft(account_id, &account.data_slot_id, draft_id)
+            .await?;
+        let total = draft
+            .attachments
+            .iter()
+            .map(|item| item.size)
+            .sum::<u64>()
+            .saturating_add(bytes.len() as u64);
+        if total > MAX_TOTAL_ATTACHMENT_BYTES {
+            return Err(CommandError::new("attachment.total_too_large"));
+        }
+        let mut summary = drafts
+            .add_draft_inline_image(
+                &account.data_slot_id,
+                draft_id,
+                &file_name,
+                &content_type,
+                None,
+                &bytes,
+            )
+            .await?;
+        summary.preview_data_url = Some(format!(
+            "data:{};base64,{}",
+            content_type,
+            STANDARD.encode(&bytes)
+        ));
+        Ok(summary)
     }
 
     pub async fn remove_attachment(
@@ -845,6 +991,7 @@ impl ComposerRuntime {
                 file_name: stored.summary.file_name,
                 content_type: stored.summary.content_type,
                 bytes: drafts.attachment_bytes(&stored.content_hash).await?,
+                content_id: stored.summary.content_id,
             });
         }
         let sender = MessageAddress {
@@ -901,6 +1048,7 @@ impl ComposerRuntime {
                 file_name: stored.summary.file_name,
                 content_type: stored.summary.content_type,
                 bytes: drafts.attachment_bytes(&stored.content_hash).await?,
+                content_id: stored.summary.content_id,
             });
         }
         let sender = MessageAddress {
@@ -1133,6 +1281,51 @@ fn validate_content(content: &DraftContent) -> CommandResult<()> {
     Ok(())
 }
 
+fn sanitize_draft_content(mut content: DraftContent) -> CommandResult<DraftContent> {
+    let mut editor_json = serde_json::from_str::<serde_json::Value>(&content.editor_json)
+        .map_err(|_| CommandError::new("draft.editor_json_invalid"))?;
+    sanitize_original_source_nodes(&mut editor_json);
+    content.editor_json = serde_json::to_string(&editor_json)
+        .map_err(|_| CommandError::new("draft.editor_json_invalid"))?;
+    content.html = crate::protocols::sanitize_composer_document(&content.html);
+    Ok(content)
+}
+
+fn valid_image_signature(content_type: &str, bytes: &[u8]) -> bool {
+    match content_type {
+        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff]),
+        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "image/webp" => {
+            bytes.starts_with(b"RIFF") && bytes.get(8..12).is_some_and(|value| value == b"WEBP")
+        }
+        _ => false,
+    }
+}
+
+fn sanitize_original_source_nodes(value: &mut serde_json::Value) {
+    if value.get("type").and_then(serde_json::Value::as_str) == Some("nextmailOriginalMessage") {
+        if let Some(source) = value
+            .get_mut("attrs")
+            .and_then(serde_json::Value::as_object_mut)
+            .and_then(|attrs| attrs.get_mut("sourceHtml"))
+        {
+            if let Some(html) = source.as_str() {
+                *source =
+                    serde_json::Value::String(crate::protocols::sanitize_composer_document(html));
+            }
+        }
+    }
+    if let Some(children) = value
+        .get_mut("content")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for child in children {
+            sanitize_original_source_nodes(child);
+        }
+    }
+}
+
 fn envelope_recipients(fields: &DraftRecipientFields) -> Vec<String> {
     fields
         .to
@@ -1254,7 +1447,11 @@ struct SendJobChangedEvent {
 mod tests {
     use std::collections::HashSet;
 
-    use super::{add_draft_identity_headers, add_threading_headers, select_ready_account};
+    use super::{
+        add_draft_identity_headers, add_threading_headers, sanitize_draft_content,
+        select_ready_account, valid_image_signature,
+    };
+    use crate::core::DraftContent;
     use crate::storage::DraftThreadingHeaders;
 
     #[test]
@@ -1306,5 +1503,41 @@ mod tests {
             select_ready_account(&slots, &active, &mut cursor).as_deref(),
             Some("slot-c")
         );
+    }
+
+    #[test]
+    fn source_html_is_sanitized_again_before_draft_persistence() {
+        let content = sanitize_draft_content(DraftContent {
+            editor_json: serde_json::json!({
+                "type": "doc",
+                "content": [{
+                    "type": "nextmailOriginalMessage",
+                    "attrs": {
+                        "sourceHtml": "<script>bad()</script><img src=\"cid:logo@example.test\">"
+                    }
+                }]
+            })
+            .to_string(),
+            html: "<script>bad()</script><p><img src=\"cid:logo@example.test\"></p>".into(),
+            plain_text: "Logo".into(),
+        })
+        .unwrap();
+        assert!(!content.html.contains("script"));
+        assert!(content.html.contains("cid:logo@example.test"));
+        assert!(!content.editor_json.contains("script"));
+        assert!(content.editor_json.contains("cid:logo@example.test"));
+    }
+
+    #[test]
+    fn pasted_image_type_must_match_its_magic_bytes() {
+        assert!(valid_image_signature(
+            "image/png",
+            b"\x89PNG\r\n\x1a\ncontent"
+        ));
+        assert!(!valid_image_signature("image/png", b"<svg></svg>"));
+        assert!(valid_image_signature(
+            "image/webp",
+            b"RIFF\x04\x00\x00\x00WEBPdata"
+        ));
     }
 }

@@ -1,7 +1,7 @@
 use std::{cell::Cell, collections::HashSet, rc::Rc, sync::LazyLock};
 
 use cssparser::{
-    AtRuleParser, BasicParseErrorKind, CowRcStr, DeclarationParser, ParseError, Parser,
+    parse_nth, AtRuleParser, BasicParseErrorKind, CowRcStr, DeclarationParser, ParseError, Parser,
     ParserInput, ParserState, QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser,
     StyleSheetParser, ToCss, Token, TokenSerializationType,
 };
@@ -136,6 +136,14 @@ pub(super) fn sanitize_style_attribute(source: &str) -> String {
 }
 
 pub(super) fn sanitize_stylesheet(source: &str) -> String {
+    sanitize_stylesheet_with_scope(source, None)
+}
+
+pub(super) fn sanitize_stylesheet_for_composer(source: &str) -> String {
+    sanitize_stylesheet_with_scope(source, Some("[data-nextmail-original-message]"))
+}
+
+fn sanitize_stylesheet_with_scope(source: &str, selector_scope: Option<&'static str>) -> String {
     if source.len() > MAX_STYLESHEET_BYTES {
         return String::new();
     }
@@ -146,6 +154,7 @@ pub(super) fn sanitize_stylesheet(source: &str) -> String {
     let mut parser = MailStyleSheetParser {
         depth: 0,
         remaining_rules,
+        selector_scope,
     };
     let output = sanitize_rule_list(&mut input, &mut parser);
     escape_style_raw_text(&output)
@@ -165,6 +174,7 @@ fn sanitize_rule_list<'i>(input: &mut Parser<'i, '_>, parser: &mut MailStyleShee
 struct MailStyleSheetParser {
     depth: usize,
     remaining_rules: Rc<Cell<usize>>,
+    selector_scope: Option<&'static str>,
 }
 
 impl MailStyleSheetParser {
@@ -201,6 +211,12 @@ impl<'i> QualifiedRuleParser<'i> for MailStyleSheetParser {
         if declarations.is_empty() || !self.claim_rule() {
             return Err(input.new_error(BasicParseErrorKind::QualifiedRuleInvalid));
         }
+        let selector = if let Some(scope) = self.selector_scope {
+            scope_selector_list(&selector, scope)
+                .ok_or_else(|| input.new_error(BasicParseErrorKind::QualifiedRuleInvalid))?
+        } else {
+            selector
+        };
         Ok(format!("{selector}{{{declarations}}}"))
     }
 }
@@ -233,6 +249,7 @@ impl<'i> AtRuleParser<'i> for MailStyleSheetParser {
         let mut nested_parser = MailStyleSheetParser {
             depth: self.depth + 1,
             remaining_rules: Rc::clone(&self.remaining_rules),
+            selector_scope: self.selector_scope,
         };
         let rules = sanitize_rule_list(input, &mut nested_parser);
         if rules.is_empty() {
@@ -240,6 +257,69 @@ impl<'i> AtRuleParser<'i> for MailStyleSheetParser {
         }
         Ok(format!("@media {query}{{{rules}}}"))
     }
+}
+
+fn scope_selector_list(selector: &str, scope: &str) -> Option<String> {
+    let output = split_selector_list(selector)
+        .into_iter()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter_map(|value| {
+            let lower = value.to_ascii_lowercase();
+            let relative = ["html body ", "body ", "html ", ":root "]
+                .into_iter()
+                .find(|prefix| lower.starts_with(prefix))
+                .map(|prefix| &value[prefix.len()..])
+                .unwrap_or(value)
+                .trim_start();
+            if relative.starts_with(['>', '+', '~']) {
+                return None;
+            }
+            if matches!(relative, "html" | "body" | ":root") {
+                Some(scope.to_owned())
+            } else {
+                Some(format!("{scope} {relative}"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    (!output.is_empty()).then_some(output)
+}
+
+fn split_selector_list(selector: &str) -> Vec<&str> {
+    let mut values = Vec::new();
+    let mut start = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut quote = None;
+    let mut escaped = false;
+    for (index, character) in selector.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if character == '\\' {
+            escaped = true;
+            continue;
+        }
+        if let Some(current) = quote {
+            if character == current {
+                quote = None;
+            }
+            continue;
+        }
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            ',' if bracket_depth == 0 => {
+                values.push(&selector[start..index]);
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    values.push(&selector[start..]);
+    values
 }
 
 fn sanitize_selector(input: &mut Parser<'_, '_>) -> Option<String> {
@@ -269,6 +349,23 @@ fn sanitize_selector(input: &mut Parser<'_, '_>) -> Option<String> {
                     .ok()?;
                 writer.push_closing(']');
             }
+            Token::Function(ref name)
+                if matches_ignore_ascii_case(
+                    name,
+                    &[
+                        "nth-child",
+                        "nth-last-child",
+                        "nth-of-type",
+                        "nth-last-of-type",
+                    ],
+                ) =>
+            {
+                writer.write_token(&token).ok()?;
+                input
+                    .parse_nested_block(|nested| sanitize_nth_selector(nested, &mut writer))
+                    .ok()?;
+                writer.push_closing(')');
+            }
             _ => return None,
         }
         if writer.output.len() > MAX_SELECTOR_BYTES {
@@ -277,6 +374,42 @@ fn sanitize_selector(input: &mut Parser<'_, '_>) -> Option<String> {
     }
     let output = writer.finish();
     (!output.is_empty()).then_some(output)
+}
+
+fn sanitize_nth_selector<'i>(
+    input: &mut Parser<'i, '_>,
+    writer: &mut CssTokenWriter,
+) -> Result<(), ParseError<'i, ()>> {
+    let (a, b) = parse_nth(input)?;
+    input.expect_exhausted()?;
+    if a.unsigned_abs() > 100_000 || b.unsigned_abs() > 100_000 {
+        return Err(input.new_error(BasicParseErrorKind::QualifiedRuleInvalid));
+    }
+    writer.output.push_str(&serialize_nth(a, b));
+    writer.previous = TokenSerializationType::Other;
+    Ok(())
+}
+
+fn serialize_nth(a: i32, b: i32) -> String {
+    match (a, b) {
+        (0, value) => value.to_string(),
+        (2, 0) => "even".to_owned(),
+        (2, 1) => "odd".to_owned(),
+        _ => {
+            let mut output = match a {
+                1 => "n".to_owned(),
+                -1 => "-n".to_owned(),
+                value => format!("{value}n"),
+            };
+            if b > 0 {
+                output.push('+');
+                output.push_str(&b.to_string());
+            } else if b < 0 {
+                output.push_str(&b.to_string());
+            }
+            output
+        }
+    }
 }
 
 fn sanitize_attribute_selector<'i>(
@@ -640,6 +773,51 @@ mod tests {
         assert!(sanitized.contains("color:red"));
         assert!(!sanitized.to_ascii_lowercase().contains("</style"));
         assert!(sanitized.contains("\\3c "));
+    }
+
+    #[test]
+    fn composer_stylesheets_are_scoped_and_drop_leading_sibling_selectors() {
+        let sanitized = sanitize_stylesheet_for_composer(
+            r#"body .card, .title { width: 600px; } ~ .outside { color: red; }
+               @media (max-width: 640px) { .card { width: 100%; } }"#,
+        );
+
+        assert!(sanitized.contains("[data-nextmail-original-message] .card"));
+        assert!(sanitized.contains("[data-nextmail-original-message] .title"));
+        assert!(sanitized.contains("@media (max-width:640px)"));
+        assert!(!sanitized.contains("outside"));
+        assert!(!sanitized.contains("[data-nextmail-original-message] ~"));
+    }
+
+    #[test]
+    fn preserves_safe_nth_child_flex_column_rules() {
+        let sanitized = sanitize_stylesheet_for_composer(
+            r#".invoice-table th:nth-child(1), .invoice-table td:nth-child(1) { flex: 2; }
+               .invoice-table th:nth-child(4), .invoice-table td:nth-child(4) { flex: 3; }
+               .invoice-table tr:nth-child(even) { background-color: #f9f9f9; }"#,
+        );
+
+        for expected in [
+            "[data-nextmail-original-message] .invoice-table th:nth-child(1)",
+            "[data-nextmail-original-message] .invoice-table td:nth-child(1)",
+            "[data-nextmail-original-message] .invoice-table th:nth-child(4)",
+            "flex:2",
+            "flex:3",
+            "tr:nth-child(even)",
+        ] {
+            assert!(
+                sanitized.contains(expected),
+                "missing {expected}: {sanitized}"
+            );
+        }
+
+        let rejected = sanitize_stylesheet(
+            ".invoice-table td:nth-child(1 2) { flex: 9; } .invoice-table:has(td) { width: 1px; }",
+        );
+        assert!(
+            rejected.is_empty(),
+            "retained selector outside boundary: {rejected}"
+        );
     }
 
     #[test]

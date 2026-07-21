@@ -4,6 +4,7 @@ use crate::core::{
 use chrono::Local;
 use mail_builder::{
     headers::{address::Address, raw::Raw},
+    mime::MimePart,
     MessageBuilder,
 };
 
@@ -12,6 +13,7 @@ pub struct OutgoingAttachment {
     pub file_name: String,
     pub content_type: String,
     pub bytes: Vec<u8>,
+    pub content_id: Option<String>,
 }
 
 pub fn build_outgoing_message(
@@ -24,9 +26,7 @@ pub fn build_outgoing_message(
     let mut builder = MessageBuilder::new()
         .from(address(sender))
         .subject(subject.to_owned())
-        .header("Date", Raw::new(Local::now().to_rfc2822()))
-        .text_body(content.plain_text.clone())
-        .html_body(content.html.clone());
+        .header("Date", Raw::new(Local::now().to_rfc2822()));
 
     if !recipients.to.is_empty() {
         builder = builder.to(address_list(&recipients.to));
@@ -36,13 +36,47 @@ pub fn build_outgoing_message(
     }
     // Bcc is deliberately envelope-only and must not be serialized into the message headers.
 
+    let mut inline_parts = Vec::new();
+    let mut regular_parts = Vec::new();
     for attachment in attachments {
-        builder = builder.attachment(
-            attachment.content_type,
-            attachment.file_name,
-            attachment.bytes,
-        );
+        if let Some(content_id) = attachment.content_id {
+            inline_parts.push(
+                MimePart::new(attachment.content_type, attachment.bytes)
+                    .inline()
+                    .cid(content_id),
+            );
+        } else {
+            regular_parts.push(
+                MimePart::new(attachment.content_type, attachment.bytes)
+                    .attachment(attachment.file_name),
+            );
+        }
     }
+    let html = MimePart::new("text/html", content.html.clone()).inline();
+    let html = if inline_parts.is_empty() {
+        html
+    } else {
+        let mut related = Vec::with_capacity(inline_parts.len() + 1);
+        related.push(html);
+        related.extend(inline_parts);
+        MimePart::new("multipart/related", related)
+    };
+    let alternative = MimePart::new(
+        "multipart/alternative",
+        vec![
+            MimePart::new("text/plain", content.plain_text.clone()).inline(),
+            html,
+        ],
+    );
+    let body = if regular_parts.is_empty() {
+        alternative
+    } else {
+        let mut mixed = Vec::with_capacity(regular_parts.len() + 1);
+        mixed.push(alternative);
+        mixed.extend(regular_parts);
+        MimePart::new("multipart/mixed", mixed)
+    };
+    builder = builder.body(body);
 
     let mut output = Vec::new();
     builder
@@ -92,6 +126,7 @@ mod tests {
                 file_name: "报告.txt".into(),
                 content_type: "text/plain".into(),
                 bytes: b"attachment".to_vec(),
+                content_id: None,
             }],
         )
         .unwrap();
@@ -115,5 +150,42 @@ mod tests {
             .expect("generated MIME must contain a Date header")
             .to_owned();
         assert!(date_header.ends_with(&Local::now().format("%z").to_string()));
+    }
+
+    #[test]
+    fn builds_related_html_with_a_cid_inline_image() {
+        let raw = build_outgoing_message(
+            &MessageAddress {
+                name: None,
+                email: "from@example.com".into(),
+            },
+            &DraftRecipientFields {
+                to: vec![MessageAddress {
+                    name: None,
+                    email: "to@example.com".into(),
+                }],
+                cc: vec![],
+                bcc: vec![],
+            },
+            "Inline",
+            &DraftContent {
+                editor_json: "{}".into(),
+                html: "<p><img src=\"cid:logo@example.test\"></p>".into(),
+                plain_text: "Logo".into(),
+            },
+            vec![OutgoingAttachment {
+                file_name: "logo.png".into(),
+                content_type: "image/png".into(),
+                bytes: b"image".to_vec(),
+                content_id: Some("logo@example.test".into()),
+            }],
+        )
+        .unwrap();
+        let parsed = MessageParser::default().parse(&raw).unwrap();
+        let inline = parsed.attachments().next().expect("inline MIME part");
+        assert_eq!(inline.content_id(), Some("logo@example.test"));
+        assert_eq!(inline.contents(), b"image");
+        let raw_text = String::from_utf8_lossy(&raw).to_ascii_lowercase();
+        assert!(raw_text.contains("multipart/related"));
     }
 }

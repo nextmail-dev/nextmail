@@ -210,6 +210,15 @@ export const api = {
     invoke<DraftAttachmentSummary[]>("add_draft_attachments", {
       accountId, draftId, selectedPaths,
     }),
+  addDraftInlineImage: (
+    accountId: string,
+    draftId: string,
+    fileName: string,
+    contentType: string,
+    contentBase64: string,
+  ) => invoke<DraftAttachmentSummary>("add_draft_inline_image", {
+    accountId, draftId, fileName, contentType, contentBase64,
+  }),
   removeDraftAttachment: (accountId: string, draftId: string, attachmentId: string) =>
     invoke<void>("remove_draft_attachment", { accountId, draftId, attachmentId }),
   discardEmptyDraft: (accountId: string, draftId: string) =>

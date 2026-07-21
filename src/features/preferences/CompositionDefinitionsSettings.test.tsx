@@ -110,6 +110,15 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("CompositionDefinitionsSettings", () => {
+  it("keeps definition fields content-sized so the editor receives the remaining height", async () => {
+    renderSettings();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add signature" }));
+    const name = screen.getByRole("textbox", { name: "Name" });
+
+    expect(name.parentElement?.parentElement).toHaveClass("flex-none");
+  });
+
   it("creates a rich-text template in the explicit global scope", async () => {
     renderSettings();
 

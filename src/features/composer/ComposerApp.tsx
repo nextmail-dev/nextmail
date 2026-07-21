@@ -269,6 +269,24 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     }
   }
 
+  async function addInlineImage(file: File) {
+    try {
+      const added = await api.addDraftInlineImage(
+        sender.id,
+        draft.id,
+        file.name || "pasted-image",
+        file.type,
+        await fileToBase64(file),
+      );
+      setAttachments((current) => [...current, added]);
+      setErrorCode(null);
+      return added;
+    } catch (error) {
+      setErrorCode(normalizeCommandError(error).code);
+      throw error;
+    }
+  }
+
   async function sendMessage() {
     if (!subject.trim() && !confirmEmptySubject) {
       setConfirmEmptySubject(true);
@@ -373,9 +391,9 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           <Alert className="m-3 mb-0" tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert>
         ) : null}
         {sendJob?.status === "failed" ? <SendFailure job={sendJob} onRetry={retrySend} /> : null}
-        {attachments.length ? (
+        {attachments.some((attachment) => !attachment.isInline) ? (
           <Inline className="flex-wrap bg-muted/50 px-4 py-2">
-            {attachments.map((attachment) => (
+            {attachments.filter((attachment) => !attachment.isInline).map((attachment) => (
               <Inline key={attachment.id} className="rounded-md border-0 bg-card px-2.5 py-1.5 shadow-xs">
                 <Paperclip size={14} /><Text className="max-w-56 truncate text-xs text-foreground">{attachment.fileName}</Text>
                 <Text className="text-[length:var(--ui-font-caption)]">{formatBytes(attachment.size)}</Text>
@@ -392,6 +410,8 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           ref={editorRef}
           initialJson={draft.content.editorJson}
           disabled={!editable}
+          inlineImages={attachments}
+          onAddInlineImage={addInlineImage}
           onChange={(value) => { setContent(value); markDirty(); }}
           onCompositionChange={(value) => {
             setTemplateId(value.templateId ?? "none");
@@ -451,17 +471,36 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("image read failed"));
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const separator = result.indexOf(",");
+      if (separator < 0) reject(new Error("image encoding failed"));
+      else resolve(result.slice(separator + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function compositionSelection(editorJson: string): CompositionNodeSelection {
   try {
-    const document = JSON.parse(editorJson) as {
-      content?: Array<{ type?: string; attrs?: { definitionId?: unknown } }>;
+    type CompositionJsonNode = {
+      type?: string;
+      attrs?: { definitionId?: unknown };
+      content?: CompositionJsonNode[];
     };
+    const document = JSON.parse(editorJson) as CompositionJsonNode;
     const selection: CompositionNodeSelection = { templateId: null, signatureId: null };
-    for (const node of document.content ?? []) {
+    const visit = (node: CompositionJsonNode) => {
       const id = typeof node.attrs?.definitionId === "string" ? node.attrs.definitionId : null;
       if (node.type === "nextmailTemplate") selection.templateId = id;
       if (node.type === "nextmailSignature") selection.signatureId = id;
-    }
+      node.content?.forEach(visit);
+    };
+    visit(document);
     return selection;
   } catch {
     return { templateId: null, signatureId: null };

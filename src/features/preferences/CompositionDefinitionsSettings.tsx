@@ -466,11 +466,12 @@ function DefinitionEditor({
       onOpenChange={(open) => { if (!open && !saving) onClose(); }}
       title={t(`compositionLibrary.${state.value ? "edit" : "new"}${state.kind === "template" ? "Template" : "Signature"}`)}
       closeLabel={t("common.close")}
-      contentClassName="w-[min(780px,calc(100vw-40px))]"
+      contentClassName="flex h-[min(760px,calc(100vh-40px))] w-[min(780px,calc(100vw-40px))] flex-col overflow-hidden"
     >
-      <Form className="mt-5" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-        <Stack gap="md">
+      <Form className="mt-5 flex min-h-0 flex-1 flex-col" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <Stack className="min-h-0 flex-1" gap="md">
           <TextField
+            className="flex-none"
             label={t("compositionLibrary.name")}
             value={name}
             maxLength={80}
@@ -479,6 +480,7 @@ function DefinitionEditor({
           />
           {state.kind === "template" ? (
             <TextField
+              className="flex-none"
               label={t("composer.subject")}
               value={subject}
               onChange={(event) => setSubject(event.target.value)}
@@ -487,9 +489,9 @@ function DefinitionEditor({
           <Text className="text-xs">
             {t("compositionLibrary.variablesHint")}
           </Text>
-          <Stack gap="xs">
+          <Stack className="min-h-0 flex-1" gap="xs">
             <LabelText>{label}</LabelText>
-            <Page className="h-[330px] overflow-hidden rounded-lg ring-1 ring-border">
+            <Page className="min-h-[220px] flex-1 overflow-hidden rounded-lg ring-1 ring-border">
               <RichTextEditor
                 initialJson={content.editorJson}
                 ariaLabel={label}
@@ -503,7 +505,7 @@ function DefinitionEditor({
               {t(`errors.${normalizeCommandError(error).code}`, { defaultValue: t("common.unexpectedError") })}
             </Alert>
           ) : null}
-          <Inline className="justify-end">
+          <Inline className="shrink-0 justify-end">
             <Button type="button" variant="ghost" disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
             <Button type="submit" loading={saving} disabled={!name.trim()}>{t("common.save")}</Button>
           </Inline>

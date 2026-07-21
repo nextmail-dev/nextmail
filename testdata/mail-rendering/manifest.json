@@ -20,6 +20,15 @@
       "activeThreats": []
     },
     {
+      "file": "flex-invoice-table.html",
+      "category": "transactional-flex-table",
+      "expectedSafeLayout": "a six-column invoice table whose header and body share nth-child flex ratios",
+      "containsRemoteResources": false,
+      "containsLinks": false,
+      "darkModeCase": "authored-light",
+      "activeThreats": []
+    },
+    {
       "file": "marketing-responsive.html",
       "category": "marketing",
       "expectedSafeLayout": "safe embedded CSS, a media query, tables and a remote hero image",

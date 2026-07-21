@@ -39,6 +39,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: openMock }));
 vi.mock("@/app/api", () => ({
   api: {
     addDraftAttachments: vi.fn(),
+    addDraftInlineImage: vi.fn(),
     discardEmptyDraft: vi.fn(),
     getComposerBootstrap: vi.fn(),
     getPreferences: vi.fn(),

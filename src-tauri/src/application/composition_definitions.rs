@@ -84,6 +84,68 @@ pub fn assemble_composition_content(
     }
     let base_document: Value = serde_json::from_str(&base.editor_json)
         .map_err(|_| CommandError::new("draft.editor_json_invalid"))?;
+    if let Some((mut reply, original)) = message_action_nodes(&base_document) {
+        if let Some(template) = template {
+            reply["content"] = Value::Array(vec![definition_node(
+                "nextmailTemplate",
+                &template.id,
+                &template.content.editor_json,
+            )?]);
+        }
+        let mut content = vec![reply, serde_json::json!({ "type": "paragraph" })];
+        if let Some(signature) = signature {
+            content.push(definition_node(
+                "nextmailSignature",
+                &signature.id,
+                &signature.content.editor_json,
+            )?);
+        }
+        content.push(original);
+        let editor_json = serde_json::to_string(&serde_json::json!({
+            "type": "doc",
+            "content": content,
+        }))
+        .map_err(|_| CommandError::new("draft.editor_json_failed"))?;
+
+        let reply_html = template.map_or_else(
+            || "<p></p>".to_owned(),
+            |value| {
+                format!(
+                    "<div data-nextmail-template-id=\"{}\">{}</div>",
+                    value.id, value.content.html
+                )
+            },
+        );
+        let signature_html = signature.map_or_else(String::new, |value| {
+            format!(
+                "<div data-nextmail-signature-id=\"{}\">{}</div>",
+                value.id, value.content.html
+            )
+        });
+        let original_html = base
+            .html
+            .find("<div data-nextmail-original-message")
+            .map(|index| &base.html[index..])
+            .unwrap_or(base.html.as_str());
+        let html = format!(
+            "<div data-nextmail-reply=\"\">{reply_html}</div><p></p>{signature_html}{original_html}"
+        );
+        let plain_text = [
+            template.map(|value| value.content.plain_text.as_str()),
+            signature.map(|value| value.content.plain_text.as_str()),
+            Some(base.plain_text.trim_start_matches('\n')),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+        return Ok(DraftContent {
+            editor_json,
+            html,
+            plain_text,
+        });
+    }
     let mut content = Vec::new();
     if let Some(template) = template {
         content.push(definition_node(
@@ -144,6 +206,19 @@ pub fn assemble_composition_content(
         html,
         plain_text,
     })
+}
+
+fn message_action_nodes(document: &Value) -> Option<(Value, Value)> {
+    let content = document.get("content")?.as_array()?;
+    let reply = content
+        .iter()
+        .find(|node| node.get("type").and_then(Value::as_str) == Some("nextmailReply"))?
+        .clone();
+    let original = content
+        .iter()
+        .find(|node| node.get("type").and_then(Value::as_str) == Some("nextmailOriginalMessage"))?
+        .clone();
+    Some((reply, original))
 }
 
 fn normalize_name(value: String, kind: &str) -> CommandResult<String> {
@@ -544,5 +619,73 @@ mod tests {
         assert!(assembled.editor_json.contains("signature-one"));
         assert!(assembled.html.contains("data-nextmail-signature-id"));
         assert_eq!(assembled.plain_text, "Alice");
+    }
+
+    #[test]
+    fn assembles_action_template_and_signature_without_crossing_original_boundary() {
+        let base = DraftContent {
+            editor_json: serde_json::json!({
+                "type": "doc",
+                "content": [
+                    { "type": "nextmailReply", "content": [{ "type": "paragraph" }] },
+                    { "type": "paragraph" },
+                    {
+                        "type": "nextmailOriginalMessage",
+                        "attrs": { "sourceHtml": "<table><tr><td>Original</td></tr></table>" },
+                        "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Original" }] }]
+                    }
+                ]
+            })
+            .to_string(),
+            html: "<div data-nextmail-reply=\"\"><p></p></div><p></p><div data-nextmail-original-message=\"\"><table><tr><td>Original</td></tr></table></div>".to_owned(),
+            plain_text: "\n\nSender wrote:\n\nOriginal".to_owned(),
+        };
+        let template = RenderedMailTemplate {
+            id: "template-one".to_owned(),
+            subject: String::new(),
+            content: DraftContent {
+                editor_json: r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Reply"}]}]}"#.to_owned(),
+                html: "<p>Reply</p>".to_owned(),
+                plain_text: "Reply".to_owned(),
+            },
+        };
+        let signature = RenderedMailSignature {
+            id: "signature-one".to_owned(),
+            content: DraftContent {
+                editor_json: r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Regards"}]}]}"#.to_owned(),
+                html: "<p>Regards</p>".to_owned(),
+                plain_text: "Regards".to_owned(),
+            },
+        };
+
+        let assembled = assemble_composition_content(&base, Some(&template), Some(&signature))
+            .expect("assembled action content");
+        let document: Value = serde_json::from_str(&assembled.editor_json).unwrap();
+        let types = document["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|node| node["type"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            types,
+            [
+                "nextmailReply",
+                "paragraph",
+                "nextmailSignature",
+                "nextmailOriginalMessage"
+            ]
+        );
+        assert!(document["content"][0]
+            .to_string()
+            .contains("nextmailTemplate"));
+        assert!(document["content"][3]
+            .to_string()
+            .contains("<table><tr><td>Original</td></tr></table>"));
+        assert!(assembled.html.find("signature-one") < assembled.html.find("Original"));
+        assert_eq!(
+            assembled.plain_text,
+            "Reply\n\nRegards\n\nSender wrote:\n\nOriginal"
+        );
     }
 }

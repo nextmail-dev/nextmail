@@ -496,6 +496,7 @@ pub struct MessageActionSource {
     pub message_id: Option<String>,
     pub references: Vec<String>,
     pub plain_text: String,
+    pub safe_html: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -522,6 +523,9 @@ pub struct DraftAttachmentSummary {
     pub file_name: String,
     pub content_type: String,
     pub size: u64,
+    pub content_id: Option<String>,
+    pub is_inline: bool,
+    pub preview_data_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

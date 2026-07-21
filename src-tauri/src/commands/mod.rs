@@ -804,6 +804,27 @@ pub async fn add_draft_attachments(
 }
 
 #[tauri::command]
+pub async fn add_draft_inline_image(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft_id: String,
+    file_name: String,
+    content_type: String,
+    content_base64: String,
+) -> CommandResult<DraftAttachmentSummary> {
+    state
+        .composer
+        .add_inline_image(
+            &account_id,
+            &draft_id,
+            file_name,
+            content_type,
+            content_base64,
+        )
+        .await
+}
+
+#[tauri::command]
 pub async fn remove_draft_attachment(
     state: State<'_, AppState>,
     account_id: String,

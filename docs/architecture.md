@@ -82,10 +82,10 @@ NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src
 
 - 模板与签名使用独立窄 Repository 保存三格式富文本定义和四场景规则。全局定义/规则使用空账户槽，账户记录始终通过 Rust 将公开账户 ID 解析为匿名 `account_slot_id`；React 不接触数据槽。账户场景没有显式记录时整体继承全局规则，显式账户规则优先；引用范围在 Repository 边界验证，被引用定义禁止删除。
 - 变量白名单、缺失上下文错误、HTML/主题/纯文本差异化转义与本地化日期在 application 完成。设置窗口和 Composer 只通过 `src/app/api.ts` 使用稳定 DTO；Composer 先取得可见定义摘要，再把当前收件人上下文交给 Rust 渲染。
-- Tiptap 使用 `nextmailTemplate` 和 `nextmailSignature` 可编辑块节点保存定义 ID，HTML 使用对应 `data-nextmail-*-id` 属性。显式切换只替换同类节点，自动规则只在草稿首次创建时应用，因此用户手动删除签名后自动保存或重开不会恢复。
-- 独立 `composer-*` WebView 通过窄业务命令访问草稿，不直接访问数据库、任意文件或网络；系统文件选择器只授权用户明确选择的附件。
-- 草稿保存 Tiptap JSON、HTML 和纯文本，使用修订号做乐观并发控制。写信窗口关闭前会提交未保存改动；关闭监听按账户与草稿身份单次订阅，并通过 ref 读取最新保存函数和编辑状态。
-- SMTP 联网前先用 `mail-builder` 生成完整 UTF-8 MIME，按内容哈希原子落盘并创建 `send_job`。MIME `Date` 头在生成时读取操作系统本机时区并写入当时的 UTC 偏移；Bcc 只进入 SMTP envelope，不写入邮件头。
+- Tiptap 使用 `nextmailTemplate` 和 `nextmailSignature` 可编辑块节点保存定义 ID，HTML 使用对应 `data-nextmail-*-id` 属性。显式切换只替换同类节点，自动规则只在草稿首次创建时应用，因此用户手动删除签名后自动保存或重开不会恢复。回复/转发草稿另以 `nextmailReply` 和原子 `nextmailOriginalMessage` 固定用户回复与原文边界；原文内部 HTML 不进入 ProseMirror schema，模板递归定位在回复区，签名固定在原文前，切换定义不会跨边界改写原始内容。
+- 独立 `composer-*` WebView 通过窄业务命令访问草稿，不直接访问数据库、任意文件或网络；系统文件选择器只授权用户明确选择的普通附件，剪贴板图片只把受限字节交给 `add_draft_inline_image`，由 Rust 验证并写入受管内容存储。
+- 草稿保存 Tiptap JSON、HTML 和纯文本，使用修订号做乐观并发控制；CodeMirror 源码编辑仍产生同一三格式 DTO，Rust 在持久化前复验 HTML/JSON。写信窗口关闭前会提交未保存改动；关闭监听按账户与草稿身份单次订阅，并通过 ref 读取最新保存函数与编辑状态。
+- SMTP 联网前先用 `mail-builder` 生成完整 UTF-8 MIME，按内容哈希原子落盘并创建 `send_job`。正文为 `multipart/alternative`，CID 图片与 HTML 组成 `multipart/related`，普通附件存在时再组成 `multipart/mixed`。MIME `Date` 头在生成时读取操作系统本机时区并写入当时的 UTC 偏移；Bcc 只进入 SMTP envelope，不写入邮件头。
 - 后台 `SendWorker` 从系统凭据库取密码，按账户内 FIFO、账户间轮转方式发送不可变 MIME；全局最多同时发送两封，同一账户同时最多一封。单个账户的超时、断网或认证错误不会阻塞其他账户；临时错误最多自动尝试三次，失败内容继续保留并支持显式重试。
 - 异常退出遗留的 `sending` 在启动时恢复为 `queued`。SMTP 成功后独立排队 APPEND 到映射的 Sent；Sent 归档失败不会触发再次 SMTP 发送。
 - 本地草稿停止编辑 10 秒或关闭窗口时排队同步到映射的 Drafts。远端版本用 `X-NextMail-Draft-ID` 关联，先追加新版本再安全清理旧 UID；服务器草稿可转换成本地可编辑草稿。
@@ -130,12 +130,14 @@ UI 使用操作系统原生字体栈，不再随 Vite 打包字体。Windows 使
 
 ## HTML 阅读器
 
-- Ammonia 先移除脚本、表单、嵌入文档、事件属性、危险 URL 与外部样式表；独立 CSS 模块随后用 `cssparser` 重建 `<style>` 和行内声明，只保留展示属性、普通/属性选择器与受控 `@media`。清洗器保留 `class`、`id`、传统表格宽高/居中/间距/对齐/背景色和字体属性，使常见邮件 HTML 的作者样式与固定宽度布局继续生效。网络 `url()`、未知函数、其他 at-rule、固定遮罩、动画和变换继续移除。
+- Ammonia 先移除脚本、表单、嵌入文档、事件属性、危险 URL 与外部样式表；独立 CSS 模块随后用 `cssparser` 重建 `<style>` 和行内声明，只保留展示属性、普通/属性选择器、受限 An+B 的四种 `nth-*()` 结构伪类与受控 `@media`。清洗器保留 `class`、`id`、传统表格宽高/居中/间距/对齐/背景色和字体属性，使常见邮件 HTML 的作者样式、固定宽度布局和 flex 表格列比例继续生效。网络 `url()`、其他选择器/声明函数、其他 at-rule、固定遮罩、动画和变换继续移除。
 - 阅读器不再注入会改变作者几何布局的统一字体/行高、16px 内边距、任意断词或 `img/table max-width`；安全的远程 `<img>` URL 可以保留，但默认 iframe CSP 的 `img-src data:` 阻止请求。
 - 清洗层只接受规范化后的 `http`、`https`、`mailto` 并直接保留为 `href`，固定设置 `target="_blank"` 与 `rel="noopener noreferrer"`；其他 scheme、相对/本机路径、用户信息、控制字符和混淆 URL 移除。
 - 邮件 iframe 的 sandbox 只有 `allow-popups`。主窗口由既有 Tauri 平台配置显式创建，`on_new_window` 对目标再次执行 Rust URL 校验，再交给 `state.rs` 注入的系统外链打开器，并始终返回 `Deny`，因此外部网页不会在 NextMail WebView 内创建或加载；React 无链接事件、确认 UI 或通用 opener Command。
 - “立即显示”或设备级“自动加载远程图片”只把当前 iframe 的图片 CSP 扩为 `data: http: https:`；sandbox 仍不启用 scripts、forms、same-origin 或 top-navigation，并使用 `no-referrer`。自动加载默认关闭，设置界面说明打开跟踪风险。
 - Tauri 顶层 CSP 允许图片协议只是为 iframe 的显式选择提供上限；默认阻止由邮件文档自身更严格的 CSP 执行。
-- 阅读 iframe 不继承应用 DOM 样式。NextMail 根据有效主题在 iframe 元素和内部文档设置 `color-scheme`，并注入不带 `!important` 的浅色或灰黑深色兜底；无明确样式的正文获得可读配色，邮件作者在页面、类或行内明确设置的颜色和背景按正常层叠优先。完整 HTML 的 `<body style>` 在清洗前转换为带固定标记的内部正文容器，经相同 CSS 过滤后保留页面级行内配色；该容器不增加脚本或 IPC 能力。`cid:`/附件资源协议与远程样式资源仍未实现。
-- HTML 清洗策略升级时通过嵌入式迁移失效旧 HTML 正文缓存。迁移 0011 是未通过实机验收的链接映射原型且因 SQLx 校验不可修改；数据格式版本 12 的迁移 0012 删除临时 `message_links` 表并再次失效旧 `safe_html`。正文请求先按账户槽读取本地原始 EML，在不持有 SQLite 写锁的 blocking worker 中重新解析/清洗，再以单个事务写回正文与消息可用状态；只有本地原文缺失或不可解析时才通过 IMAP 获取。
-- `testdata/mail-rendering/` 是 Rust/前端共享的正式保真与主动内容语料。ADR 0008 保留不透明 origin，sandbox 仅为受宿主拦截的用户链接点击增加 `allow-popups`；不增加脚本、表单、same-origin、顶层导航、前端通用网络或通用 opener 权限。
+- 阅读 iframe 不继承应用 DOM 样式。NextMail 根据有效主题在 iframe 元素和内部文档设置 `color-scheme`，并注入不带 `!important` 的浅色或灰黑深色兜底；无明确样式的正文获得可读配色，邮件作者在页面、类或行内明确设置的颜色和背景按正常层叠优先。完整 HTML 的 `<body style>` 在清洗前转换为带固定标记的内部正文容器，经相同 CSS 过滤后保留页面级行内配色；该容器不增加脚本或 IPC 能力。阅读器的 `cid:` 展示与远程样式资源仍未实现。
+- HTML 清洗策略升级时通过嵌入式迁移失效旧 HTML 正文缓存。迁移 0011 是未通过实机验收的链接映射原型且因 SQLx 校验不可修改；迁移 0012 删除临时 `message_links` 表并再次失效旧 `safe_html`。迁移 0013 扩展草稿内嵌图片元数据；数据格式版本 14 的迁移 0014 因新增受限 `nth-*()` 选择器再次失效旧 HTML 缓存。正文请求先按账户槽读取本地原始 EML，在不持有 SQLite 写锁的 blocking worker 中重新解析/清洗，再以单个事务写回正文与消息可用状态；只有本地原文缺失或不可解析时才通过 IMAP 获取。
+- Composer 不接收未经处理的邮件 HTML。回复/转发创建时优先在 blocking worker 中从账户槽内的原始 EML 提取 HTML part，缺失时回退到现有安全正文；compose 清洗器沿用主动内容与 URL/CSS 边界，并把保留的内嵌样式表重写到原文容器作用域。引用原文以 `sourceHtml` 原子节点保留，不进入会规范化表格的 ProseMirror schema；富文本视图和 HTML 源码实时预览都使用 `sandbox=""`、`no-referrer`、无脚本/表单/同源/导航权限的 iframe。原文 iframe 根据安全 HTML 的文本、表格行和可用内嵌图片估算无上限展开高度，关闭内部滚动并由外层 Composer 统一滚动；不会为读取 `scrollHeight` 放开脚本或同源。源码可由 CodeMirror 编辑，保存时 Rust 再清洗 HTML 与原文节点属性。
+- 原始 MIME 中被 HTML `cid:` 引用的安全图片和用户粘贴图片写入既有内容寻址 `attachments/` 存储，`draft_attachments` 只记录 CID/inline 元数据。前端不读取文件系统路径或内容哈希，只使用 Rust 返回的内存 data URL 预览；持久化 HTML 使用 `cid:`，发件 MIME 使用 `multipart/related`。远程 `http(s)` 图片既不显示占位卡片也不在 Composer 中静默下载，仍受现有远程内容隐私策略约束。
+- `testdata/mail-rendering/` 是 Rust/前端共享的正式保真与主动内容语料，包含合成的 `nth-child()` flex 发票表格。ADR 0008 保留不透明 origin，sandbox 仅为受宿主拦截的用户链接点击增加 `allow-popups`；不增加脚本、表单、same-origin、顶层导航、前端通用网络或通用 opener 权限。

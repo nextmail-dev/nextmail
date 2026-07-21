@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 
 use ammonia::Builder;
-use mail_parser::MessageParser;
+use mail_parser::{MessageParser, MimeHeaders};
 
 use super::{
-    css::{sanitize_style_attribute, sanitize_stylesheet},
+    css::{sanitize_style_attribute, sanitize_stylesheet, sanitize_stylesheet_for_composer},
     validate_mail_link_target,
 };
 
@@ -25,6 +25,21 @@ pub struct SanitizedMessageBody {
     pub remote_images_blocked: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SanitizedComposerBody {
+    pub plain_text: Option<String>,
+    pub safe_html: Option<String>,
+    pub inline_images: Vec<ComposerInlineImage>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComposerInlineImage {
+    pub content_id: String,
+    pub file_name: String,
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
 pub fn sanitize_raw_message_body(raw: &[u8]) -> Option<SanitizedMessageBody> {
     let message = MessageParser::default().parse(raw)?;
     let plain_text = message.body_text(0).map(|value| value.into_owned());
@@ -42,13 +57,104 @@ pub fn sanitize_raw_message_body(raw: &[u8]) -> Option<SanitizedMessageBody> {
     })
 }
 
+pub fn sanitize_raw_message_for_composer(raw: &[u8]) -> Option<SanitizedComposerBody> {
+    let message = MessageParser::default().parse(raw)?;
+    let plain_text = message.body_text(0).map(|value| value.into_owned());
+    let safe_html = message
+        .body_html(0)
+        .map(|value| sanitize_mail_html_for_composer(&value));
+    if plain_text.is_none() && safe_html.is_none() {
+        return None;
+    }
+    let normalized_html = safe_html
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let inline_images = message
+        .attachments()
+        .filter_map(|attachment| {
+            let content_id = attachment
+                .content_id()?
+                .trim()
+                .trim_matches(['<', '>'])
+                .to_owned();
+            let content_type = attachment.content_type()?;
+            let content_type = format!(
+                "{}/{}",
+                content_type.ctype(),
+                content_type.subtype().unwrap_or("octet-stream")
+            );
+            if !matches!(
+                content_type.to_ascii_lowercase().as_str(),
+                "image/gif" | "image/jpeg" | "image/png" | "image/webp"
+            ) || !normalized_html.contains(&format!("cid:{}", content_id.to_ascii_lowercase()))
+            {
+                return None;
+            }
+            Some(ComposerInlineImage {
+                file_name: attachment
+                    .attachment_name()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or("inline-image")
+                    .to_owned(),
+                content_id,
+                content_type,
+                bytes: attachment.contents().to_vec(),
+            })
+        })
+        .collect();
+    Some(SanitizedComposerBody {
+        plain_text,
+        safe_html,
+        inline_images,
+    })
+}
+
 pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
+    let fragment = sanitize_mail_html_fragment(input, true, false, false);
+    let normalized = fragment.to_ascii_lowercase();
+    let remote_images_blocked = normalized.contains("<img")
+        && (normalized.contains("src=\"http://") || normalized.contains("src=\"https://"));
+    SanitizedHtml {
+        document: format!(
+            "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><style>html{{color-scheme:light}}body{{margin:0}}</style></head><body>{fragment}</body></html>"
+        ),
+        remote_images_blocked,
+    }
+}
+
+pub fn sanitize_mail_html_for_composer(input: &str) -> String {
+    sanitize_mail_html_fragment(input, true, true, true)
+}
+
+pub fn sanitize_composer_document(input: &str) -> String {
+    sanitize_mail_html_fragment(input, true, false, true)
+}
+
+fn sanitize_mail_html_fragment(
+    input: &str,
+    preserve_stylesheets: bool,
+    scope_stylesheets: bool,
+    preserve_cid_images: bool,
+) -> String {
     let mut builder = Builder::default();
+    if preserve_cid_images {
+        builder.add_url_schemes(["cid", "data"]);
+    }
     builder
         .add_clean_content_tags(["script", "form", "iframe", "object", "svg", "math"])
-        .rm_clean_content_tags(["style"])
-        .add_tags(["style", "font", "tfoot"])
-        .add_tag_attributes("div", ["align", "data-nextmail-body"])
+        .add_tags(["font", "tfoot"])
+        .add_tag_attributes(
+            "div",
+            [
+                "align",
+                "data-nextmail-body",
+                "data-nextmail-original-message",
+                "data-nextmail-reply",
+                "data-nextmail-signature-id",
+                "data-nextmail-template-id",
+            ],
+        )
         .add_tag_attributes("p", ["align"])
         .add_tag_attributes(
             "table",
@@ -80,7 +186,7 @@ pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
         .add_generic_attributes(["class", "dir", "id", "role", "style"])
         .add_generic_attribute_prefixes(["aria-"])
         .set_tag_attribute_value("a", "target", "_blank")
-        .attribute_filter(|element, attribute, value| {
+        .attribute_filter(move |element, attribute, value| {
             let attribute_lower = attribute.to_ascii_lowercase();
             if attribute_lower.starts_with("on")
                 || matches!(attribute_lower.as_str(), "srcset" | "formaction" | "action")
@@ -106,6 +212,7 @@ pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
                 } else if value_lower.starts_with("http://")
                     || value_lower.starts_with("https://")
                     || value_lower.starts_with("data:image/")
+                    || (preserve_cid_images && value_lower.starts_with("cid:"))
                 {
                     Some(Cow::Borrowed(value))
                 } else {
@@ -115,16 +222,18 @@ pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
             Some(Cow::Borrowed(value))
         });
 
+    if preserve_stylesheets {
+        builder.rm_clean_content_tags(["style"]).add_tags(["style"]);
+    } else {
+        builder.add_clean_content_tags(["style"]);
+    }
+
     let input = preserve_body_container(input);
-    let fragment = sanitize_style_elements(&builder.clean(input.as_ref()).to_string());
-    let normalized = fragment.to_ascii_lowercase();
-    let remote_images_blocked = normalized.contains("<img")
-        && (normalized.contains("src=\"http://") || normalized.contains("src=\"https://"));
-    SanitizedHtml {
-        document: format!(
-            "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><style>html{{color-scheme:light}}body{{margin:0}}</style></head><body>{fragment}</body></html>"
-        ),
-        remote_images_blocked,
+    let fragment = builder.clean(input.as_ref()).to_string();
+    if preserve_stylesheets {
+        sanitize_style_elements(&fragment, scope_stylesheets)
+    } else {
+        fragment
     }
 }
 
@@ -175,7 +284,7 @@ fn is_html_tag_boundary(value: Option<u8>) -> bool {
     value.is_none_or(|value| value.is_ascii_whitespace() || matches!(value, b'>' | b'/'))
 }
 
-fn sanitize_style_elements(fragment: &str) -> String {
+fn sanitize_style_elements(fragment: &str, scope_stylesheets: bool) -> String {
     let mut output = String::with_capacity(fragment.len());
     let mut cursor = 0usize;
     let mut style_count = 0usize;
@@ -192,13 +301,21 @@ fn sanitize_style_elements(fragment: &str) -> String {
         let end = content_start + relative_end;
 
         if style_count < MAX_STYLE_ELEMENTS {
-            let stylesheet = sanitize_stylesheet(&fragment[content_start..end]);
+            let stylesheet = if scope_stylesheets {
+                sanitize_stylesheet_for_composer(&fragment[content_start..end])
+            } else {
+                sanitize_stylesheet(&fragment[content_start..end])
+            };
             let stylesheet_rules = stylesheet.bytes().filter(|value| *value == b'{').count();
             if !stylesheet.is_empty()
                 && total_stylesheet_bytes + stylesheet.len() <= MAX_TOTAL_STYLESHEET_BYTES
                 && total_style_rules + stylesheet_rules <= MAX_TOTAL_STYLE_RULES
             {
-                output.push_str("<style>");
+                if scope_stylesheets {
+                    output.push_str("<style data-nextmail-compose-style=\"\">");
+                } else {
+                    output.push_str("<style>");
+                }
                 output.push_str(&stylesheet);
                 output.push_str("</style>");
                 total_stylesheet_bytes += stylesheet.len();
@@ -222,7 +339,7 @@ mod tests {
 
     use super::*;
 
-    const RENDERING_CASES: [(&str, &str); 7] = [
+    const RENDERING_CASES: [(&str, &str); 8] = [
         (
             "plain-unstyled.html",
             include_str!("../../../testdata/mail-rendering/plain-unstyled.html"),
@@ -230,6 +347,10 @@ mod tests {
         (
             "transactional-table.html",
             include_str!("../../../testdata/mail-rendering/transactional-table.html"),
+        ),
+        (
+            "flex-invoice-table.html",
+            include_str!("../../../testdata/mail-rendering/flex-invoice-table.html"),
         ),
         (
             "marketing-responsive.html",
@@ -559,5 +680,119 @@ mod tests {
             .expect("safe HTML")
             .contains(".card{color:#123456}"));
         assert!(!body.remote_images_blocked);
+    }
+
+    #[test]
+    fn builds_an_inert_high_fidelity_fragment_for_composer_import() {
+        let sanitized = sanitize_mail_html_for_composer(
+            r##"<style>.campaign { width: 600px; }</style>
+                <script>alert(1)</script>
+                <table width="600" cellpadding="0" cellspacing="0"><tr>
+                  <td style="color:#123456;background-color:#ffffff">
+                    <a href="https://example.com/account">Account</a>
+                    <img src="https://cdn.example/banner.png" alt="Banner" onerror="alert(2)">
+                  </td>
+                </tr></table>"##,
+        );
+
+        for expected in [
+            "<style data-nextmail-compose-style=\"\">",
+            "[data-nextmail-original-message] .campaign{width:600px}",
+            "width=\"600\"",
+            "cellpadding=\"0\"",
+            "color:#123456",
+            "background-color:#ffffff",
+            "href=\"https://example.com/account\"",
+            "src=\"https://cdn.example/banner.png\"",
+        ] {
+            assert!(sanitized.contains(expected), "missing {expected}");
+        }
+        for forbidden in ["<script", "onerror", "alert(1)", "<style>.campaign"] {
+            assert!(!sanitized.contains(forbidden), "retained {forbidden}");
+        }
+    }
+
+    #[test]
+    fn preserves_flex_invoice_column_ratios_for_reading_and_composer_import() {
+        let fixture = include_str!("../../../testdata/mail-rendering/flex-invoice-table.html");
+        let reading = sanitize_mail_html(fixture);
+        for expected in [
+            ".invoice-table tr{display:flex;width:100%}",
+            ".invoice-table th:nth-child(1)",
+            ".invoice-table td:nth-child(4)",
+            "flex:2",
+            "flex:3",
+        ] {
+            assert!(
+                reading.document.contains(expected),
+                "missing {expected}: {}",
+                reading.document
+            );
+        }
+
+        let sanitized = sanitize_mail_html_for_composer(fixture);
+
+        for expected in [
+            "[data-nextmail-original-message] .invoice-table tr{display:flex;width:100%}",
+            "[data-nextmail-original-message] .invoice-table th:nth-child(1)",
+            "[data-nextmail-original-message] .invoice-table td:nth-child(4)",
+            "flex:2",
+            "flex:3",
+        ] {
+            assert!(
+                sanitized.contains(expected),
+                "missing {expected}: {sanitized}"
+            );
+        }
+    }
+
+    #[test]
+    fn composer_mime_import_prefers_html_without_returning_a_document_shell() {
+        let raw = concat!(
+            "From: sender@example.com\r\n",
+            "To: reader@example.com\r\n",
+            "Subject: Editable HTML\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: text/html; charset=utf-8\r\n",
+            "\r\n",
+            "<p style=\"font-size:16px\">Editable <strong>body</strong></p>"
+        );
+        let body = sanitize_raw_message_for_composer(raw.as_bytes()).expect("composer body");
+        let html = body.safe_html.expect("safe HTML fragment");
+        assert!(html.contains("font-size:16px"));
+        assert!(html.contains("<strong>body</strong>"));
+        assert!(!html.contains("<!doctype"));
+        assert!(!html.contains("Content-Security-Policy"));
+    }
+
+    #[test]
+    fn composer_mime_import_keeps_referenced_cid_images_with_decoded_bytes() {
+        let raw = concat!(
+            "From: sender@example.com\r\n",
+            "To: reader@example.com\r\n",
+            "Subject: Inline image\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/related; boundary=nextmail\r\n",
+            "\r\n",
+            "--nextmail\r\n",
+            "Content-Type: text/html; charset=utf-8\r\n\r\n",
+            "<p>Logo <img src=\"cid:logo@example.test\"></p>\r\n",
+            "--nextmail\r\n",
+            "Content-Type: image/png; name=logo.png\r\n",
+            "Content-Disposition: inline; filename=logo.png\r\n",
+            "Content-ID: <logo@example.test>\r\n",
+            "Content-Transfer-Encoding: base64\r\n\r\n",
+            "aW1hZ2U=\r\n",
+            "--nextmail--\r\n"
+        );
+        let body = sanitize_raw_message_for_composer(raw.as_bytes()).expect("composer body");
+        assert!(body
+            .safe_html
+            .expect("safe HTML")
+            .contains("cid:logo@example.test"));
+        assert_eq!(body.inline_images.len(), 1);
+        assert_eq!(body.inline_images[0].content_id, "logo@example.test");
+        assert_eq!(body.inline_images[0].content_type, "image/png");
+        assert_eq!(body.inline_images[0].bytes, b"image");
     }
 }

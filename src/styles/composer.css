@@ -37,8 +37,7 @@
   color: #202124;
 }
 
-.nextmail-editor-content .nextmail-composition-template,
-.nextmail-editor-content .nextmail-composition-signature {
+.nextmail-editor-content .nextmail-composition-template {
   margin: 0 0 0.8em;
   padding: 0.55rem 0.75rem;
   border-left: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
@@ -47,10 +46,72 @@
 }
 
 .nextmail-editor-content .nextmail-composition-signature {
-  border-left-color: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .nextmail-editor-content .nextmail-composition-template > :last-child,
 .nextmail-editor-content .nextmail-composition-signature > :last-child {
   margin-bottom: 0;
+}
+
+.nextmail-editor-content .nextmail-composition-reply {
+  min-height: 2.2rem;
+}
+
+.nextmail-editor-content .nextmail-composition-original-message {
+  margin-top: 0.9rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  overflow-wrap: normal;
+}
+
+.nextmail-editor-content .nextmail-composition-original-frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.nextmail-editor-scroll {
+  scrollbar-gutter: stable;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 42%, transparent) transparent;
+}
+
+.nextmail-editor-scroll::-webkit-scrollbar-thumb,
+.nextmail-editor-scroll.is-scrolling::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--muted-foreground) 42%, transparent);
+  background-clip: padding-box;
+}
+
+.nextmail-editor-content .tableWrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.nextmail-editor-content table {
+  table-layout: auto;
+}
+
+.nextmail-editor-content td,
+.nextmail-editor-content th {
+  position: relative;
+  vertical-align: top;
+}
+
+.nextmail-editor-content .selectedCell::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  content: "";
+  pointer-events: none;
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.nextmail-editor-content .nextmail-email-image {
+  max-width: 100%;
+  height: auto;
 }

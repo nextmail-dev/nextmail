@@ -52,27 +52,65 @@ pub fn compose_message_action_draft(
     }
 
     let sender = format_addresses(&source.from);
-    let plain_text = match action {
+    let (original_header, original_header_html) = match action {
         MessageComposeAction::Reply | MessageComposeAction::ReplyAll => {
-            let quoted = source
-                .plain_text
-                .lines()
-                .map(|line| format!("> {line}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            format!("\n\n{sender} {}\n{quoted}", labels.wrote)
+            let header = format!("{sender} {}", labels.wrote);
+            let html = format!(
+                "<p>{} {}</p>",
+                escape_html(&sender),
+                escape_html(labels.wrote)
+            );
+            (header, html)
         }
-        MessageComposeAction::Forward => format!(
-            "\n\n---------- {} ----------\n{}: {sender}\n{}: {}\n{}: {}\n\n{}",
-            labels.original_message,
-            labels.from,
-            labels.to,
-            format_addresses(&source.to),
-            labels.subject,
-            source.subject,
-            source.plain_text,
-        ),
+        MessageComposeAction::Forward => {
+            let recipients = format_addresses(&source.to);
+            let header = format!(
+                "---------- {} ----------\n{}: {sender}\n{}: {recipients}\n{}: {}",
+                labels.original_message, labels.from, labels.to, labels.subject, source.subject,
+            );
+            let html = format!(
+                "<p>---------- {} ----------<br>{}: {}<br>{}: {}<br>{}: {}</p>",
+                escape_html(labels.original_message),
+                escape_html(labels.from),
+                escape_html(&sender),
+                escape_html(labels.to),
+                escape_html(&recipients),
+                escape_html(labels.subject),
+                escape_html(&source.subject),
+            );
+            (header, html)
+        }
     };
+    let original_plain_text = format!("{original_header}\n\n{}", source.plain_text);
+    let source_html = source
+        .safe_html
+        .clone()
+        .unwrap_or_else(|| format!("<p>{}</p>", escape_html(&source.plain_text)));
+    let original_html = format!("{original_header_html}{source_html}");
+    let original_content = editor_content_from_text(&original_plain_text);
+    let editor_json = serde_json::to_string(&serde_json::json!({
+        "type": "doc",
+        "content": [
+            {
+                "type": "nextmailReply",
+                "content": [{ "type": "paragraph" }]
+            },
+            { "type": "paragraph" },
+            {
+                "type": "nextmailOriginalMessage",
+                "attrs": {
+                    "sourceHtml": original_html,
+                    "sourcePlainText": original_plain_text
+                },
+                "content": original_content
+            }
+        ]
+    }))
+    .map_err(|_| CommandError::new("draft.editor_json_failed"))?;
+    let html = format!(
+        "<div data-nextmail-reply=\"\"><p></p></div><p></p><div data-nextmail-original-message=\"\">{original_html}</div>"
+    );
+    let plain_text = format!("\n\n{original_plain_text}");
     let mut references = source.references.clone();
     if let Some(value) = source.message_id.as_ref() {
         if !references.iter().any(|current| current == value) {
@@ -83,8 +121,8 @@ pub fn compose_message_action_draft(
         recipients,
         subject: prefixed_subject(&source.subject, action),
         content: DraftContent {
-            editor_json: editor_document_from_text(&plain_text)?,
-            html: format!("<p>{}</p>", escape_html(&plain_text)),
+            editor_json,
+            html,
             plain_text,
         },
         in_reply_to: match action {
@@ -164,7 +202,15 @@ fn prefixed_subject(subject: &str, action: MessageComposeAction) -> String {
 }
 
 fn editor_document_from_text(value: &str) -> CommandResult<String> {
-    let content = value
+    serde_json::to_string(&serde_json::json!({
+        "type": "doc",
+        "content": editor_content_from_text(value),
+    }))
+    .map_err(|_| CommandError::new("draft.editor_json_failed"))
+}
+
+fn editor_content_from_text(value: &str) -> Vec<serde_json::Value> {
+    value
         .split("\n\n")
         .map(|paragraph| {
             if paragraph.is_empty() {
@@ -182,9 +228,7 @@ fn editor_document_from_text(value: &str) -> CommandResult<String> {
                 serde_json::json!({ "type": "paragraph", "content": lines })
             }
         })
-        .collect::<Vec<_>>();
-    serde_json::to_string(&serde_json::json!({ "type": "doc", "content": content }))
-        .map_err(|_| CommandError::new("draft.editor_json_failed"))
+        .collect()
 }
 
 fn escape_html(value: &str) -> String {
@@ -227,6 +271,7 @@ mod tests {
             message_id: Some("child@example.com".into()),
             references: vec!["root@example.com".into()],
             plain_text: "First\nSecond".into(),
+            safe_html: Some("<p><strong>First</strong><br>Second</p>".into()),
         };
         let draft = compose_message_action_draft(
             &source,
@@ -243,7 +288,13 @@ mod tests {
             draft.references,
             vec!["root@example.com", "child@example.com"]
         );
-        assert!(draft.content.editor_json.contains("hardBreak"));
+        assert!(draft.content.editor_json.contains("nextmailReply"));
+        assert!(draft
+            .content
+            .editor_json
+            .contains("nextmailOriginalMessage"));
+        assert!(draft.content.editor_json.contains("<strong>First</strong>"));
+        assert!(!draft.content.plain_text.contains("> First"));
     }
 
     #[test]
@@ -256,6 +307,7 @@ mod tests {
             message_id: Some("message@example.com".into()),
             references: vec![],
             plain_text: "<original>".into(),
+            safe_html: None,
         };
         let draft = compose_message_action_draft(
             &source,
@@ -268,5 +320,9 @@ mod tests {
         assert_eq!(draft.subject, "FW: Existing");
         assert_eq!(draft.in_reply_to, None);
         assert!(draft.content.html.contains("&lt;original&gt;"));
+        assert!(draft
+            .content
+            .html
+            .contains("data-nextmail-original-message"));
     }
 }

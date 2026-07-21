@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+  <head>
+    <style>
+      .invoice-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+      .invoice-table tr {
+        display: flex;
+        width: 100%;
+      }
+      .invoice-table th,
+      .invoice-table td {
+        display: flex;
+        flex-shrink: 0;
+        min-width: 0;
+        padding: 12px;
+        justify-content: center;
+        overflow: hidden;
+      }
+      .invoice-table th:nth-child(1),
+      .invoice-table td:nth-child(1),
+      .invoice-table th:nth-child(2),
+      .invoice-table td:nth-child(2) {
+        flex: 2;
+      }
+      .invoice-table th:nth-child(3),
+      .invoice-table td:nth-child(3),
+      .invoice-table th:nth-child(5),
+      .invoice-table td:nth-child(5),
+      .invoice-table th:nth-child(6),
+      .invoice-table td:nth-child(6) {
+        flex: 1;
+      }
+      .invoice-table th:nth-child(4),
+      .invoice-table td:nth-child(4) {
+        flex: 3;
+      }
+      .invoice-table th {
+        color: #ffffff;
+        background-color: #2282d8;
+      }
+      .invoice-table tr:nth-child(even) {
+        background-color: #f9f9f9;
+      }
+    </style>
+  </head>
+  <body>
+    <p>Your invoice is ready.</p>
+    <table class="invoice-table">
+      <thead>
+        <tr>
+          <th>Invoice number</th>
+          <th>Travel date</th>
+          <th>Service</th>
+          <th>Route</th>
+          <th>Item</th>
+          <th>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>NM-2026-0001</td>
+          <td>2026-03-06</td>
+          <td>N8388</td>
+          <td>Westport–Eastport</td>
+          <td>Fare</td>
+          <td>182.00</td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>
