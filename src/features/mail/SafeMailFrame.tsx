@@ -18,7 +18,7 @@ export function SafeMailFrame({ document, title, allowRemoteImages = false }: Sa
     <iframe
       className="size-full border-0 bg-card"
       title={title}
-      sandbox=""
+      sandbox="allow-popups"
       referrerPolicy="no-referrer"
       style={{ colorScheme: dark ? "dark" : "light" }}
       srcDoc={source}

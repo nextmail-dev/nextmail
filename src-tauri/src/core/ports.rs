@@ -25,6 +25,10 @@ pub trait ReadingPreferencesConfigStore: Send + Sync {
     fn save(&self, value: &ReadingPreferences) -> CommandResult<()>;
 }
 
+pub trait ExternalLinkOpener: Send + Sync {
+    fn open(&self, target: &str) -> CommandResult<()>;
+}
+
 #[derive(Clone, Debug)]
 pub struct ImapAccountConfig {
     pub account_id: String,

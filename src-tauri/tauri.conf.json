@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "create": false,
         "title": "NextMail",
         "width": 1180,
         "height": 760,

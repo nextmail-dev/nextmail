@@ -10,6 +10,9 @@ pub mod protocols;
 mod state;
 pub mod storage;
 
+use std::{io, sync::Arc};
+
+use crate::core::ExternalLinkOpener;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,6 +24,7 @@ pub fn run() {
         .setup(|app| {
             let state = state::AppState::from_handle(app.handle())?;
             app.manage(state);
+            create_main_window(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -102,6 +106,33 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == "main")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "main window config is missing"))?;
+    let external_link_opener = Arc::clone(&app.state::<state::AppState>().external_link_opener);
+    tauri::WebviewWindowBuilder::from_config(app, config)?
+        .on_new_window(move |url, _features| {
+            let _ = open_external_mail_target(external_link_opener.as_ref(), url.as_str());
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .build()?;
+    Ok(())
+}
+
+fn open_external_mail_target(
+    opener: &dyn ExternalLinkOpener,
+    candidate: &str,
+) -> core::CommandResult<()> {
+    let validated = protocols::validate_mail_link_target(candidate)
+        .ok_or_else(|| core::CommandError::new("message.link_invalid"))?;
+    opener.open(&validated.target)
+}
+
 fn install_crypto_provider() {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -115,11 +146,45 @@ fn install_crypto_provider() {
 
 #[cfg(test)]
 mod tests {
-    use super::install_crypto_provider;
+    use std::sync::Mutex;
+
+    use super::{install_crypto_provider, open_external_mail_target};
+    use crate::core::{CommandResult, ExternalLinkOpener};
+
+    #[derive(Default)]
+    struct RecordingOpener {
+        targets: Mutex<Vec<String>>,
+    }
+
+    impl ExternalLinkOpener for RecordingOpener {
+        fn open(&self, target: &str) -> CommandResult<()> {
+            self.targets.lock().unwrap().push(target.to_owned());
+            Ok(())
+        }
+    }
 
     #[test]
     fn installs_process_level_rustls_crypto_provider() {
         install_crypto_provider();
         assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
+
+    #[test]
+    fn external_mail_targets_are_revalidated_before_system_opening() {
+        let opener = RecordingOpener::default();
+        open_external_mail_target(&opener, "HTTPS://Example.COM:443/account").unwrap();
+        assert_eq!(
+            *opener.targets.lock().unwrap(),
+            vec!["https://example.com/account"]
+        );
+
+        for unsafe_target in [
+            "javascript:alert(1)",
+            "file:///C:/secret.txt",
+            "https://user:secret@example.com/",
+        ] {
+            assert!(open_external_mail_target(&opener, unsafe_target).is_err());
+        }
+        assert_eq!(opener.targets.lock().unwrap().len(), 1);
     }
 }

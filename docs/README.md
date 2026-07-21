@@ -15,7 +15,7 @@
 - `iterations/0007-font-and-attachment-experience.md`：第七阶段系统字体试验、附件区域紧凑化和安全下载后打开计划。
 - `iterations/0008-refactor-hardening.md`：第八阶段正确性、同步热路径、架构分层和前端结构重构；三个批次均已验收。
 - `iterations/0009-templates-and-signatures.md`：第九阶段模板、签名、变量和写信场景集成计划。
-- `iterations/0010-mail-reading-and-reply-experience.md`：第十阶段 HTML/CSS 保真、受控外链、深色阅读与完整富文本引用计划。
+- `iterations/0010-mail-reading-and-reply-experience.md`：第十阶段 HTML/CSS 与传统布局保真、系统外链、深色阅读及完整富文本引用计划。
 - `iterations/0011-search-conversations-and-desktop.md`：第十一阶段搜索、会话与桌面集成范围。
 - `changes/`：按实施批次记录已经发生的功能和架构变动。
 - `changes/0005-message-and-mailbox-encoding.md`：邮件多字符集、IMAP 文件夹名和旧缓存重建说明。
@@ -51,6 +51,7 @@
 - `changes/0035-composition-scene-rules.md`：第九阶段第二批变量渲染、四场景默认规则、Composer 模板/签名选择和稳定节点。
 - `changes/0036-mail-rendering-security-corpus.md`：第十阶段第一批邮件渲染共享语料、主动内容回归和安全决策门禁。
 - `changes/0037-html-css-fidelity-and-dark-reading.md`：第十阶段第二批安全 `<style>`/行内 CSS、浅深色兜底和正文缓存失效。
+- `changes/0038-direct-external-links-and-layout-fidelity.md`：第十阶段第三批 Windows 实机反馈、系统直接外链、传统表格布局保真和修正迁移。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
@@ -59,7 +60,7 @@
 - `adr/0005-platform-window-chrome.md`：Windows 自绘控制与 macOS 原生交通灯覆盖式标题栏的分平台决策。
 - `adr/0006-single-tauri-rust-crate.md`：使用单一 `src-tauri` Cargo package，并以内部模块维持 Rust 业务边界。
 - `adr/0007-multi-account-runtime-and-credentials.md`：多账户 Supervisor Registry、匿名数据槽隔离和凭据清理事务。
-- `adr/0008-mail-rendering-fidelity-boundary.md`：提议的安全 CSS 子集、深色兜底和不透明外链桥接边界。
+- `adr/0008-mail-rendering-fidelity-boundary.md`：已接受的安全 CSS/传统布局、深色兜底和宿主系统外链边界。
 - `third-party-notices.md`：当前随应用分发的独立第三方资源及许可证说明。
 
 当架构或安全决策出现需要长期解释的取舍时，在 `adr/` 中新增 ADR；单纯实现细节不创建 ADR。

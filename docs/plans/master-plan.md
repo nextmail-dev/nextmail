@@ -23,7 +23,7 @@ Rust 基线为 Tauri 2、Tokio、serde、tracing；当前协议适配采用 asyn
 
 可迁移数据目录包含 `content.sqlite`、`raw/`、`attachments/`、`cache/` 和 `.nextmail-data.json`。账户地址、服务器配置、账户到匿名数据槽映射、本机偏好及当前数据目录路径位于系统应用配置区；密码和 OAuth Token 只进入系统凭据库。
 
-HTML 邮件由 Rust 白名单清洗，并在无 scripts、forms、same-origin 和 top-navigation 权限的 sandbox iframe 中显示。当前只有远程图片 URL 能在严格 CSP 下受控保留并默认阻止，链接 `href` 仍会被移除；资源不透明 ID、受控外链确认和系统打开属于第十阶段范围，不能在实施前写成既有能力。
+HTML 邮件由 Rust 白名单清洗，并在无 scripts、forms、same-origin 和 top-navigation 权限的 sandbox iframe 中显示。安全的 `http`、`https`、`mailto` 链接现由主 WebView 回调再次校验后直接交给系统关联程序，外部网页不在 NextMail 内创建；传统表格邮件布局属性与 class/ID 已纳入安全保真边界。远程图片 URL 仍由严格 CSP 默认阻止，CSS 网络资源、CID/内联资源协议仍未实现。
 
 ## 渐进式实施顺序
 

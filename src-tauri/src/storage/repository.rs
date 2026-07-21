@@ -1239,6 +1239,106 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn transient_controlled_link_schema_is_removed_by_direct_link_migration() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE messages(
+                id TEXT PRIMARY KEY,
+                body_availability TEXT NOT NULL,
+                remote_images_blocked INTEGER NOT NULL,
+                revision INTEGER NOT NULL
+             );
+             CREATE TABLE message_bodies(
+                message_id TEXT PRIMARY KEY,
+                plain_text TEXT,
+                safe_html TEXT
+             );
+             CREATE TABLE schema_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO schema_metadata(key, value) VALUES ('data_format_version', '10');
+             INSERT INTO messages VALUES ('html', 'available', 0, 3);
+             INSERT INTO message_bodies VALUES ('html', 'fallback', '<a>old linkless cache</a>');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0011_controlled_mail_links.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let message: (String, i64) =
+            sqlx::query_as("SELECT body_availability, revision FROM messages WHERE id = 'html'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(message, ("missing".to_owned(), 4));
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM message_bodies")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM schema_metadata WHERE key = 'data_format_version'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "11"
+        );
+
+        sqlx::raw_sql(
+            "UPDATE messages SET body_availability = 'available';
+             INSERT INTO message_bodies(message_id, plain_text, safe_html)
+             VALUES ('html', 'fallback', '<a>cached bridge</a>');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0012_direct_mail_links_and_layout_fidelity.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM schema_metadata WHERE key = 'data_format_version'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "12"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'message_links'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM message_bodies")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
     async fn rebuilt_message_bodies_are_written_atomically_with_account_isolation() {
         let (_directory, repository, mailbox) = repository_with_mailbox(1).await;
         repository

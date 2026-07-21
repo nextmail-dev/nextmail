@@ -10,7 +10,10 @@ describe("SafeMailFrame", () => {
     render(<SafeMailFrame document={plainUnstyledMail} title="Message" />);
 
     const frame = screen.getByTitle("Message");
-    expect(frame).toHaveAttribute("sandbox", "");
+    expect(frame).toHaveAttribute("sandbox", "allow-popups");
+    for (const forbidden of ["allow-scripts", "allow-forms", "allow-same-origin", "allow-top-navigation"]) {
+      expect(frame.getAttribute("sandbox")).not.toContain(forbidden);
+    }
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
     expect(frame).not.toHaveAttribute("allow");
     expect(frame).toHaveStyle({ colorScheme: "light" });

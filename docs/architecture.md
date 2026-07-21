@@ -36,7 +36,7 @@ NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src
 
 依赖方向仍保持为宿主和 Adapter 指向核心，核心不得依赖 Tauri、SQLx 或具体协议库。协议库与 SQLx 类型不得越过模块边界；模块级单元测试、公共 DTO 审查和受控可见性用于维持原有隔离。除非未来出现独立发布、独立版本或被其他二进制复用的实际需求，不再为形式上的分层创建 Cargo Workspace 或子 crate。
 
-账户、Bootstrap 与本机偏好的配置读写以 `core::ports` 注入 application service；IMAP Provider、Repository Provider 和系统附件打开能力同样从 `state.rs` 组合进运行时。Application 不构造具体 JSON Store，Worker 不构造具体 IMAP/SQLite Adapter。写信与邮件运行时复用同一个 Repository 实例和 SQLite 连接池。模板与签名输入校验、变量渲染及初始三格式组合位于 application，SQLx Repository 只按显式作用域持久化定义、场景引用和 revision。
+账户、Bootstrap 与本机偏好的配置读写以 `core::ports` 注入 application service；IMAP Provider、Repository Provider、系统附件与外链打开能力同样由 `state.rs` 装配。Application 不构造具体 JSON Store，Worker 不构造具体 IMAP/SQLite Adapter。写信与邮件运行时复用同一个 Repository 实例和 SQLite 连接池。模板与签名输入校验、变量渲染及初始三格式组合位于 application，SQLx Repository 只按显式作用域持久化定义、场景引用和 revision。
 
 ## 存储边界
 
@@ -130,10 +130,12 @@ UI 使用操作系统原生字体栈，不再随 Vite 打包字体。Windows 使
 
 ## HTML 阅读器
 
-- Ammonia 先移除脚本、表单、嵌入文档、事件属性、危险 URL 与外部样式表；独立 CSS 模块随后用 `cssparser` 重建 `<style>` 和行内声明，只保留展示属性、普通/属性选择器与受控 `@media`。网络 `url()`、未知函数、其他 at-rule、固定遮罩、动画和变换继续移除。安全的远程 `<img>` URL 可以保留，但默认 iframe CSP 的 `img-src data:` 阻止请求。
-- 当前清洗层同时移除所有链接 `href`，因此邮件正文暂不提供外链打开；未来受控外链仍必须经过 Rust URL 校验、用户确认和系统打开边界。
-- “立即显示”或设备级“自动加载远程图片”只把当前 iframe 的图片 CSP 扩为 `data: http: https:`，sandbox 仍不启用 scripts、forms、same-origin 或 top-navigation，并使用 `no-referrer`。自动加载默认关闭，设置界面说明打开跟踪风险。
+- Ammonia 先移除脚本、表单、嵌入文档、事件属性、危险 URL 与外部样式表；独立 CSS 模块随后用 `cssparser` 重建 `<style>` 和行内声明，只保留展示属性、普通/属性选择器与受控 `@media`。清洗器保留 `class`、`id`、传统表格宽高/居中/间距/对齐/背景色和字体属性，使常见邮件 HTML 的作者样式与固定宽度布局继续生效。网络 `url()`、未知函数、其他 at-rule、固定遮罩、动画和变换继续移除。
+- 阅读器不再注入会改变作者几何布局的统一字体/行高、16px 内边距、任意断词或 `img/table max-width`；安全的远程 `<img>` URL 可以保留，但默认 iframe CSP 的 `img-src data:` 阻止请求。
+- 清洗层只接受规范化后的 `http`、`https`、`mailto` 并直接保留为 `href`，固定设置 `target="_blank"` 与 `rel="noopener noreferrer"`；其他 scheme、相对/本机路径、用户信息、控制字符和混淆 URL 移除。
+- 邮件 iframe 的 sandbox 只有 `allow-popups`。主窗口由既有 Tauri 平台配置显式创建，`on_new_window` 对目标再次执行 Rust URL 校验，再交给 `state.rs` 注入的系统外链打开器，并始终返回 `Deny`，因此外部网页不会在 NextMail WebView 内创建或加载；React 无链接事件、确认 UI 或通用 opener Command。
+- “立即显示”或设备级“自动加载远程图片”只把当前 iframe 的图片 CSP 扩为 `data: http: https:`；sandbox 仍不启用 scripts、forms、same-origin 或 top-navigation，并使用 `no-referrer`。自动加载默认关闭，设置界面说明打开跟踪风险。
 - Tauri 顶层 CSP 允许图片协议只是为 iframe 的显式选择提供上限；默认阻止由邮件文档自身更严格的 CSP 执行。
 - 阅读 iframe 不继承应用 DOM 样式。NextMail 根据有效主题在 iframe 元素和内部文档设置 `color-scheme`，并注入不带 `!important` 的浅色或灰黑深色兜底；无明确样式的正文获得可读配色，邮件作者在页面、类或行内明确设置的颜色和背景按正常层叠优先。完整 HTML 的 `<body style>` 在清洗前转换为带固定标记的内部正文容器，经相同 CSS 过滤后保留页面级行内配色；该容器不增加脚本或 IPC 能力。`cid:`/附件资源协议与远程样式资源仍未实现。
-- HTML 清洗策略升级时通过嵌入式迁移失效旧 HTML 正文缓存；数据格式版本 10 只删除包含 `safe_html` 的旧正文记录并保留纯文本记录。正文请求先按账户槽读取本地原始 EML，在不持有 SQLite 写锁的 blocking worker 中重新解析/清洗，再以单个事务写回正文与消息可用状态；只有本地原文缺失或不可解析时才通过 IMAP 获取。
-- `testdata/mail-rendering/` 是 Rust/前端共享的正式保真与主动内容语料。ADR 0008 保留 `sandbox=""` 不透明 origin；第三批外链计划使用账户/消息归属的不透明 ID 和 Rust 自定义协议窄桥接，不能直接获得系统 opener。
+- HTML 清洗策略升级时通过嵌入式迁移失效旧 HTML 正文缓存。迁移 0011 是未通过实机验收的链接映射原型且因 SQLx 校验不可修改；数据格式版本 12 的迁移 0012 删除临时 `message_links` 表并再次失效旧 `safe_html`。正文请求先按账户槽读取本地原始 EML，在不持有 SQLite 写锁的 blocking worker 中重新解析/清洗，再以单个事务写回正文与消息可用状态；只有本地原文缺失或不可解析时才通过 IMAP 获取。
+- `testdata/mail-rendering/` 是 Rust/前端共享的正式保真与主动内容语料。ADR 0008 保留不透明 origin，sandbox 仅为受宿主拦截的用户链接点击增加 `allow-popups`；不增加脚本、表单、same-origin、顶层导航、前端通用网络或通用 opener 权限。

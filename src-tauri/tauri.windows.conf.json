@@ -3,6 +3,7 @@
   "app": {
     "windows": [
       {
+        "create": false,
         "label": "main",
         "title": "NextMail",
         "width": 1180,

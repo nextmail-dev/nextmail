@@ -2,11 +2,13 @@ mod compose;
 mod css;
 mod html;
 mod imap;
+mod links;
 mod tls;
 
 pub use compose::*;
 pub use html::*;
 pub use imap::*;
+pub use links::*;
 pub(crate) use tls::native_tls_connector;
 
 use crate::core::{CommandError, CommandResult};

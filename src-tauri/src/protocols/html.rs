@@ -3,7 +3,10 @@ use std::borrow::Cow;
 use ammonia::Builder;
 use mail_parser::MessageParser;
 
-use super::css::{sanitize_style_attribute, sanitize_stylesheet};
+use super::{
+    css::{sanitize_style_attribute, sanitize_stylesheet},
+    validate_mail_link_target,
+};
 
 const MAX_STYLE_ELEMENTS: usize = 32;
 const MAX_TOTAL_STYLESHEET_BYTES: usize = 256 * 1024;
@@ -29,13 +32,13 @@ pub fn sanitize_raw_message_body(raw: &[u8]) -> Option<SanitizedMessageBody> {
     if plain_text.is_none() && sanitized_html.is_none() {
         return None;
     }
+    let (safe_html, remote_images_blocked) = sanitized_html
+        .map(|sanitized| (Some(sanitized.document), sanitized.remote_images_blocked))
+        .unwrap_or_default();
     Some(SanitizedMessageBody {
         plain_text,
-        safe_html: sanitized_html
-            .as_ref()
-            .map(|sanitized| sanitized.document.clone()),
-        remote_images_blocked: sanitized_html
-            .is_some_and(|sanitized| sanitized.remote_images_blocked),
+        safe_html,
+        remote_images_blocked,
     })
 }
 
@@ -44,13 +47,39 @@ pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
     builder
         .add_clean_content_tags(["script", "form", "iframe", "object", "svg", "math"])
         .rm_clean_content_tags(["style"])
-        .add_tags(["style"])
-        .add_tag_attributes("div", ["data-nextmail-body"])
+        .add_tags(["style", "font", "tfoot"])
+        .add_tag_attributes("div", ["align", "data-nextmail-body"])
+        .add_tag_attributes("p", ["align"])
+        .add_tag_attributes(
+            "table",
+            [
+                "border",
+                "cellpadding",
+                "cellspacing",
+                "bgcolor",
+                "height",
+                "role",
+                "valign",
+                "width",
+            ],
+        )
+        .add_tag_attributes("tbody", ["bgcolor", "height", "valign", "width"])
+        .add_tag_attributes("thead", ["bgcolor", "height", "valign", "width"])
+        .add_tag_attributes("tfoot", ["align", "bgcolor", "height", "valign", "width"])
+        .add_tag_attributes("tr", ["bgcolor", "height", "valign", "width"])
+        .add_tag_attributes("td", ["bgcolor", "height", "nowrap", "valign", "width"])
+        .add_tag_attributes("th", ["bgcolor", "height", "nowrap", "valign", "width"])
+        .add_tag_attributes("col", ["valign", "width"])
+        .add_tag_attributes("colgroup", ["valign", "width"])
+        .add_tag_attributes("img", ["border", "hspace", "vspace"])
+        .add_tag_attributes("font", ["color", "face", "size"])
         .rm_tags([
             "form", "iframe", "object", "embed", "svg", "math", "meta", "link",
         ])
         .strip_comments(true)
-        .add_generic_attributes(["style"])
+        .add_generic_attributes(["class", "dir", "id", "role", "style"])
+        .add_generic_attribute_prefixes(["aria-"])
+        .set_tag_attribute_value("a", "target", "_blank")
         .attribute_filter(|element, attribute, value| {
             let attribute_lower = attribute.to_ascii_lowercase();
             if attribute_lower.starts_with("on")
@@ -63,7 +92,11 @@ pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
                 return (!sanitized.is_empty()).then_some(Cow::Owned(sanitized));
             }
             if element == "a" && attribute_lower == "href" {
-                return None;
+                let validated = validate_mail_link_target(value)?;
+                return Some(Cow::Owned(validated.target));
+            }
+            if element == "a" && attribute_lower == "target" {
+                return Some(Cow::Borrowed("_blank"));
             }
             if element == "img" && attribute_lower == "src" {
                 let trimmed = value.trim();
@@ -89,7 +122,7 @@ pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
         && (normalized.contains("src=\"http://") || normalized.contains("src=\"https://"));
     SanitizedHtml {
         document: format!(
-            "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><style>html{{color-scheme:light}}body{{margin:0;padding:16px;font:14px/1.55 system-ui,sans-serif;overflow-wrap:anywhere}}[data-nextmail-body]{{min-height:calc(100vh - 32px)}}img{{max-width:100%}}table{{max-width:100%}}a{{color:#2563eb}}</style></head><body>{fragment}</body></html>"
+            "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><style>html{{color-scheme:light}}body{{margin:0}}</style></head><body>{fragment}</body></html>"
         ),
         remote_images_blocked,
     }
@@ -324,6 +357,43 @@ mod tests {
     }
 
     #[test]
+    fn preserves_only_valid_external_targets_for_system_opening() {
+        let sanitized = sanitize_mail_html(
+            r#"<a href="HTTPS://Example.COM:443/account" target="_blank">web</a>
+               <a href="//news.example.com/latest">news</a>
+               <a href="mailto:reader@example.com?subject=Hello">mail</a>
+               <a href="javascript:alert(1)">script</a>
+               <a href="file:///C:/secret.txt">file</a>
+               <a href="https://user:secret@example.com/">credentials</a>
+               <a href="/relative/path">relative</a>"#,
+        );
+
+        for expected in [
+            "href=\"https://example.com/account\"",
+            "href=\"https://news.example.com/latest\"",
+            "href=\"mailto:reader@example.com?subject=Hello\"",
+        ] {
+            assert!(sanitized.document.contains(expected), "missing {expected}");
+        }
+        assert_eq!(sanitized.document.matches("target=\"_blank\"").count(), 7);
+        assert_eq!(
+            sanitized
+                .document
+                .matches("rel=\"noopener noreferrer\"")
+                .count(),
+            7
+        );
+        for forbidden in [
+            "javascript:",
+            "file:///",
+            "user:secret",
+            "href=\"/relative/path\"",
+        ] {
+            assert!(!sanitized.document.contains(forbidden));
+        }
+    }
+
+    #[test]
     fn removes_forms_embedded_documents_and_css_resource_urls() {
         let sanitized = sanitize_mail_html(
             r#"<form action="https://example.com"><input name="secret"></form>
@@ -371,6 +441,42 @@ mod tests {
     }
 
     #[test]
+    fn preserves_legacy_email_table_layout_and_css_selector_hooks() {
+        let sanitized = sanitize_mail_html(
+            r##"<table class="campaign" id="mail-shell" role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" align="center" bgcolor="#ffffff"><tbody><tr valign="top" bgcolor="#eeeeee"><td width="420" height="80" valign="middle" nowrap><font face="Arial" size="3" color="#202124">Content</font></td></tr></tbody></table>"##,
+        );
+
+        for expected in [
+            "class=\"campaign\"",
+            "id=\"mail-shell\"",
+            "role=\"presentation\"",
+            "width=\"600\"",
+            "cellpadding=\"0\"",
+            "cellspacing=\"0\"",
+            "border=\"0\"",
+            "align=\"center\"",
+            "bgcolor=\"#ffffff\"",
+            "valign=\"middle\"",
+            "nowrap=\"\"",
+            "face=\"Arial\"",
+        ] {
+            assert!(sanitized.document.contains(expected), "missing {expected}");
+        }
+        for unwanted in [
+            "padding:16px",
+            "font:14px/1.55",
+            "overflow-wrap:anywhere",
+            "img{max-width:100%}",
+            "table{max-width:100%}",
+        ] {
+            assert!(
+                !sanitized.document.contains(unwanted),
+                "retained layout override {unwanted}"
+            );
+        }
+    }
+
+    #[test]
     fn preserves_authored_body_styles_in_a_safe_inner_container() {
         let sanitized = sanitize_mail_html(
             r#"<!doctype html><html><body style="background-color:#f4f5f7;color:#202124"><p>Body content</p></body></html>"#,
@@ -392,6 +498,8 @@ mod tests {
             "<style>",
             ".campaign{",
             ".campaign-title{",
+            "class=\"campaign\"",
+            "class=\"campaign-title\"",
             "@media (max-width:640px)",
             "padding:18px",
         ] {

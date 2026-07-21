@@ -6,9 +6,11 @@ use crate::{
     adapters::{
         AccountsStore, AppPaths, BootstrapStore, MailConnectionTester, PreferencesStore,
         ReadingPreferencesStore, SystemAttachmentOpener, SystemCredentialStore,
+        SystemExternalLinkOpener,
     },
     application::AppService,
     composer_runtime::ComposerRuntime,
+    core::ExternalLinkOpener,
     error::CommandResult,
     mail_runtime::MailRuntime,
     protocols::AsyncImapProvider,
@@ -19,6 +21,7 @@ pub struct AppState {
     pub service: Arc<AppService>,
     pub mail: Arc<MailRuntime>,
     pub composer: Arc<ComposerRuntime>,
+    pub external_link_opener: Arc<dyn ExternalLinkOpener>,
 }
 
 impl AppState {
@@ -49,10 +52,12 @@ impl AppState {
             Arc::clone(&service),
             Arc::clone(&mail),
         ));
+        let external_link_opener = Arc::new(SystemExternalLinkOpener);
         Ok(Self {
             service,
             mail,
             composer,
+            external_link_opener,
         })
     }
 }
