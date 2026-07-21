@@ -49,13 +49,16 @@
 - `changes/0033-template-and-signature-library.md`：第九阶段第一批全局/账户模板与签名库、稳定 CRUD 和设置窗口富文本管理。
 - `changes/0034-application-icon-assets.md`：替换 NextMail 应用图标源文件并更新 Windows、macOS、Android 与 iOS 尺寸资产。
 - `changes/0035-composition-scene-rules.md`：第九阶段第二批变量渲染、四场景默认规则、Composer 模板/签名选择和稳定节点。
+- `changes/0036-mail-rendering-security-corpus.md`：第十阶段第一批邮件渲染共享语料、主动内容回归和安全决策门禁。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
+- `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
 - `adr/0003-durable-send-pipeline.md`：持久化 MIME 与可恢复 SMTP 发件决策。
 - `adr/0004-durable-imap-operation-queue.md`：持久化 IMAP 待办、冲突重放与安全 EXPUNGE 降级。
 - `adr/0005-platform-window-chrome.md`：Windows 自绘控制与 macOS 原生交通灯覆盖式标题栏的分平台决策。
 - `adr/0006-single-tauri-rust-crate.md`：使用单一 `src-tauri` Cargo package，并以内部模块维持 Rust 业务边界。
 - `adr/0007-multi-account-runtime-and-credentials.md`：多账户 Supervisor Registry、匿名数据槽隔离和凭据清理事务。
+- `adr/0008-mail-rendering-fidelity-boundary.md`：提议的安全 CSS 子集、深色兜底和不透明外链桥接边界。
 - `third-party-notices.md`：当前随应用分发的独立第三方资源及许可证说明。
 
 当架构或安全决策出现需要长期解释的取舍时，在 `adr/` 中新增 ADR；单纯实现细节不创建 ADR。

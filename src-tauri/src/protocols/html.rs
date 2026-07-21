@@ -153,7 +153,131 @@ fn safe_style_properties() -> HashSet<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
+    use serde::Deserialize;
+
     use super::*;
+
+    const RENDERING_CASES: [(&str, &str); 7] = [
+        (
+            "plain-unstyled.html",
+            include_str!("../../../testdata/mail-rendering/plain-unstyled.html"),
+        ),
+        (
+            "transactional-table.html",
+            include_str!("../../../testdata/mail-rendering/transactional-table.html"),
+        ),
+        (
+            "marketing-responsive.html",
+            include_str!("../../../testdata/mail-rendering/marketing-responsive.html"),
+        ),
+        (
+            "native-dark.html",
+            include_str!("../../../testdata/mail-rendering/native-dark.html"),
+        ),
+        (
+            "mixed-background-table.html",
+            include_str!("../../../testdata/mail-rendering/mixed-background-table.html"),
+        ),
+        (
+            "links-and-remote-resources.html",
+            include_str!("../../../testdata/mail-rendering/links-and-remote-resources.html"),
+        ),
+        (
+            "malicious-active-content.html",
+            include_str!("../../../testdata/mail-rendering/malicious-active-content.html"),
+        ),
+    ];
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RenderingManifest {
+        schema_version: u32,
+        cases: Vec<RenderingManifestCase>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RenderingManifestCase {
+        file: String,
+        category: String,
+        expected_safe_layout: String,
+        contains_remote_resources: bool,
+        contains_links: bool,
+        dark_mode_case: String,
+        active_threats: Vec<String>,
+    }
+
+    #[test]
+    fn rendering_corpus_manifest_covers_every_shared_fixture() {
+        let manifest: RenderingManifest = serde_json::from_str(include_str!(
+            "../../../testdata/mail-rendering/manifest.json"
+        ))
+        .expect("rendering corpus manifest must be valid JSON");
+        assert_eq!(manifest.schema_version, 1);
+
+        let fixture_names = RENDERING_CASES
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<HashSet<_>>();
+        let manifest_names = manifest
+            .cases
+            .iter()
+            .map(|case| case.file.as_str())
+            .collect::<HashSet<_>>();
+        assert_eq!(fixture_names, manifest_names);
+        assert_eq!(manifest_names.len(), manifest.cases.len());
+
+        for case in manifest.cases {
+            assert!(!case.category.trim().is_empty());
+            assert!(!case.expected_safe_layout.trim().is_empty());
+            assert!(!case.dark_mode_case.trim().is_empty());
+            if case.contains_remote_resources {
+                assert!(case.file.contains("marketing") || !case.active_threats.is_empty());
+            }
+            if case.contains_links {
+                assert!(case.file != "plain-unstyled.html");
+            }
+        }
+    }
+
+    #[test]
+    fn shared_rendering_corpus_keeps_the_current_active_content_boundary() {
+        for (name, source) in RENDERING_CASES {
+            let sanitized = sanitize_mail_html(source);
+            let normalized = sanitized.document.to_ascii_lowercase();
+
+            assert!(normalized.starts_with("<!doctype html>"), "fixture {name}");
+            assert!(
+                normalized.contains("default-src 'none'"),
+                "fixture {name} must keep the restrictive document CSP"
+            );
+            for forbidden in [
+                "<script",
+                "<form",
+                "<iframe",
+                "<object",
+                "<embed",
+                "<svg",
+                "<math",
+                "<link",
+                "javascript:",
+                "file:///",
+                " onload=",
+                " onclick=",
+                " onerror=",
+                "@import",
+                "background-image",
+                "position:fixed",
+            ] {
+                assert!(
+                    !normalized.contains(forbidden),
+                    "fixture {name} retained forbidden token {forbidden}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn removes_scripts_events_navigation_and_remote_images() {

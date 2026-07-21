@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "file": "plain-unstyled.html",
+      "category": "plain",
+      "expectedSafeLayout": "unstyled body text and a simple divider",
+      "containsRemoteResources": false,
+      "containsLinks": false,
+      "darkModeCase": "fallback",
+      "activeThreats": []
+    },
+    {
+      "file": "transactional-table.html",
+      "category": "transactional",
+      "expectedSafeLayout": "nested receipt tables and inline presentation styles",
+      "containsRemoteResources": false,
+      "containsLinks": false,
+      "darkModeCase": "authored-light",
+      "activeThreats": []
+    },
+    {
+      "file": "marketing-responsive.html",
+      "category": "marketing",
+      "expectedSafeLayout": "safe embedded CSS, a media query, tables and a remote hero image",
+      "containsRemoteResources": true,
+      "containsLinks": true,
+      "darkModeCase": "authored-light",
+      "activeThreats": []
+    },
+    {
+      "file": "native-dark.html",
+      "category": "native-dark",
+      "expectedSafeLayout": "color-scheme metadata and a prefers-color-scheme rule",
+      "containsRemoteResources": false,
+      "containsLinks": true,
+      "darkModeCase": "native",
+      "activeThreats": []
+    },
+    {
+      "file": "mixed-background-table.html",
+      "category": "mixed-background",
+      "expectedSafeLayout": "light and dark authored cells in one table",
+      "containsRemoteResources": false,
+      "containsLinks": false,
+      "darkModeCase": "mixed",
+      "activeThreats": []
+    },
+    {
+      "file": "links-and-remote-resources.html",
+      "category": "links-and-resources",
+      "expectedSafeLayout": "validated web and mail links with blocked tracking resources",
+      "containsRemoteResources": true,
+      "containsLinks": true,
+      "darkModeCase": "fallback",
+      "activeThreats": [
+        "javascript-url",
+        "file-url",
+        "css-network-url",
+        "tracking-image"
+      ]
+    },
+    {
+      "file": "malicious-active-content.html",
+      "category": "malicious",
+      "expectedSafeLayout": "visible inert text only",
+      "containsRemoteResources": true,
+      "containsLinks": true,
+      "darkModeCase": "fallback",
+      "activeThreats": [
+        "script",
+        "event-handler",
+        "form",
+        "embedded-document",
+        "external-stylesheet",
+        "css-import",
+        "css-network-url",
+        "fixed-overlay",
+        "javascript-url",
+        "file-url"
+      ]
+    }
+  ]
+}

