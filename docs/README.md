@@ -50,6 +50,7 @@
 - `changes/0034-application-icon-assets.md`：替换 NextMail 应用图标源文件并更新 Windows、macOS、Android 与 iOS 尺寸资产。
 - `changes/0035-composition-scene-rules.md`：第九阶段第二批变量渲染、四场景默认规则、Composer 模板/签名选择和稳定节点。
 - `changes/0036-mail-rendering-security-corpus.md`：第十阶段第一批邮件渲染共享语料、主动内容回归和安全决策门禁。
+- `changes/0037-html-css-fidelity-and-dark-reading.md`：第十阶段第二批安全 `<style>`/行内 CSS、浅深色兜底和正文缓存失效。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。

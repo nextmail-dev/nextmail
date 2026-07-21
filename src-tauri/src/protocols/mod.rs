@@ -1,4 +1,5 @@
 mod compose;
+mod css;
 mod html;
 mod imap;
 mod tls;

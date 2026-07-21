@@ -674,6 +674,44 @@ impl MailRuntime {
         message_id: &str,
         mailbox_id: Option<&str>,
     ) -> CommandResult<MessageDetail> {
+        let account = self.service.account_record(account_id)?;
+        let repository = Arc::clone(self.repository().await?);
+        if let Some(raw) = repository
+            .read()
+            .raw_message(&account.data_slot_id, message_id)
+            .await?
+        {
+            let body = tokio::task::spawn_blocking(move || {
+                crate::protocols::sanitize_raw_message_body(&raw)
+            })
+            .await
+            .map_err(|_| CommandError::new("message.mime_parse_failed"))?;
+            if let Some(body) = body {
+                repository
+                    .sync_sink()
+                    .replace_message_body(
+                        &account.data_slot_id,
+                        message_id,
+                        body.plain_text.as_deref(),
+                        body.safe_html.as_deref(),
+                        body.remote_images_blocked,
+                    )
+                    .await?;
+                let detail = repository
+                    .read()
+                    .get_message_detail(&account.data_slot_id, message_id, mailbox_id)
+                    .await?;
+                let _ = self.app.emit(
+                    "message-content-changed",
+                    MessageContentChangedEvent {
+                        account_id: account_id.to_owned(),
+                        message_id: message_id.to_owned(),
+                        revision: detail.revision,
+                    },
+                );
+                return Ok(detail);
+            }
+        }
         self.fetch_and_store_message(account_id, message_id).await?;
         self.get_message_detail(account_id, message_id, mailbox_id)
             .await

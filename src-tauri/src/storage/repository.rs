@@ -191,6 +191,53 @@ impl MailRepository {
     }
 }
 
+impl SyncSinkRepository {
+    pub async fn replace_message_body(
+        &self,
+        account_slot_id: &str,
+        message_id: &str,
+        plain_text: Option<&str>,
+        safe_html: Option<&str>,
+        remote_images_blocked: bool,
+    ) -> CommandResult<()> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CommandError::new("storage.message_body_write_failed"))?;
+        let result = sqlx::query(
+            "UPDATE messages SET body_availability = 'available', remote_images_blocked = ?, \
+             revision = revision + 1 WHERE id = ? AND account_slot_id = ?",
+        )
+        .bind(i64::from(remote_images_blocked))
+        .bind(message_id)
+        .bind(account_slot_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| CommandError::new("storage.message_body_write_failed"))?;
+        if result.rows_affected() != 1 {
+            return Err(CommandError::new("message.not_found"));
+        }
+        sqlx::query(
+            "INSERT INTO message_bodies(message_id, plain_text, safe_html, updated_at) \
+             VALUES (?, ?, ?, ?) ON CONFLICT(message_id) DO UPDATE SET \
+             plain_text = excluded.plain_text, safe_html = excluded.safe_html, \
+             updated_at = excluded.updated_at",
+        )
+        .bind(message_id)
+        .bind(plain_text)
+        .bind(safe_html)
+        .bind(now())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| CommandError::new("storage.message_body_write_failed"))?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| CommandError::new("storage.message_body_write_failed"))
+    }
+}
+
 impl MailReadRepository {
     pub async fn list_mailboxes(
         &self,
@@ -1110,6 +1157,137 @@ fn storage_read_error(_: sqlx::Error) -> CommandError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn stylesheet_policy_migration_invalidates_only_cached_html_bodies() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE messages(
+                id TEXT PRIMARY KEY,
+                body_availability TEXT NOT NULL,
+                remote_images_blocked INTEGER NOT NULL,
+                revision INTEGER NOT NULL
+             );
+             CREATE TABLE message_bodies(
+                message_id TEXT PRIMARY KEY,
+                plain_text TEXT,
+                safe_html TEXT
+             );
+             CREATE TABLE schema_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO schema_metadata(key, value) VALUES ('data_format_version', '9');
+             INSERT INTO messages VALUES ('html', 'available', 1, 4);
+             INSERT INTO messages VALUES ('plain', 'available', 0, 2);
+             INSERT INTO message_bodies VALUES ('html', 'HTML fallback', '<p>Cached</p>');
+             INSERT INTO message_bodies VALUES ('plain', 'Plain only', NULL);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0010_html_stylesheet_and_theme_fidelity.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let html_message: (String, i64, i64) = sqlx::query_as(
+            "SELECT body_availability, remote_images_blocked, revision FROM messages WHERE id = 'html'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(html_message, ("missing".to_owned(), 0, 5));
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM message_bodies WHERE message_id = 'html'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+
+        let plain_message: (String, i64) =
+            sqlx::query_as("SELECT body_availability, revision FROM messages WHERE id = 'plain'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(plain_message, ("available".to_owned(), 2));
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT plain_text FROM message_bodies WHERE message_id = 'plain'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "Plain only"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM schema_metadata WHERE key = 'data_format_version'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "10"
+        );
+    }
+
+    #[tokio::test]
+    async fn rebuilt_message_bodies_are_written_atomically_with_account_isolation() {
+        let (_directory, repository, mailbox) = repository_with_mailbox(1).await;
+        repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &remote_message(1, 1, "Cached"))
+            .await
+            .unwrap();
+        let message = repository
+            .read()
+            .list_messages("slot", &mailbox.id, None, 20)
+            .await
+            .unwrap()
+            .items
+            .remove(0);
+
+        let error = repository
+            .sync_sink()
+            .replace_message_body(
+                "another-slot",
+                &message.id,
+                Some("wrong account"),
+                Some("<p>wrong account</p>"),
+                false,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "message.not_found");
+
+        repository
+            .sync_sink()
+            .replace_message_body(
+                "slot",
+                &message.id,
+                Some("offline body"),
+                Some("<p>offline body</p>"),
+                true,
+            )
+            .await
+            .unwrap();
+        let detail = repository
+            .read()
+            .get_message_detail("slot", &message.id, Some(&mailbox.id))
+            .await
+            .unwrap();
+        assert_eq!(detail.plain_text.as_deref(), Some("offline body"));
+        assert_eq!(detail.safe_html.as_deref(), Some("<p>offline body</p>"));
+        assert!(detail.remote_images_blocked);
+        assert_eq!(detail.body_availability, ContentAvailability::Available);
+    }
 
     async fn repository_with_mailbox(
         uid_validity: u32,

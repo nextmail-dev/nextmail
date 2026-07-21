@@ -20,6 +20,7 @@ export function SafeMailFrame({ document, title, allowRemoteImages = false }: Sa
       title={title}
       sandbox=""
       referrerPolicy="no-referrer"
+      style={{ colorScheme: dark ? "dark" : "light" }}
       srcDoc={source}
     />
   );
@@ -47,8 +48,8 @@ function prepareFrameDocument(source: string, allowRemoteImages: boolean, dark: 
     ? source.replace("img-src data:;", "img-src data: http: https:;")
     : source;
   const themeStyle = dark
-    ? `<style id="nextmail-reader-theme">html{color-scheme:dark}html,body{background:#181818!important;color:#e8e8e8}a{color:#8ab4f8}hr{border-color:#3a3a3a}</style>`
-    : `<style id="nextmail-reader-theme">html,body{background:#fff!important;color:#202124}</style>`;
+    ? `<style id="nextmail-reader-theme">html{color-scheme:dark;background:#181818;color:#e8e8e8}body{background:#181818;color:#e8e8e8}a{color:#8ab4f8}hr,table{border-color:#3a3a3a}</style>`
+    : `<style id="nextmail-reader-theme">html{color-scheme:light;background:#fff;color:#202124}body{background:#fff;color:#202124}</style>`;
   document = document.includes("</head>")
     ? document.replace("</head>", `${themeStyle}</head>`)
     : `${themeStyle}${document}`;

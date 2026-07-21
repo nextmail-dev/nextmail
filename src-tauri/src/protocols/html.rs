@@ -1,6 +1,13 @@
-use std::{borrow::Cow, collections::HashSet};
+use std::borrow::Cow;
 
 use ammonia::Builder;
+use mail_parser::MessageParser;
+
+use super::css::{sanitize_style_attribute, sanitize_stylesheet};
+
+const MAX_STYLE_ELEMENTS: usize = 32;
+const MAX_TOTAL_STYLESHEET_BYTES: usize = 256 * 1024;
+const MAX_TOTAL_STYLE_RULES: usize = 2_048;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SanitizedHtml {
@@ -8,22 +15,52 @@ pub struct SanitizedHtml {
     pub remote_images_blocked: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SanitizedMessageBody {
+    pub plain_text: Option<String>,
+    pub safe_html: Option<String>,
+    pub remote_images_blocked: bool,
+}
+
+pub fn sanitize_raw_message_body(raw: &[u8]) -> Option<SanitizedMessageBody> {
+    let message = MessageParser::default().parse(raw)?;
+    let plain_text = message.body_text(0).map(|value| value.into_owned());
+    let sanitized_html = message.body_html(0).map(|value| sanitize_mail_html(&value));
+    if plain_text.is_none() && sanitized_html.is_none() {
+        return None;
+    }
+    Some(SanitizedMessageBody {
+        plain_text,
+        safe_html: sanitized_html
+            .as_ref()
+            .map(|sanitized| sanitized.document.clone()),
+        remote_images_blocked: sanitized_html
+            .is_some_and(|sanitized| sanitized.remote_images_blocked),
+    })
+}
+
 pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
     let mut builder = Builder::default();
     builder
-        .add_clean_content_tags(["script", "style", "form", "iframe", "object", "svg", "math"])
+        .add_clean_content_tags(["script", "form", "iframe", "object", "svg", "math"])
+        .rm_clean_content_tags(["style"])
+        .add_tags(["style"])
+        .add_tag_attributes("div", ["data-nextmail-body"])
         .rm_tags([
             "form", "iframe", "object", "embed", "svg", "math", "meta", "link",
         ])
         .strip_comments(true)
         .add_generic_attributes(["style"])
-        .filter_style_properties(safe_style_properties())
         .attribute_filter(|element, attribute, value| {
             let attribute_lower = attribute.to_ascii_lowercase();
             if attribute_lower.starts_with("on")
                 || matches!(attribute_lower.as_str(), "srcset" | "formaction" | "action")
             {
                 return None;
+            }
+            if attribute_lower == "style" {
+                let sanitized = sanitize_style_attribute(value);
+                return (!sanitized.is_empty()).then_some(Cow::Owned(sanitized));
             }
             if element == "a" && attribute_lower == "href" {
                 return None;
@@ -45,110 +82,103 @@ pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
             Some(Cow::Borrowed(value))
         });
 
-    let fragment = builder.clean(input).to_string();
+    let input = preserve_body_container(input);
+    let fragment = sanitize_style_elements(&builder.clean(input.as_ref()).to_string());
     let normalized = fragment.to_ascii_lowercase();
     let remote_images_blocked = normalized.contains("<img")
         && (normalized.contains("src=\"http://") || normalized.contains("src=\"https://"));
     SanitizedHtml {
         document: format!(
-            "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><style>html{{color-scheme:light}}body{{margin:0;padding:16px;font:14px/1.55 system-ui,sans-serif;overflow-wrap:anywhere}}img{{max-width:100%}}table{{max-width:100%}}a{{color:#2563eb}}</style></head><body>{fragment}</body></html>"
+            "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><style>html{{color-scheme:light}}body{{margin:0;padding:16px;font:14px/1.55 system-ui,sans-serif;overflow-wrap:anywhere}}[data-nextmail-body]{{min-height:calc(100vh - 32px)}}img{{max-width:100%}}table{{max-width:100%}}a{{color:#2563eb}}</style></head><body>{fragment}</body></html>"
         ),
         remote_images_blocked,
     }
 }
 
-fn safe_style_properties() -> HashSet<&'static str> {
-    [
-        "align-content",
-        "align-items",
-        "align-self",
-        "background-color",
-        "border",
-        "border-bottom",
-        "border-bottom-color",
-        "border-bottom-left-radius",
-        "border-bottom-right-radius",
-        "border-bottom-style",
-        "border-bottom-width",
-        "border-collapse",
-        "border-color",
-        "border-left",
-        "border-left-color",
-        "border-left-style",
-        "border-left-width",
-        "border-radius",
-        "border-right",
-        "border-right-color",
-        "border-right-style",
-        "border-right-width",
-        "border-spacing",
-        "border-style",
-        "border-top",
-        "border-top-color",
-        "border-top-left-radius",
-        "border-top-right-radius",
-        "border-top-style",
-        "border-top-width",
-        "border-width",
-        "box-sizing",
-        "clear",
-        "color",
-        "direction",
-        "display",
-        "flex",
-        "flex-basis",
-        "flex-direction",
-        "flex-grow",
-        "flex-shrink",
-        "flex-wrap",
-        "float",
-        "font",
-        "font-family",
-        "font-size",
-        "font-stretch",
-        "font-style",
-        "font-variant",
-        "font-weight",
-        "gap",
-        "height",
-        "justify-content",
-        "letter-spacing",
-        "line-height",
-        "list-style-position",
-        "list-style-type",
-        "margin",
-        "margin-bottom",
-        "margin-left",
-        "margin-right",
-        "margin-top",
-        "max-height",
-        "max-width",
-        "min-height",
-        "min-width",
-        "opacity",
-        "overflow",
-        "overflow-wrap",
-        "overflow-x",
-        "overflow-y",
-        "padding",
-        "padding-bottom",
-        "padding-left",
-        "padding-right",
-        "padding-top",
-        "table-layout",
-        "text-align",
-        "text-decoration",
-        "text-indent",
-        "text-transform",
-        "unicode-bidi",
-        "vertical-align",
-        "white-space",
-        "width",
-        "word-break",
-        "word-spacing",
-    ]
-    .into_iter()
-    .collect()
+fn preserve_body_container(input: &str) -> Cow<'_, str> {
+    let bytes = input.as_bytes();
+    let mut output = String::new();
+    let mut cursor = 0usize;
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        let replacement = if starts_with_ascii_case_insensitive(bytes, index, b"<body")
+            && is_html_tag_boundary(bytes.get(index + 5).copied())
+        {
+            Some((5, "<div data-nextmail-body=\"\""))
+        } else if starts_with_ascii_case_insensitive(bytes, index, b"</body")
+            && is_html_tag_boundary(bytes.get(index + 6).copied())
+        {
+            Some((6, "</div"))
+        } else {
+            None
+        };
+
+        if let Some((matched, value)) = replacement {
+            output.push_str(&input[cursor..index]);
+            output.push_str(value);
+            index += matched;
+            cursor = index;
+        } else {
+            index += 1;
+        }
+    }
+
+    if output.is_empty() {
+        Cow::Borrowed(input)
+    } else {
+        output.push_str(&input[cursor..]);
+        Cow::Owned(output)
+    }
+}
+
+fn starts_with_ascii_case_insensitive(input: &[u8], start: usize, expected: &[u8]) -> bool {
+    input
+        .get(start..start + expected.len())
+        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(expected))
+}
+
+fn is_html_tag_boundary(value: Option<u8>) -> bool {
+    value.is_none_or(|value| value.is_ascii_whitespace() || matches!(value, b'>' | b'/'))
+}
+
+fn sanitize_style_elements(fragment: &str) -> String {
+    let mut output = String::with_capacity(fragment.len());
+    let mut cursor = 0usize;
+    let mut style_count = 0usize;
+    let mut total_stylesheet_bytes = 0usize;
+    let mut total_style_rules = 0usize;
+
+    while let Some(relative_start) = fragment[cursor..].find("<style>") {
+        let start = cursor + relative_start;
+        output.push_str(&fragment[cursor..start]);
+        let content_start = start + "<style>".len();
+        let Some(relative_end) = fragment[content_start..].find("</style>") else {
+            return output;
+        };
+        let end = content_start + relative_end;
+
+        if style_count < MAX_STYLE_ELEMENTS {
+            let stylesheet = sanitize_stylesheet(&fragment[content_start..end]);
+            let stylesheet_rules = stylesheet.bytes().filter(|value| *value == b'{').count();
+            if !stylesheet.is_empty()
+                && total_stylesheet_bytes + stylesheet.len() <= MAX_TOTAL_STYLESHEET_BYTES
+                && total_style_rules + stylesheet_rules <= MAX_TOTAL_STYLE_RULES
+            {
+                output.push_str("<style>");
+                output.push_str(&stylesheet);
+                output.push_str("</style>");
+                total_stylesheet_bytes += stylesheet.len();
+                total_style_rules += stylesheet_rules;
+            }
+        }
+
+        style_count += 1;
+        cursor = end + "</style>".len();
+    }
+
+    output.push_str(&fragment[cursor..]);
+    output
 }
 
 #[cfg(test)]
@@ -268,7 +298,7 @@ mod tests {
                 " onclick=",
                 " onerror=",
                 "@import",
-                "background-image",
+                "url(",
                 "position:fixed",
             ] {
                 assert!(
@@ -338,5 +368,88 @@ mod tests {
             .document
             .contains("src=\"https://cdn.example/banner.png\""));
         assert!(sanitized.remote_images_blocked);
+    }
+
+    #[test]
+    fn preserves_authored_body_styles_in_a_safe_inner_container() {
+        let sanitized = sanitize_mail_html(
+            r#"<!doctype html><html><body style="background-color:#f4f5f7;color:#202124"><p>Body content</p></body></html>"#,
+        );
+
+        assert!(sanitized.document.contains("data-nextmail-body=\"\""));
+        assert!(sanitized
+            .document
+            .contains("style=\"background-color:#f4f5f7;color:#202124\""));
+        assert!(sanitized.document.contains("Body content"));
+    }
+
+    #[test]
+    fn preserves_safe_embedded_email_styles_and_controlled_media_queries() {
+        let marketing = sanitize_mail_html(include_str!(
+            "../../../testdata/mail-rendering/marketing-responsive.html"
+        ));
+        for expected in [
+            "<style>",
+            ".campaign{",
+            ".campaign-title{",
+            "@media (max-width:640px)",
+            "padding:18px",
+        ] {
+            assert!(marketing.document.contains(expected), "missing {expected}");
+        }
+        assert!(marketing.remote_images_blocked);
+
+        let native_dark = sanitize_mail_html(include_str!(
+            "../../../testdata/mail-rendering/native-dark.html"
+        ));
+        assert!(native_dark
+            .document
+            .contains("@media (prefers-color-scheme:dark)"));
+        assert!(native_dark.document.contains("background-color:#252525"));
+    }
+
+    #[test]
+    fn malicious_embedded_css_cannot_escape_or_request_resources() {
+        let sanitized = sanitize_mail_html(include_str!(
+            "../../../testdata/mail-rendering/malicious-active-content.html"
+        ));
+        assert!(sanitized.document.contains("Visible inert fixture text"));
+        for forbidden in [
+            "@import",
+            "@font-face",
+            "url(",
+            "position:fixed",
+            "z-index",
+            "</style><script",
+            "attacker.example.invalid/mail.css",
+            "attacker.example.invalid/beacon.gif",
+        ] {
+            assert!(
+                !sanitized.document.contains(forbidden),
+                "retained {forbidden}"
+            );
+        }
+        assert!(sanitized.remote_images_blocked);
+    }
+
+    #[test]
+    fn rebuilds_a_safe_body_from_local_raw_mime() {
+        let raw = concat!(
+            "From: sender@example.com\r\n",
+            "To: reader@example.com\r\n",
+            "Subject: Cached HTML\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: text/html; charset=utf-8\r\n",
+            "\r\n",
+            "<style>.card { color: #123456; }</style>",
+            "<div class=\"card\">Offline body</div>"
+        );
+        let body = sanitize_raw_message_body(raw.as_bytes()).expect("raw MIME body");
+        assert!(body.plain_text.is_some());
+        assert!(body
+            .safe_html
+            .expect("safe HTML")
+            .contains(".card{color:#123456}"));
+        assert!(!body.remote_images_blocked);
     }
 }

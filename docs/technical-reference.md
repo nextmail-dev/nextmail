@@ -49,7 +49,7 @@ NextMail 当前版本为 `0.1.0`，目标平台为 Windows 10 22H2+ x64 与 macO
 - SQLx 0.9 + SQLite WAL + 嵌入式迁移。
 - rustls 0.23 + ring + 系统根证书；进程启动时显式安装 CryptoProvider。
 - keyring 4.1 连接 Windows Credential Manager/macOS Keychain。
-- Ammonia 4 清洗 HTML；SHA-256 用于内容寻址和去重。
+- Ammonia 4 清洗 HTML 结构，`cssparser 0.37` 解析并重建安全 CSS 子集；SHA-256 用于内容寻址和去重。
 - hickory-resolver、reqwest、quick-xml 用于账户自动发现。
 
 仓库只存在一个 Rust package：`src-tauri/Cargo.toml`。根目录没有 Cargo Workspace、`Cargo.toml`、`Cargo.lock` 或 `target`。
@@ -202,7 +202,7 @@ cache/attachment-open/...
 
 密码只存入系统凭据库，服务名为 `com.taurusxin.nextmail`；配置文件只保存不透明 `credential_ref`。
 
-SQLite 数据格式当前为版本 9。主要表：
+SQLite 数据格式当前为版本 10。主要表：
 
 - `account_slots`、`account_sync_settings`
 - `mailboxes`、`mailbox_role_overrides`
@@ -252,12 +252,13 @@ SQLite 数据格式当前为版本 9。主要表：
 ## 11. 邮件内容安全
 
 - RFC 2047 头、地址、正文和附件名由 `mail-parser full_encoding` 统一解析。
-- HTML 在 Rust 端删除脚本、事件、表单、iframe、危险 URL、外部样式表和 CSS 资源。
-- 保留白名单内的行内排版、颜色、尺寸、表格和间距样式。
+- HTML 在 Rust 端删除脚本、事件、表单、iframe、危险 URL和外部样式表。`<style>` 与行内声明都通过 CSS parser 重建，只保留展示属性、普通/属性选择器及受控响应式/深色媒体查询。
+- CSS `url()`、`@import`、`@font-face`、其他 at-rule、未知函数、固定遮罩、动画和变换继续移除；背景、字体或列表资源不能绕过远程内容默认阻止。
 - 阅读器使用无 scripts/forms/same-origin/top-navigation 的 sandbox iframe。
 - 远程图片默认由 iframe CSP 阻止，用户可单次显示或启用设备级自动加载；加载使用 `no-referrer`。
+- HTML 清洗版本升级后，正文请求先按账户槽读取本地原始 EML，并在 blocking worker 重新解析、清洗后事务写回；只有原始 EML 缺失或不可解析时才通过 IMAP 重新获取，因此缓存迁移不强制破坏离线重建能力。
 - 当前清洗结果会移除所有超链接 `href`，阅读器尚不能打开邮件外链；保留安全链接、离站确认和系统打开已进入第十阶段计划。
-- 第十阶段第一批新增 `testdata/mail-rendering/` 正式共享语料与主动内容回归，尚未改变生产清洗结果。提议 ADR 0008 继续保留空 token sandbox，并把 CSS 解析过滤、深色兜底和不透明 link ID 分别留给后续批次。
+- 第十阶段共享语料持续覆盖样式保真和主动内容边界。ADR 0008 已接受；第二批已经实现 CSS 解析过滤和不覆盖作者明确配色的深色兜底，有效 `color-scheme` 同时设置到 iframe 与内部文档，完整 HTML 的 `<body style>` 通过安全内部容器保留。不透明 link ID 仍留在第三批。
 - 已收附件按账户槽验证归属；高风险扩展名只在文件管理器显示，不自动执行。
 
 ## 12. 当前已知技术债与限制
@@ -265,6 +266,6 @@ SQLite 数据格式当前为版本 9。主要表：
 - 前端尚无 ESLint/Prettier/CI；是否添加 GitHub Actions 需用户单独确认。
 - Vite 主入口压缩后超过 500 kB，写信与设置已动态拆分，但主工作区仍需继续拆包。
 - 存储错误对 UI 保持稳定码，但内部诊断日志尚未形成完整 tracing 方案。
-- HTML 邮件内 `<style>`、受控外链、CID/内联附件协议和远程图片代理仍未完成；第十阶段已规划样式/外链与回复体验，CID 和代理是否纳入仍需单独确认。当前深色兜底仍对 `html/body` 使用 `!important`，作者页面级配色可能被覆盖，第二批才会调整。
+- 受控外链、CID/内联附件协议和远程图片代理仍未完成；第十阶段第三批只规划外链，CID 和代理是否纳入仍需单独确认。CSS 背景图、Web Font 等资源当前统一丢弃，不随“显示远程图片”加载。
 
 总体阶段顺序见 `plans/master-plan.md`；各阶段范围、进度和验收边界统一记录在 `iterations/`。

@@ -130,10 +130,10 @@ UI 使用操作系统原生字体栈，不再随 Vite 打包字体。Windows 使
 
 ## HTML 阅读器
 
-- 清洗层移除脚本、表单、嵌入文档、事件属性、危险 URL、外部样式表和 CSS 资源；经过白名单过滤的行内排版、颜色、尺寸、表格和间距属性会保留。安全的远程图片 URL 可以保留在清洗结果中，但默认 iframe CSP 的 `img-src data:` 阻止请求。
+- Ammonia 先移除脚本、表单、嵌入文档、事件属性、危险 URL 与外部样式表；独立 CSS 模块随后用 `cssparser` 重建 `<style>` 和行内声明，只保留展示属性、普通/属性选择器与受控 `@media`。网络 `url()`、未知函数、其他 at-rule、固定遮罩、动画和变换继续移除。安全的远程 `<img>` URL 可以保留，但默认 iframe CSP 的 `img-src data:` 阻止请求。
 - 当前清洗层同时移除所有链接 `href`，因此邮件正文暂不提供外链打开；未来受控外链仍必须经过 Rust URL 校验、用户确认和系统打开边界。
 - “立即显示”或设备级“自动加载远程图片”只把当前 iframe 的图片 CSP 扩为 `data: http: https:`，sandbox 仍不启用 scripts、forms、same-origin 或 top-navigation，并使用 `no-referrer`。自动加载默认关闭，设置界面说明打开跟踪风险。
 - Tauri 顶层 CSP 允许图片协议只是为 iframe 的显式选择提供上限；默认阻止由邮件文档自身更严格的 CSP 执行。
-- 阅读 iframe 不继承应用 DOM 样式。NextMail 当前根据有效主题注入带 `!important` 的浅色或灰黑深色页面级兜底；正文子元素的行内颜色仍保留，但作者在 `html/body` 上的普通页面配色可能被覆盖。邮件内 `<style>` 样式表、`cid:`/附件资源协议与远程图片代理仍需后续专门的 CSS 和受控资源方案。
-- HTML 清洗策略升级时通过嵌入式迁移失效旧 HTML 正文缓存；对应邮件在后续后台同步或按需打开时重新获取并清洗，避免新策略只对新邮件生效。
-- 第十阶段第一批用 `testdata/mail-rendering/` 建立 Rust/前端共享语料与现有主动内容边界。提议 ADR 0008 保留 `sandbox=""` 不透明 origin，后续只允许解析后重建的 CSS 展示子集；外链计划使用账户/消息归属的不透明 ID 和 Rust 自定义协议窄桥接，不能直接获得系统 opener。
+- 阅读 iframe 不继承应用 DOM 样式。NextMail 根据有效主题在 iframe 元素和内部文档设置 `color-scheme`，并注入不带 `!important` 的浅色或灰黑深色兜底；无明确样式的正文获得可读配色，邮件作者在页面、类或行内明确设置的颜色和背景按正常层叠优先。完整 HTML 的 `<body style>` 在清洗前转换为带固定标记的内部正文容器，经相同 CSS 过滤后保留页面级行内配色；该容器不增加脚本或 IPC 能力。`cid:`/附件资源协议与远程样式资源仍未实现。
+- HTML 清洗策略升级时通过嵌入式迁移失效旧 HTML 正文缓存；数据格式版本 10 只删除包含 `safe_html` 的旧正文记录并保留纯文本记录。正文请求先按账户槽读取本地原始 EML，在不持有 SQLite 写锁的 blocking worker 中重新解析/清洗，再以单个事务写回正文与消息可用状态；只有本地原文缺失或不可解析时才通过 IMAP 获取。
+- `testdata/mail-rendering/` 是 Rust/前端共享的正式保真与主动内容语料。ADR 0008 保留 `sandbox=""` 不透明 origin；第三批外链计划使用账户/消息归属的不透明 ID 和 Rust 自定义协议窄桥接，不能直接获得系统 opener。

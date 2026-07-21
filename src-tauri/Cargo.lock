@@ -2817,6 +2817,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "cssparser 0.37.0",
  "futures-util",
  "hickory-resolver",
  "keyring",
