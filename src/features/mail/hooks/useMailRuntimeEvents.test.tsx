@@ -35,14 +35,15 @@ describe("useMailRuntimeEvents", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(client, "invalidateQueries");
     const onSent = vi.fn();
+    const onNavigate = vi.fn();
     const { rerender, unmount } = renderHook(
-      ({ selectedAccountId }) => useMailRuntimeEvents({ selectedAccountId, onSent }),
+      ({ selectedAccountId }) => useMailRuntimeEvents({ selectedAccountId, onSent, onNavigate }),
       {
         initialProps: { selectedAccountId: "account-one" },
         wrapper: createWrapper(client),
       },
     );
-    await waitFor(() => expect(handlers.size).toBe(5));
+    await waitFor(() => expect(handlers.size).toBe(6));
 
     act(() => handlers.get("mailbox-changed")?.({
       payload: { accountId: "account-two", mailboxId: "archive" } as never,
@@ -72,7 +73,7 @@ describe("useMailRuntimeEvents", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.syncProgress("account-two") });
 
     rerender({ selectedAccountId: "account-two" });
-    expect(listenMock).toHaveBeenCalledTimes(5);
+    expect(listenMock).toHaveBeenCalledTimes(6);
     invalidate.mockClear();
     act(() => handlers.get("send-job-changed")?.({
       payload: {
@@ -84,6 +85,19 @@ describe("useMailRuntimeEvents", () => {
     }));
     expect(onSent).toHaveBeenCalledWith({ id: "job-one", subject: "Hello" });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.drafts("account-two") });
+
+    act(() => handlers.get("open-mail-location")?.({
+      payload: {
+        accountId: "account-two",
+        mailboxId: "archive",
+        messageId: "message-one",
+      } as never,
+    }));
+    expect(onNavigate).toHaveBeenCalledWith({
+      accountId: "account-two",
+      mailboxId: "archive",
+      messageId: "message-one",
+    });
 
     unmount();
     await waitFor(() => disposers.forEach((dispose) => expect(dispose).toHaveBeenCalledOnce()));

@@ -48,6 +48,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   const [visibleMessageIds, setVisibleMessageIds] = useState<string[]>([]);
   const {
     mailboxesQuery,
+    navigateToMailLocation,
     searchQuery,
     selectAccount,
     selectMailbox,
@@ -72,7 +73,11 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     setMessagePaneWidth,
     visibleFolderWidth,
   } = usePaneLayout(accounts.length > 0);
-  useMailRuntimeEvents({ selectedAccountId, onSent: setSentNotice });
+  useMailRuntimeEvents({
+    selectedAccountId,
+    onSent: setSentNotice,
+    onNavigate: navigateToMailLocation,
+  });
   const progressQuery = useQuery({
     queryKey: mailQueryKeys.syncProgress(selectedAccountId),
     queryFn: () => api.getSyncProgress(selectedAccountId),

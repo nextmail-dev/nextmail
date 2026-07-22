@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::{
     domain::{
@@ -9,7 +9,7 @@ use crate::{
         ConnectionTestResult, DataDirectoryValidation, DiscoveredAccountConfig,
         DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem, DraftRecipientFields,
         MailSignature, MailSignatureDraft, MailTemplate, MailTemplateDraft, MailboxRole,
-        MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage,
+        MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage, NewMailNotification,
         NotificationPreferences, PendingOperationSummary, ReadingPreferences,
         RenderedMailSignature, RenderedMailTemplate, SendJobSummary, SignaturePreferences,
         SignaturePreferencesDraft, SyncPolicy, SyncProgress,
@@ -85,8 +85,56 @@ pub fn set_notification_preferences(
     preferences: NotificationPreferences,
 ) -> CommandResult<NotificationPreferences> {
     let preferences = state.service.set_notification_preferences(preferences)?;
+    state.notifications.preferences_changed();
     let _ = app.emit("notification-preferences-changed", &preferences);
     Ok(preferences)
+}
+
+#[tauri::command]
+pub fn get_new_mail_notification(
+    state: State<'_, AppState>,
+    window: WebviewWindow,
+    notification_id: String,
+) -> CommandResult<NewMailNotification> {
+    state
+        .notifications
+        .bootstrap_for_window(&notification_id, window.label())
+}
+
+#[tauri::command]
+pub fn dismiss_new_mail_notification(
+    state: State<'_, AppState>,
+    window: WebviewWindow,
+    notification_id: String,
+) -> CommandResult<()> {
+    state
+        .notifications
+        .dismiss_for_window(&notification_id, window.label())
+}
+
+#[tauri::command]
+pub async fn activate_new_mail_notification(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    window: WebviewWindow,
+    notification_id: String,
+) -> CommandResult<()> {
+    let notification = state
+        .notifications
+        .take_for_window(&notification_id, window.label())?;
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.unminimize();
+        let _ = main.set_focus();
+        if let Some(target) = state
+            .mail
+            .resolve_notification_target(&notification.candidate())
+            .await
+        {
+            let _ = app.emit_to("main", "open-mail-location", target);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -240,6 +288,7 @@ pub async fn remove_account(
         }
     };
     state.mail.reconcile_accounts();
+    state.notifications.dismiss_account(&account_id);
     emit_accounts_changed(&app, revision);
     Ok(())
 }

@@ -13,6 +13,7 @@ use crate::{
     core::ExternalLinkOpener,
     error::CommandResult,
     mail_runtime::MailRuntime,
+    notification_runtime::NotificationRuntime,
     protocols::AsyncImapProvider,
     storage::SqliteMailRepositoryProvider,
 };
@@ -21,6 +22,7 @@ pub struct AppState {
     pub service: Arc<AppService>,
     pub mail: Arc<MailRuntime>,
     pub composer: Arc<ComposerRuntime>,
+    pub notifications: Arc<NotificationRuntime>,
     pub external_link_opener: Arc<dyn ExternalLinkOpener>,
 }
 
@@ -45,12 +47,14 @@ impl AppState {
             Arc::new(SystemCredentialStore),
             Arc::new(MailConnectionTester),
         ));
+        let notifications = Arc::new(NotificationRuntime::new(app.clone(), Arc::clone(&service)));
         let mail = Arc::new(MailRuntime::new(
             app.clone(),
             Arc::clone(&service),
             Arc::new(AsyncImapProvider),
             Arc::new(SqliteMailRepositoryProvider),
             Arc::new(SystemAttachmentOpener),
+            Arc::clone(&notifications),
         ));
         let composer = Arc::new(ComposerRuntime::new(
             app.clone(),
@@ -62,6 +66,7 @@ impl AppState {
             service,
             mail,
             composer,
+            notifications,
             external_link_opener,
         })
     }

@@ -6,6 +6,7 @@ pub mod core;
 mod domain;
 mod error;
 mod mail_runtime;
+mod notification_runtime;
 pub mod protocols;
 mod state;
 pub mod storage;
@@ -32,6 +33,7 @@ pub fn run() {
                         label
                     }
                 })
+                .with_filter(|label| !label.starts_with("notification-"))
                 .build(),
         )
         .setup(|app| {
@@ -50,6 +52,9 @@ pub fn run() {
             commands::set_reading_preferences,
             commands::get_notification_preferences,
             commands::set_notification_preferences,
+            commands::get_new_mail_notification,
+            commands::dismiss_new_mail_notification,
+            commands::activate_new_mail_notification,
             commands::discover_account_config,
             commands::test_account_connections,
             commands::save_password_account,

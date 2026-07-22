@@ -11,9 +11,9 @@ use crate::core::{
     AccountManagementDetail, AccountRemovalImpact, AccountRuntimeState, AccountRuntimeSummary,
     AttachmentSummary, CommandError, CommandResult, ImapAccountConfig, ImapSyncProvider,
     InboxWatchOutcome, MailSyncSink, MailboxRole, MailboxSummary, MessageDetail, MessageListPage,
-    NewMailCandidate, PendingOperationKind, PendingOperationSummary, RemoteOperation,
-    RemoteOperationKind, RemoteOperationOutcome, SyncNotice, SyncObserver, SyncPhase, SyncPolicy,
-    SyncProgress,
+    NewMailCandidate, NotificationNavigationTarget, PendingOperationKind, PendingOperationSummary,
+    RemoteOperation, RemoteOperationKind, RemoteOperationOutcome, SyncNotice, SyncObserver,
+    SyncPhase, SyncPolicy, SyncProgress,
 };
 use crate::storage::{MailRepository, MailRepositoryProvider, PendingOperationWork};
 use serde::Serialize;
@@ -23,6 +23,7 @@ use tokio::sync::{Notify, OnceCell, Semaphore};
 
 use crate::adapters::{open_prepared_attachment, AttachmentOpener};
 use crate::application::AppService;
+use crate::notification_runtime::NotificationRuntime;
 
 pub struct MailRuntime {
     app: AppHandle,
@@ -35,6 +36,7 @@ pub struct MailRuntime {
     provider: Arc<dyn ImapSyncProvider>,
     repository_provider: Arc<dyn MailRepositoryProvider>,
     attachment_opener: Arc<dyn AttachmentOpener>,
+    notifications: Arc<NotificationRuntime>,
     network_limit: Arc<Semaphore>,
     next_generation: AtomicU64,
     started: AtomicBool,
@@ -47,6 +49,7 @@ impl MailRuntime {
         provider: Arc<dyn ImapSyncProvider>,
         repository_provider: Arc<dyn MailRepositoryProvider>,
         attachment_opener: Arc<dyn AttachmentOpener>,
+        notifications: Arc<NotificationRuntime>,
     ) -> Self {
         Self {
             app,
@@ -59,6 +62,7 @@ impl MailRuntime {
             provider,
             repository_provider,
             attachment_opener,
+            notifications,
             network_limit: Arc::new(Semaphore::new(2)),
             next_generation: AtomicU64::new(1),
             started: AtomicBool::new(false),
@@ -419,6 +423,42 @@ impl MailRuntime {
             .read()
             .get_message_detail(&account.data_slot_id, message_id, mailbox_id)
             .await
+    }
+
+    pub async fn resolve_notification_target(
+        &self,
+        candidate: &NewMailCandidate,
+    ) -> Option<NotificationNavigationTarget> {
+        let mailboxes = self.list_mailboxes(&candidate.account_id).await.ok()?;
+        let requested = mailboxes
+            .iter()
+            .find(|mailbox| mailbox.id == candidate.mailbox_id && mailbox.selectable);
+        let mailbox = requested
+            .or_else(|| {
+                mailboxes
+                    .iter()
+                    .find(|mailbox| mailbox.role == MailboxRole::Inbox && mailbox.selectable)
+            })
+            .or_else(|| mailboxes.iter().find(|mailbox| mailbox.selectable))?;
+        let message_id = if requested.is_some()
+            && self
+                .get_message_detail(
+                    &candidate.account_id,
+                    &candidate.message_id,
+                    Some(&candidate.mailbox_id),
+                )
+                .await
+                .is_ok()
+        {
+            Some(candidate.message_id.clone())
+        } else {
+            None
+        };
+        Some(NotificationNavigationTarget {
+            account_id: candidate.account_id.clone(),
+            mailbox_id: mailbox.id.clone(),
+            message_id,
+        })
     }
 
     pub fn get_sync_progress(&self, account_id: &str) -> SyncProgress {
@@ -1252,7 +1292,8 @@ impl MailRuntime {
             return;
         };
         for candidate in eligible_new_mail_candidates(&preferences, account_id, candidates) {
-            let _ = self.app.emit("new-mail-candidate", candidate);
+            let _ = self.app.emit("new-mail-candidate", &candidate);
+            self.notifications.present(candidate, &preferences);
         }
     }
 

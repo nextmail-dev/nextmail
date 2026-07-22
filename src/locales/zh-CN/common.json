@@ -298,7 +298,10 @@
     "manageFolders": "管理 {{account}} 的通知文件夹",
     "folderTitle": "通知文件夹 · {{account}}",
     "folderDescription": "选择此账户中允许产生新邮件通知的文件夹。",
-    "folderToggle": "{{folder}} 的通知"
+    "folderToggle": "{{folder}} 的通知",
+    "newMailForAccount": "新邮件 · {{account}}",
+    "openMessage": "打开邮件：{{subject}}",
+    "dismiss": "关闭通知"
   },
   "compositionLibrary": {
     "scope": "内容库范围",
@@ -499,6 +502,9 @@
     "notification_preferences.duration_invalid": "通知展示时间必须在 1 到 60 秒之间。",
     "notification_preferences.account_invalid": "某项账户通知设置已经失效。",
     "notification_preferences.folder_invalid": "某项文件夹通知设置已经失效。",
+    "notification.not_found": "这条新邮件通知已经过期。",
+    "notification.window_invalid": "通知窗口状态无效。",
+    "notification.window_create_failed": "无法显示新邮件通知。",
     "sync.imap_connection_failed": "无法连接 IMAP 服务器，请检查网络后重试。",
     "sync.imap_authentication_failed": "IMAP 认证已失效，请稍后在账户管理中重新认证。",
     "sync.message_body_fetch_failed": "无法下载邮件正文，请检查网络后重试。",

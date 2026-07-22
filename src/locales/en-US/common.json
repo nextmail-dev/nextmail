@@ -299,7 +299,10 @@
     "manageFolders": "Manage notification folders for {{account}}",
     "folderTitle": "Notification folders · {{account}}",
     "folderDescription": "Choose which folders may produce new mail notifications for this account.",
-    "folderToggle": "Notifications for {{folder}}"
+    "folderToggle": "Notifications for {{folder}}",
+    "newMailForAccount": "New mail · {{account}}",
+    "openMessage": "Open message: {{subject}}",
+    "dismiss": "Dismiss notification"
   },
   "compositionLibrary": {
     "scope": "Library scope",
@@ -500,6 +503,9 @@
     "notification_preferences.duration_invalid": "Choose a notification duration between 1 and 60 seconds.",
     "notification_preferences.account_invalid": "One of the notification account settings is no longer valid.",
     "notification_preferences.folder_invalid": "One of the notification folder settings is no longer valid.",
+    "notification.not_found": "This new-mail notification has expired.",
+    "notification.window_invalid": "The notification window state is invalid.",
+    "notification.window_create_failed": "The new-mail notification could not be displayed.",
     "sync.imap_connection_failed": "NextMail could not connect to the IMAP server. Check your network and try again.",
     "sync.imap_authentication_failed": "IMAP authentication has expired. Reauthentication will be available in account management.",
     "sync.message_body_fetch_failed": "The message body could not be downloaded. Check your network and try again.",

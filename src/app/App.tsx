@@ -31,6 +31,9 @@ const ComposerApp = lazy(() =>
 const SettingsApp = lazy(() =>
   import("@/features/preferences/SettingsApp").then((module) => ({ default: module.SettingsApp })),
 );
+const NotificationApp = lazy(() =>
+  import("@/features/notifications/NotificationApp").then((module) => ({ default: module.NotificationApp })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,8 +45,20 @@ export function App() {
   const params = new URLSearchParams(window.location.search);
   const composer = params.get("window") === "composer";
   const settings = params.get("window") === "settings";
+  const notification = params.get("window") === "notification";
+  const notificationId = params.get("notificationId") ?? "";
   const accountId = params.get("accountId") ?? "";
   const draftId = params.get("draftId") ?? "";
+  if (notification && notificationId) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <AppearanceEventBridge />
+        <Suspense fallback={<AppShell className="grid place-items-center bg-card"><Spinner size={20} /></AppShell>}>
+          <NotificationApp notificationId={notificationId} />
+        </Suspense>
+      </QueryClientProvider>
+    );
+  }
   const kind: WindowKind = composer ? "composer" : settings ? "settings" : "main";
   return (
     <QueryClientProvider client={queryClient}>

@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
+import type { NotificationNavigationTarget } from "@/app/types";
 import { mailQueryKeys, messageQueryKeys } from "../mail-query-keys";
 
 interface SentNotice {
@@ -12,17 +13,21 @@ interface SentNotice {
 interface UseMailRuntimeEventsOptions {
   selectedAccountId: string;
   onSent: (notice: SentNotice) => void;
+  onNavigate: (target: NotificationNavigationTarget) => void;
 }
 
 export function useMailRuntimeEvents({
   selectedAccountId,
   onSent,
+  onNavigate,
 }: UseMailRuntimeEventsOptions) {
   const queryClient = useQueryClient();
   const selectedAccountIdRef = useRef(selectedAccountId);
   const onSentRef = useRef(onSent);
+  const onNavigateRef = useRef(onNavigate);
   selectedAccountIdRef.current = selectedAccountId;
   onSentRef.current = onSent;
+  onNavigateRef.current = onNavigate;
 
   useEffect(() => {
     let disposed = false;
@@ -56,6 +61,9 @@ export function useMailRuntimeEvents({
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(payload.accountId) });
       void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(payload.accountId) });
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.pendingOperations(payload.accountId) });
+    });
+    void register<NotificationNavigationTarget>("open-mail-location", (payload) => {
+      onNavigateRef.current(payload);
     });
 
     return () => {

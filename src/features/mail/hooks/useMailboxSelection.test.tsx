@@ -87,4 +87,34 @@ describe("useMailboxSelection", () => {
     expect(api.setLastSelectedAccount).toHaveBeenCalledWith("account-one");
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it("navigates notification targets across accounts and falls back when a mailbox disappeared", async () => {
+    const { result } = renderHook(() => useMailboxSelection({
+      accounts,
+      lastSelectedAccountId: "account-one",
+      onError: vi.fn(),
+    }), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.selectedMailboxId).toBe("inbox-one"));
+
+    act(() => result.current.navigateToMailLocation({
+      accountId: "account-two",
+      mailboxId: "archive-two",
+      messageId: "message-two",
+    }));
+    await waitFor(() => {
+      expect(result.current.selectedAccountId).toBe("account-two");
+      expect(result.current.selectedMailboxId).toBe("archive-two");
+      expect(result.current.selectedMessageId).toBe("message-two");
+    });
+
+    act(() => result.current.navigateToMailLocation({
+      accountId: "account-two",
+      mailboxId: "missing-mailbox",
+      messageId: "missing-message",
+    }));
+    await waitFor(() => {
+      expect(result.current.selectedMailboxId).toBe("archive-two");
+      expect(result.current.selectedMessageId).toBe("");
+    });
+  });
 });

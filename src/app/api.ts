@@ -31,6 +31,7 @@ import type {
   MessageComposeAction,
   ReadingPreferences,
   NotificationPreferences,
+  NewMailNotification,
   MailSignature,
   MailSignatureDraft,
   MailTemplate,
@@ -63,6 +64,12 @@ export const api = {
     invoke<NotificationPreferences>("get_notification_preferences"),
   setNotificationPreferences: (preferences: NotificationPreferences) =>
     invoke<NotificationPreferences>("set_notification_preferences", { preferences }),
+  getNewMailNotification: (notificationId: string) =>
+    invoke<NewMailNotification>("get_new_mail_notification", { notificationId }),
+  dismissNewMailNotification: (notificationId: string) =>
+    invoke<void>("dismiss_new_mail_notification", { notificationId }),
+  activateNewMailNotification: (notificationId: string) =>
+    invoke<void>("activate_new_mail_notification", { notificationId }),
   discoverAccountConfig: (email: string) =>
     invoke<DiscoveredAccountConfig>("discover_account_config", { email }),
   testAccountConnections: (draft: AccountDraft) =>

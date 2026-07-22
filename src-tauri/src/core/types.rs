@@ -418,6 +418,41 @@ pub struct NewMailCandidate {
     pub subject: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NewMailNotification {
+    pub id: String,
+    pub account_id: String,
+    pub account_name: String,
+    pub account_email: String,
+    pub mailbox_id: String,
+    pub message_id: String,
+    pub sender_name: Option<String>,
+    pub sender_email: String,
+    pub subject: String,
+}
+
+impl NewMailNotification {
+    pub fn candidate(&self) -> NewMailCandidate {
+        NewMailCandidate {
+            account_id: self.account_id.clone(),
+            mailbox_id: self.mailbox_id.clone(),
+            message_id: self.message_id.clone(),
+            sender_name: self.sender_name.clone(),
+            sender_email: self.sender_email.clone(),
+            subject: self.subject.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationNavigationTarget {
+    pub account_id: String,
+    pub mailbox_id: String,
+    pub message_id: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageListItem {

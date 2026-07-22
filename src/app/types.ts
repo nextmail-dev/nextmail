@@ -89,6 +89,18 @@ export interface NewMailCandidate {
   subject: string;
 }
 
+export interface NewMailNotification extends NewMailCandidate {
+  id: string;
+  accountName: string;
+  accountEmail: string;
+}
+
+export interface NotificationNavigationTarget {
+  accountId: string;
+  mailboxId: string;
+  messageId: string | null;
+}
+
 export interface ServerConfig {
   host: string;
   port: number;

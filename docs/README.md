@@ -64,6 +64,7 @@
 - `changes/0046-default-signature-preferences.md`：第十三阶段第一批单一默认签名、自动插入偏好和旧场景规则迁移。
 - `changes/0047-account-menu-management.md`：第十三阶段第二批常驻账户菜单、主窗口账户管理弹窗和设置重复入口移除。
 - `changes/0048-notification-preferences-and-candidates.md`：第十三阶段第三批分层通知偏好、持久化同步基线和新邮件候选判定。
+- `changes/0049-controlled-desktop-notifications.md`：第十三阶段受控桌面通知窗口、层叠/覆盖调度、超时与点击定位。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
@@ -76,6 +77,7 @@
 - `adr/0009-composer-source-html-and-inline-images.md`：Composer 原始 HTML 沙箱、CodeMirror 源码双栏、受管 CID 图片与远程图片隐私边界。
 - `adr/0010-local-message-search.md`：本地搜索范围、FTS 语料、trigram/中文短词和账户槽隔离决策。
 - `adr/0011-inline-cid-reading.md`：已收邮件 CID 图片的本地 data URL、附件分类和权限边界。
+- `adr/0012-controlled-desktop-notification-windows.md`：自有通知窗口、工作区层叠、最小 DTO 与点击核验边界。
 - `third-party-notices.md`：当前随应用分发的独立第三方资源及许可证说明。
 
 当架构或安全决策出现需要长期解释的取舍时，在 `adr/` 中新增 ADR；单纯实现细节不创建 ADR。
