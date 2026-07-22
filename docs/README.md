@@ -54,6 +54,7 @@
 - `changes/0038-direct-external-links-and-layout-fidelity.md`：第十阶段第三批 Windows 实机反馈、系统直接外链、传统表格布局保真和修正迁移。
 - `changes/0039-complete-html-reply-and-forward.md`：第十阶段第四批原始 HTML 回复/转发、源码双栏、CID/粘贴图片缓存和签名布局。
 - `changes/0040-local-message-search.md`：第十一阶段第一批当前文件夹 FTS5 搜索、中文短词、分页与账户/文件夹隔离。
+- `changes/0041-windows-installer-languages.md`：Windows NSIS 简体中文、繁体中文、英文和语言选择器配置。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
