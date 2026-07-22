@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use super::{
     AccountsFile, AppearancePreferences, BootstrapConfig, CommandResult, ConnectionSecurity,
-    MailboxRole, MessageAddress, ReadingPreferences, SyncPolicy,
+    MailboxRole, MessageAddress, NotificationPreferences, ReadingPreferences, SyncPolicy,
 };
 
 pub trait AccountsConfigStore: Send + Sync {
@@ -23,6 +23,11 @@ pub trait AppearancePreferencesStore: Send + Sync {
 pub trait ReadingPreferencesConfigStore: Send + Sync {
     fn load(&self) -> CommandResult<ReadingPreferences>;
     fn save(&self, value: &ReadingPreferences) -> CommandResult<()>;
+}
+
+pub trait NotificationPreferencesConfigStore: Send + Sync {
+    fn load(&self) -> CommandResult<NotificationPreferences>;
+    fn save(&self, value: &NotificationPreferences) -> CommandResult<()>;
 }
 
 pub trait ExternalLinkOpener: Send + Sync {
@@ -102,6 +107,13 @@ pub struct StoredMailbox {
     pub id: String,
     pub last_uid: u32,
     pub highest_modseq: Option<u64>,
+    pub notification_baseline_required: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct MessageUpsertOutcome {
+    pub message_id: String,
+    pub is_new_location: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -123,7 +135,9 @@ pub trait MailSyncSink: Send + Sync {
         account_slot_id: &str,
         mailbox_id: &str,
         message: &RemoteMessage,
-    ) -> CommandResult<()>;
+    ) -> CommandResult<MessageUpsertOutcome>;
+
+    async fn complete_notification_baseline(&self, account_slot_id: &str) -> CommandResult<()>;
 
     async fn complete_mailbox(&self, mailbox_id: &str, last_uid: u32) -> CommandResult<()>;
 
@@ -193,6 +207,14 @@ pub enum SyncNotice {
     MailboxChanged {
         mailbox_id: String,
         revision: u64,
+    },
+    NewMessageCandidate {
+        mailbox_id: String,
+        message_id: String,
+        sender_name: Option<String>,
+        sender_email: String,
+        subject: String,
+        default_enabled: bool,
     },
 }
 

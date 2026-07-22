@@ -10,8 +10,9 @@ use crate::{
         DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem, DraftRecipientFields,
         MailSignature, MailSignatureDraft, MailTemplate, MailTemplateDraft, MailboxRole,
         MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage,
-        PendingOperationSummary, ReadingPreferences, RenderedMailSignature, RenderedMailTemplate,
-        SendJobSummary, SignaturePreferences, SignaturePreferencesDraft, SyncPolicy, SyncProgress,
+        NotificationPreferences, PendingOperationSummary, ReadingPreferences,
+        RenderedMailSignature, RenderedMailTemplate, SendJobSummary, SignaturePreferences,
+        SignaturePreferencesDraft, SyncPolicy, SyncProgress,
     },
     error::CommandResult,
     state::AppState,
@@ -67,6 +68,24 @@ pub fn set_reading_preferences(
 ) -> CommandResult<ReadingPreferences> {
     let preferences = state.service.set_reading_preferences(preferences)?;
     let _ = app.emit("reading-preferences-changed", &preferences);
+    Ok(preferences)
+}
+
+#[tauri::command]
+pub fn get_notification_preferences(
+    state: State<'_, AppState>,
+) -> CommandResult<NotificationPreferences> {
+    state.service.get_notification_preferences()
+}
+
+#[tauri::command]
+pub fn set_notification_preferences(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    preferences: NotificationPreferences,
+) -> CommandResult<NotificationPreferences> {
+    let preferences = state.service.set_notification_preferences(preferences)?;
+    let _ = app.emit("notification-preferences-changed", &preferences);
     Ok(preferences)
 }
 

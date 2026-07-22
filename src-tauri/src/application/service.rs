@@ -17,13 +17,13 @@ use crate::{
     },
     core::{
         AccountsConfigStore, AppearancePreferencesStore, BootstrapConfigStore,
-        ReadingPreferencesConfigStore,
+        NotificationPreferencesConfigStore, ReadingPreferencesConfigStore,
     },
     domain::{
         AccountConnectionDraft, AccountDraft, AccountRecord, AccountSummary, AccountsFile,
         AppearancePreferences, BootstrapConfig, BootstrapStage, BootstrapStatus,
         ConnectionTestResult, DataDirectoryMarker, DataDirectoryValidation,
-        DiscoveredAccountConfig, ReadingPreferences,
+        DiscoveredAccountConfig, NotificationPreferences, ReadingPreferences,
     },
     error::{CommandError, CommandResult},
 };
@@ -34,26 +34,51 @@ pub struct AppService {
     accounts: Arc<dyn AccountsConfigStore>,
     preferences: Arc<dyn AppearancePreferencesStore>,
     reading_preferences: Arc<dyn ReadingPreferencesConfigStore>,
+    notification_preferences: Arc<dyn NotificationPreferencesConfigStore>,
     credentials: Arc<dyn CredentialStore>,
     connection_tester: Arc<dyn ConnectionTester>,
     account_mutation: Mutex<()>,
 }
 
-impl AppService {
+pub struct AppConfigStores {
+    bootstrap: Arc<dyn BootstrapConfigStore>,
+    accounts: Arc<dyn AccountsConfigStore>,
+    preferences: Arc<dyn AppearancePreferencesStore>,
+    reading_preferences: Arc<dyn ReadingPreferencesConfigStore>,
+    notification_preferences: Arc<dyn NotificationPreferencesConfigStore>,
+}
+
+impl AppConfigStores {
     pub fn new(
-        paths: AppPaths,
         bootstrap: Arc<dyn BootstrapConfigStore>,
         accounts: Arc<dyn AccountsConfigStore>,
         preferences: Arc<dyn AppearancePreferencesStore>,
         reading_preferences: Arc<dyn ReadingPreferencesConfigStore>,
-        credentials: Arc<dyn CredentialStore>,
-        connection_tester: Arc<dyn ConnectionTester>,
+        notification_preferences: Arc<dyn NotificationPreferencesConfigStore>,
     ) -> Self {
         Self {
             bootstrap,
             accounts,
             preferences,
             reading_preferences,
+            notification_preferences,
+        }
+    }
+}
+
+impl AppService {
+    pub fn new(
+        paths: AppPaths,
+        stores: AppConfigStores,
+        credentials: Arc<dyn CredentialStore>,
+        connection_tester: Arc<dyn ConnectionTester>,
+    ) -> Self {
+        Self {
+            bootstrap: stores.bootstrap,
+            accounts: stores.accounts,
+            preferences: stores.preferences,
+            reading_preferences: stores.reading_preferences,
+            notification_preferences: stores.notification_preferences,
             paths,
             credentials,
             connection_tester,
@@ -173,6 +198,33 @@ impl AppService {
         preferences: ReadingPreferences,
     ) -> CommandResult<ReadingPreferences> {
         self.reading_preferences.save(&preferences)?;
+        Ok(preferences)
+    }
+
+    pub fn get_notification_preferences(&self) -> CommandResult<NotificationPreferences> {
+        let mut preferences = self.notification_preferences.load()?;
+        let account_ids = self
+            .accounts
+            .load()?
+            .accounts
+            .into_iter()
+            .map(|account| account.id)
+            .collect::<std::collections::HashSet<_>>();
+        preferences
+            .accounts
+            .retain(|setting| account_ids.contains(&setting.account_id));
+        preferences
+            .folders
+            .retain(|setting| account_ids.contains(&setting.account_id));
+        Ok(preferences)
+    }
+
+    pub fn set_notification_preferences(
+        &self,
+        preferences: NotificationPreferences,
+    ) -> CommandResult<NotificationPreferences> {
+        validate_notification_preferences(&preferences, &self.accounts.load()?)?;
+        self.notification_preferences.save(&preferences)?;
         Ok(preferences)
     }
 
@@ -573,6 +625,48 @@ fn is_valid_accent_color(value: &str) -> bool {
             .all(|character| character.is_ascii_hexdigit())
 }
 
+fn validate_notification_preferences(
+    preferences: &NotificationPreferences,
+    accounts_file: &AccountsFile,
+) -> CommandResult<()> {
+    if !(1..=10).contains(&preferences.max_stacked) {
+        return Err(CommandError::new(
+            "notification_preferences.max_stacked_invalid",
+        ));
+    }
+    if !(1..=60).contains(&preferences.display_duration_seconds) {
+        return Err(CommandError::new(
+            "notification_preferences.duration_invalid",
+        ));
+    }
+    let account_ids = accounts_file
+        .accounts
+        .iter()
+        .map(|account| account.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let mut configured_accounts = std::collections::HashSet::new();
+    for setting in &preferences.accounts {
+        if !account_ids.contains(setting.account_id.as_str())
+            || !configured_accounts.insert(setting.account_id.as_str())
+        {
+            return Err(CommandError::new(
+                "notification_preferences.account_invalid",
+            ));
+        }
+    }
+    let mut configured_folders = std::collections::HashSet::new();
+    for setting in &preferences.folders {
+        if !account_ids.contains(setting.account_id.as_str())
+            || setting.mailbox_id.trim().is_empty()
+            || !configured_folders
+                .insert((setting.account_id.as_str(), setting.mailbox_id.as_str()))
+        {
+            return Err(CommandError::new("notification_preferences.folder_invalid"));
+        }
+    }
+    Ok(())
+}
+
 fn has_duplicate_account(
     accounts_file: &AccountsFile,
     draft: &AccountDraft,
@@ -649,7 +743,8 @@ mod tests {
 
     use super::*;
     use crate::adapters::{
-        AccountsStore, BootstrapStore, PreferencesStore, ReadingPreferencesStore,
+        AccountsStore, BootstrapStore, NotificationPreferencesStore, PreferencesStore,
+        ReadingPreferencesStore,
     };
 
     #[derive(Default)]
@@ -738,12 +833,17 @@ mod tests {
         let accounts = Arc::new(AccountsStore::new(&paths));
         let preferences = Arc::new(PreferencesStore::new(&paths));
         let reading_preferences = Arc::new(ReadingPreferencesStore::new(&paths));
-        let service = AppService::new(
-            paths,
+        let notification_preferences = Arc::new(NotificationPreferencesStore::new(&paths));
+        let stores = AppConfigStores::new(
             bootstrap,
             accounts,
             preferences,
             reading_preferences,
+            notification_preferences,
+        );
+        let service = AppService::new(
+            paths,
+            stores,
             credentials.clone(),
             Arc::new(PassingConnectionTester),
         );
@@ -922,5 +1022,42 @@ mod tests {
             .lock()
             .unwrap()
             .contains_key(&record.credential_ref));
+    }
+
+    #[test]
+    fn notification_preferences_reject_invalid_ranges_and_accounts() {
+        let mut preferences = NotificationPreferences {
+            max_stacked: 0,
+            ..NotificationPreferences::default()
+        };
+        assert_eq!(
+            validate_notification_preferences(&preferences, &AccountsFile::default())
+                .unwrap_err()
+                .code,
+            "notification_preferences.max_stacked_invalid"
+        );
+
+        preferences.max_stacked = 3;
+        preferences.display_duration_seconds = 61;
+        assert_eq!(
+            validate_notification_preferences(&preferences, &AccountsFile::default())
+                .unwrap_err()
+                .code,
+            "notification_preferences.duration_invalid"
+        );
+
+        preferences.display_duration_seconds = 5;
+        preferences
+            .accounts
+            .push(crate::core::NotificationAccountSetting {
+                account_id: "missing".to_owned(),
+                enabled: true,
+            });
+        assert_eq!(
+            validate_notification_preferences(&preferences, &AccountsFile::default())
+                .unwrap_err()
+                .code,
+            "notification_preferences.account_invalid"
+        );
     }
 }

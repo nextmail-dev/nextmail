@@ -51,6 +51,15 @@ vi.mock("@/app/api", () => ({
     }),
     setAppearancePreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
     setReadingPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
+    getNotificationPreferences: vi.fn().mockResolvedValue({
+      enabled: true,
+      displayMode: "stacked",
+      maxStacked: 3,
+      displayDurationSeconds: 5,
+      accounts: [],
+      folders: [],
+    }),
+    setNotificationPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
   },
   normalizeCommandError: vi.fn(() => ({ code: "common.unexpected_error", params: {}, retryable: false })),
 }));
@@ -126,5 +135,18 @@ describe("SettingsApp", () => {
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Accounts" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Composing" })).toBeInTheDocument();
+  });
+
+  it("renders notification preferences instead of a placeholder", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SettingsApp />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Notifications" }));
+    expect(await screen.findByRole("switch", { name: "New mail notifications" })).toBeChecked();
+    expect(screen.queryByText("No adjustable options yet")).not.toBeInTheDocument();
   });
 });

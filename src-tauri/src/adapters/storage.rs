@@ -11,11 +11,11 @@ use tempfile::NamedTempFile;
 use crate::{
     core::{
         AccountsConfigStore, AppearancePreferencesStore, BootstrapConfigStore,
-        ReadingPreferencesConfigStore,
+        NotificationPreferencesConfigStore, ReadingPreferencesConfigStore,
     },
     domain::{
         AccountsFile, AppearancePreferences, BootstrapConfig, DataDirectoryMarker,
-        LanguagePreference, ReadingPreferences,
+        LanguagePreference, NotificationPreferences, ReadingPreferences,
     },
     error::{CommandError, CommandResult},
 };
@@ -61,6 +61,10 @@ impl AppPaths {
 
     pub fn reading_preferences_file(&self) -> PathBuf {
         self.config_dir.join("reading-preferences.json")
+    }
+
+    pub fn notification_preferences_file(&self) -> PathBuf {
+        self.config_dir.join("notification-preferences.json")
     }
 }
 
@@ -208,6 +212,44 @@ impl ReadingPreferencesConfigStore for ReadingPreferencesStore {
     }
 }
 
+#[derive(Clone)]
+pub struct NotificationPreferencesStore {
+    path: PathBuf,
+}
+
+impl NotificationPreferencesStore {
+    pub fn new(paths: &AppPaths) -> Self {
+        Self {
+            path: paths.notification_preferences_file(),
+        }
+    }
+
+    pub fn load(&self) -> CommandResult<NotificationPreferences> {
+        Ok(
+            read_optional_json(&self.path, "storage.notification_preferences_corrupt")?
+                .unwrap_or_default(),
+        )
+    }
+
+    pub fn save(&self, value: &NotificationPreferences) -> CommandResult<()> {
+        write_json_atomic(
+            &self.path,
+            value,
+            "storage.notification_preferences_write_failed",
+        )
+    }
+}
+
+impl NotificationPreferencesConfigStore for NotificationPreferencesStore {
+    fn load(&self) -> CommandResult<NotificationPreferences> {
+        NotificationPreferencesStore::load(self)
+    }
+
+    fn save(&self, value: &NotificationPreferences) -> CommandResult<()> {
+        NotificationPreferencesStore::save(self, value)
+    }
+}
+
 pub fn read_data_marker(data_dir: &Path) -> CommandResult<Option<DataDirectoryMarker>> {
     read_optional_json(
         &data_dir.join(DATA_MARKER_FILENAME),
@@ -309,6 +351,32 @@ mod tests {
 
         assert!(preferences.auto_load_remote_images);
         assert!(preferences.auto_open_downloaded_attachments);
+    }
+
+    #[test]
+    fn notification_preferences_default_and_round_trip() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let paths = AppPaths {
+            config_dir: directory.path().to_owned(),
+            default_data_dir: directory.path().join("data"),
+        };
+        let store = NotificationPreferencesStore::new(&paths);
+        assert_eq!(
+            store.load().expect("default notification preferences"),
+            NotificationPreferences::default()
+        );
+        let preferences = NotificationPreferences {
+            enabled: false,
+            display_duration_seconds: 10,
+            ..NotificationPreferences::default()
+        };
+        store
+            .save(&preferences)
+            .expect("save notification preferences");
+        assert_eq!(
+            store.load().expect("load notification preferences"),
+            preferences
+        );
     }
 
     #[test]

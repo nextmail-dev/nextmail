@@ -30,6 +30,7 @@ import type {
   MailboxRole,
   MessageComposeAction,
   ReadingPreferences,
+  NotificationPreferences,
   MailSignature,
   MailSignatureDraft,
   MailTemplate,
@@ -58,6 +59,10 @@ export const api = {
     invoke<ReadingPreferences>("get_reading_preferences"),
   setReadingPreferences: (preferences: ReadingPreferences) =>
     invoke<ReadingPreferences>("set_reading_preferences", { preferences }),
+  getNotificationPreferences: () =>
+    invoke<NotificationPreferences>("get_notification_preferences"),
+  setNotificationPreferences: (preferences: NotificationPreferences) =>
+    invoke<NotificationPreferences>("set_notification_preferences", { preferences }),
   discoverAccountConfig: (email: string) =>
     invoke<DiscoveredAccountConfig>("discover_account_config", { email }),
   testAccountConnections: (draft: AccountDraft) =>

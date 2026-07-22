@@ -4,11 +4,11 @@ use tauri::AppHandle;
 
 use crate::{
     adapters::{
-        AccountsStore, AppPaths, BootstrapStore, MailConnectionTester, PreferencesStore,
-        ReadingPreferencesStore, SystemAttachmentOpener, SystemCredentialStore,
-        SystemExternalLinkOpener,
+        AccountsStore, AppPaths, BootstrapStore, MailConnectionTester,
+        NotificationPreferencesStore, PreferencesStore, ReadingPreferencesStore,
+        SystemAttachmentOpener, SystemCredentialStore, SystemExternalLinkOpener,
     },
-    application::AppService,
+    application::{AppConfigStores, AppService},
     composer_runtime::ComposerRuntime,
     core::ExternalLinkOpener,
     error::CommandResult,
@@ -31,12 +31,17 @@ impl AppState {
         let accounts = Arc::new(AccountsStore::new(&paths));
         let preferences = Arc::new(PreferencesStore::new(&paths));
         let reading_preferences = Arc::new(ReadingPreferencesStore::new(&paths));
-        let service = Arc::new(AppService::new(
-            paths,
+        let notification_preferences = Arc::new(NotificationPreferencesStore::new(&paths));
+        let stores = AppConfigStores::new(
             bootstrap,
             accounts,
             preferences,
             reading_preferences,
+            notification_preferences,
+        );
+        let service = Arc::new(AppService::new(
+            paths,
+            stores,
             Arc::new(SystemCredentialStore),
             Arc::new(MailConnectionTester),
         ));

@@ -283,6 +283,23 @@
       "about": "查看 NextMail 的版本和产品信息。"
     }
   },
+  "notifications": {
+    "enabled": "新邮件通知",
+    "enabledDescription": "为新同步的未读邮件展示通知。首次同步和缓存重建不会打扰您。",
+    "displayMode": "多封邮件到达时",
+    "stacked": "层叠展示通知",
+    "replace": "覆盖当前通知",
+    "maxStacked": "最多层叠数量",
+    "displayDuration": "展示时间",
+    "seconds": "{{count}} 秒",
+    "accounts": "账户通知",
+    "accountsDescription": "每个账户都可以独立关闭。收件箱默认开启，其他文件夹需要主动开启。",
+    "accountToggle": "{{account}} 的通知",
+    "manageFolders": "管理 {{account}} 的通知文件夹",
+    "folderTitle": "通知文件夹 · {{account}}",
+    "folderDescription": "选择此账户中允许产生新邮件通知的文件夹。",
+    "folderToggle": "{{folder}} 的通知"
+  },
   "compositionLibrary": {
     "scope": "内容库范围",
     "globalScope": "所有账户",
@@ -474,6 +491,14 @@
     "storage.bootstrap_write_failed": "首次启动配置无法保存。",
     "storage.reading_preferences_corrupt": "无法读取邮件阅读偏好。",
     "storage.reading_preferences_write_failed": "无法保存邮件阅读偏好。",
+    "storage.notification_preferences_corrupt": "无法读取通知偏好。",
+    "storage.notification_preferences_write_failed": "无法保存通知偏好。",
+    "storage.notification_baseline_read_failed": "无法读取新邮件通知基线。",
+    "storage.notification_baseline_write_failed": "无法更新新邮件通知基线。",
+    "notification_preferences.max_stacked_invalid": "最多层叠数量必须在 1 到 10 之间。",
+    "notification_preferences.duration_invalid": "通知展示时间必须在 1 到 60 秒之间。",
+    "notification_preferences.account_invalid": "某项账户通知设置已经失效。",
+    "notification_preferences.folder_invalid": "某项文件夹通知设置已经失效。",
     "sync.imap_connection_failed": "无法连接 IMAP 服务器，请检查网络后重试。",
     "sync.imap_authentication_failed": "IMAP 认证已失效，请稍后在账户管理中重新认证。",
     "sync.message_body_fetch_failed": "无法下载邮件正文，请检查网络后重试。",

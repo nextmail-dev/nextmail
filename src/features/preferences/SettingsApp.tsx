@@ -25,6 +25,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { ThemeColorPicker, type ThemeColorOption } from "@/components/ui/theme-color-picker";
 import { Heading, Text } from "@/components/ui/typography";
 import { CompositionDefinitionsSettings } from "./CompositionDefinitionsSettings";
+import { NotificationSettings } from "./NotificationSettings";
 
 type SettingsCategory =
   | "general"
@@ -244,6 +245,13 @@ function SettingsContent({
     return (
       <SettingsSection category={category}>
         <CompositionDefinitionsSettings accounts={accounts} />
+      </SettingsSection>
+    );
+  }
+  if (category === "notifications") {
+    return (
+      <SettingsSection category={category}>
+        <NotificationSettings accounts={accounts} />
       </SettingsSection>
     );
   }

@@ -58,6 +58,37 @@ export interface ReadingPreferences {
   autoOpenDownloadedAttachments: boolean;
 }
 
+export type NotificationDisplayMode = "stacked" | "replace";
+
+export interface NotificationAccountSetting {
+  accountId: string;
+  enabled: boolean;
+}
+
+export interface NotificationFolderSetting {
+  accountId: string;
+  mailboxId: string;
+  enabled: boolean;
+}
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  displayMode: NotificationDisplayMode;
+  maxStacked: number;
+  displayDurationSeconds: number;
+  accounts: NotificationAccountSetting[];
+  folders: NotificationFolderSetting[];
+}
+
+export interface NewMailCandidate {
+  accountId: string;
+  mailboxId: string;
+  messageId: string;
+  senderName: string | null;
+  senderEmail: string;
+  subject: string;
+}
+
 export interface ServerConfig {
   host: string;
   port: number;

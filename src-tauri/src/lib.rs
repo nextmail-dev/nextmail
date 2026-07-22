@@ -48,6 +48,8 @@ pub fn run() {
             commands::set_appearance_preferences,
             commands::get_reading_preferences,
             commands::set_reading_preferences,
+            commands::get_notification_preferences,
+            commands::set_notification_preferences,
             commands::discover_account_config,
             commands::test_account_connections,
             commands::save_password_account,

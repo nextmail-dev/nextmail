@@ -51,6 +51,7 @@ struct FolderSyncContext<'a> {
     mailbox: &'a StoredMailbox,
     mailbox_name: &'a str,
     download_all_bodies: bool,
+    default_notification_enabled: bool,
 }
 
 struct FolderDescriptor {
@@ -296,6 +297,7 @@ where
     let highest_modseq = selected.highest_modseq;
     let download_all_bodies =
         account.download_non_inbox_bodies && folder.role != crate::core::MailboxRole::Inbox;
+    let default_notification_enabled = folder.role == MailboxRole::Inbox;
     let mailbox_name = folder.progress_name;
     let mailbox = sink
         .upsert_mailbox(
@@ -321,6 +323,7 @@ where
         mailbox: &mailbox,
         mailbox_name: &mailbox_name,
         download_all_bodies,
+        default_notification_enabled,
     };
 
     let highest_uid =
@@ -388,8 +391,23 @@ where
             })
             .await?;
             message.modseq = summary.modseq;
-            sink.upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
+            let outcome = sink
+                .upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
                 .await?;
+            if outcome.is_new_location
+                && message.unread
+                && !context.mailbox.notification_baseline_required
+            {
+                let sender = message.from.first();
+                observer.notify(SyncNotice::NewMessageCandidate {
+                    mailbox_id: context.mailbox.id.clone(),
+                    message_id: outcome.message_id,
+                    sender_name: sender.and_then(|address| address.name.clone()),
+                    sender_email: sender.map_or_else(String::new, |address| address.email.clone()),
+                    subject: message.subject.clone(),
+                    default_enabled: context.default_notification_enabled,
+                });
+            }
             highest_uid = highest_uid.max(summary.uid);
             completed += 1;
             observer.notify(SyncNotice::Summaries {
@@ -474,7 +492,8 @@ where
             .map(|location| location.uid)
             .collect::<Vec<_>>();
         for message in fetch_remote_messages(session, &uids, context.uid_validity).await? {
-            sink.upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
+            let _ = sink
+                .upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
                 .await?;
             completed += 1;
             observer.notify(SyncNotice::Bodies {

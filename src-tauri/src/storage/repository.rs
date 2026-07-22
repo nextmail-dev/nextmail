@@ -6,8 +6,9 @@ use std::{
 
 use crate::core::{
     AttachmentSummary, CommandError, CommandResult, ContentAvailability, MailSyncSink, MailboxRole,
-    MailboxSummary, MessageAddress, MessageDetail, MessageListItem, MessageListPage, RemoteMailbox,
-    RemoteMessage, RemoteMessageState, StoredMailbox, StoredMessageLocation, SyncPolicy,
+    MailboxSummary, MessageAddress, MessageDetail, MessageListItem, MessageListPage,
+    MessageUpsertOutcome, RemoteMailbox, RemoteMessage, RemoteMessageState, StoredMailbox,
+    StoredMessageLocation, SyncPolicy,
 };
 use async_trait::async_trait;
 use sqlx::{
@@ -239,6 +240,18 @@ impl SyncSinkRepository {
 }
 
 impl MailReadRepository {
+    pub async fn notification_baseline_ready(&self, account_slot_id: &str) -> CommandResult<bool> {
+        let ready = sqlx::query_scalar::<_, i64>(
+            "SELECT notification_baseline_at IS NOT NULL FROM account_slots WHERE id = ?",
+        )
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("storage.notification_baseline_read_failed"))?
+        .ok_or_else(|| CommandError::new("account.not_found"))?;
+        Ok(ready != 0)
+    }
+
     pub async fn list_mailboxes(
         &self,
         account_id: &str,
@@ -777,7 +790,9 @@ impl MailSyncSink for SyncSinkRepository {
             .fetch_optional(&self.pool)
             .await
             .map_err(|_| CommandError::new("storage.mailbox_write_failed"))?;
-        let (id, last_uid, reset_locations) = if let Some(row) = existing {
+        let (id, last_uid, reset_locations, notification_baseline_required) = if let Some(row) =
+            existing
+        {
             let previous_validity: i64 = row.try_get("uid_validity").map_err(storage_read_error)?;
             let previous_uid: i64 = row.try_get("last_uid").map_err(storage_read_error)?;
             let validity_changed =
@@ -790,9 +805,10 @@ impl MailSyncSink for SyncSinkRepository {
                     0
                 },
                 validity_changed,
+                previous_validity == 0 || validity_changed,
             )
         } else {
-            (Uuid::new_v4().to_string(), 0, false)
+            (Uuid::new_v4().to_string(), 0, false, true)
         };
 
         if reset_locations {
@@ -832,6 +848,7 @@ impl MailSyncSink for SyncSinkRepository {
             id,
             last_uid,
             highest_modseq: mailbox.highest_modseq,
+            notification_baseline_required,
         })
     }
 
@@ -840,7 +857,7 @@ impl MailSyncSink for SyncSinkRepository {
         account_slot_id: &str,
         mailbox_id: &str,
         message: &RemoteMessage,
-    ) -> CommandResult<()> {
+    ) -> CommandResult<MessageUpsertOutcome> {
         let from_json = encode_json(&message.from)?;
         let to_json = encode_json(&message.to)?;
         let cc_json = encode_json(&message.cc)?;
@@ -868,6 +885,7 @@ impl MailSyncSink for SyncSinkRepository {
         .await
         .map_err(|_| CommandError::new("storage.message_write_failed"))?;
 
+        let is_new_location = existing_location.is_none();
         let message_id = if let Some(id) = existing_location {
             id
         } else if let Some(remote_id) = message.message_id.as_deref() {
@@ -986,6 +1004,23 @@ impl MailSyncSink for SyncSinkRepository {
             .commit()
             .await
             .map_err(|_| CommandError::new("storage.message_write_failed"))?;
+        Ok(MessageUpsertOutcome {
+            message_id,
+            is_new_location,
+        })
+    }
+
+    async fn complete_notification_baseline(&self, account_slot_id: &str) -> CommandResult<()> {
+        let result =
+            sqlx::query("UPDATE account_slots SET notification_baseline_at = ? WHERE id = ?")
+                .bind(now())
+                .bind(account_slot_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|_| CommandError::new("storage.notification_baseline_write_failed"))?;
+        if result.rows_affected() != 1 {
+            return Err(CommandError::new("account.not_found"));
+        }
         Ok(())
     }
 
@@ -1910,6 +1945,62 @@ mod tests {
             .await
             .unwrap();
         (directory, repository, mailbox)
+    }
+
+    #[tokio::test]
+    async fn notification_baseline_and_message_upsert_are_durable() {
+        let (_directory, repository, mailbox) = repository_with_mailbox(11).await;
+        assert!(mailbox.notification_baseline_required);
+        assert!(!repository
+            .read()
+            .notification_baseline_ready("slot")
+            .await
+            .unwrap());
+
+        let first = repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &remote_message(1, 11, "First"))
+            .await
+            .unwrap();
+        let duplicate = repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &remote_message(1, 11, "First"))
+            .await
+            .unwrap();
+        assert!(first.is_new_location);
+        assert!(!duplicate.is_new_location);
+        assert_eq!(first.message_id, duplicate.message_id);
+
+        repository
+            .sync_sink()
+            .complete_notification_baseline("slot")
+            .await
+            .unwrap();
+        assert!(repository
+            .read()
+            .notification_baseline_ready("slot")
+            .await
+            .unwrap());
+        let existing_mailbox = repository
+            .sync_sink()
+            .upsert_mailbox(
+                "slot",
+                &RemoteMailbox {
+                    name: "INBOX".to_owned(),
+                    display_name: "INBOX".to_owned(),
+                    delimiter: Some("/".to_owned()),
+                    role: MailboxRole::Inbox,
+                    selectable: true,
+                    uid_validity: 11,
+                    uid_next: 3,
+                    total_count: 2,
+                    unread_count: 1,
+                    highest_modseq: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(!existing_mailbox.notification_baseline_required);
     }
 
     fn remote_message(uid: u32, uid_validity: u32, subject: &str) -> RemoteMessage {

@@ -83,6 +83,74 @@ impl Default for ReadingPreferences {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum NotificationDisplayMode {
+    Stacked,
+    Replace,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationAccountSetting {
+    pub account_id: String,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationFolderSetting {
+    pub account_id: String,
+    pub mailbox_id: String,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPreferences {
+    pub enabled: bool,
+    pub display_mode: NotificationDisplayMode,
+    pub max_stacked: u8,
+    pub display_duration_seconds: u16,
+    pub accounts: Vec<NotificationAccountSetting>,
+    pub folders: Vec<NotificationFolderSetting>,
+}
+
+impl Default for NotificationPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            display_mode: NotificationDisplayMode::Stacked,
+            max_stacked: 3,
+            display_duration_seconds: 5,
+            accounts: Vec::new(),
+            folders: Vec::new(),
+        }
+    }
+}
+
+impl NotificationPreferences {
+    pub fn account_enabled(&self, account_id: &str) -> bool {
+        self.accounts
+            .iter()
+            .find(|setting| setting.account_id == account_id)
+            .is_none_or(|setting| setting.enabled)
+    }
+
+    pub fn folder_enabled(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+        default_enabled: bool,
+    ) -> bool {
+        self.folders
+            .iter()
+            .find(|setting| setting.account_id == account_id && setting.mailbox_id == mailbox_id)
+            .map_or(default_enabled, |setting| setting.enabled)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ConnectionSecurity {
     None,
     StartTls,
@@ -337,6 +405,17 @@ pub struct MailboxSummary {
 pub struct MessageAddress {
     pub name: Option<String>,
     pub email: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NewMailCandidate {
+    pub account_id: String,
+    pub mailbox_id: String,
+    pub message_id: String,
+    pub sender_name: Option<String>,
+    pub sender_email: String,
+    pub subject: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -692,7 +771,7 @@ pub struct SendJobSummary {
 
 #[cfg(test)]
 mod tests {
-    use super::LanguagePreference;
+    use super::{LanguagePreference, NotificationFolderSetting, NotificationPreferences};
 
     #[test]
     fn uses_bcp_47_tags_and_accepts_legacy_lowercase_values() {
@@ -704,5 +783,21 @@ mod tests {
             serde_json::from_str::<LanguagePreference>("\"zh-cn\"").unwrap(),
             LanguagePreference::ZhCn
         );
+    }
+
+    #[test]
+    fn notification_preferences_use_account_and_folder_overrides() {
+        let mut preferences = NotificationPreferences::default();
+        assert!(preferences.enabled);
+        assert!(preferences.account_enabled("account"));
+        assert!(preferences.folder_enabled("account", "inbox", true));
+        assert!(!preferences.folder_enabled("account", "archive", false));
+        preferences.folders.push(NotificationFolderSetting {
+            account_id: "account".to_owned(),
+            mailbox_id: "archive".to_owned(),
+            enabled: true,
+        });
+        assert!(preferences.folder_enabled("account", "archive", false));
+        assert!(!preferences.folder_enabled("other", "archive", false));
     }
 }

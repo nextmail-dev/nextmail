@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
     },
     time::Duration,
 };
@@ -11,8 +11,9 @@ use crate::core::{
     AccountManagementDetail, AccountRemovalImpact, AccountRuntimeState, AccountRuntimeSummary,
     AttachmentSummary, CommandError, CommandResult, ImapAccountConfig, ImapSyncProvider,
     InboxWatchOutcome, MailSyncSink, MailboxRole, MailboxSummary, MessageDetail, MessageListPage,
-    PendingOperationKind, PendingOperationSummary, RemoteOperation, RemoteOperationKind,
-    RemoteOperationOutcome, SyncNotice, SyncObserver, SyncPhase, SyncPolicy, SyncProgress,
+    NewMailCandidate, PendingOperationKind, PendingOperationSummary, RemoteOperation,
+    RemoteOperationKind, RemoteOperationOutcome, SyncNotice, SyncObserver, SyncPhase, SyncPolicy,
+    SyncProgress,
 };
 use crate::storage::{MailRepository, MailRepositoryProvider, PendingOperationWork};
 use serde::Serialize;
@@ -1176,6 +1177,10 @@ impl MailRuntime {
             .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
         let account = self.service.account_record(account_id)?;
         let repository = Arc::clone(self.repository().await?);
+        let notification_baseline_ready = repository
+            .read()
+            .notification_baseline_ready(&account.data_slot_id)
+            .await?;
         self.update_runtime_state(account_id, AccountRuntimeState::Syncing, None, None);
         if report_progress {
             self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None, None);
@@ -1185,11 +1190,21 @@ impl MailRuntime {
             account_id: account_id.to_owned(),
             generation,
             report_progress,
+            candidates: Mutex::new(Vec::new()),
         };
-        let result = match self.imap_config(&account.id).await {
+        let sync_result = match self.imap_config(&account.id).await {
             Ok(config) => {
                 let sink = repository.sync_sink();
                 self.provider.synchronize(&config, &sink, &observer).await
+            }
+            Err(error) => Err(error),
+        };
+        let result = match sync_result {
+            Ok(()) => {
+                repository
+                    .sync_sink()
+                    .complete_notification_baseline(&account.data_slot_id)
+                    .await
             }
             Err(error) => Err(error),
         };
@@ -1198,6 +1213,9 @@ impl MailRuntime {
         }
         match result {
             Ok(()) => {
+                if notification_baseline_ready {
+                    self.emit_new_mail_candidates(account_id, observer.take_candidates());
+                }
                 if report_progress {
                     self.update_progress(account_id, SyncPhase::Complete, 1, 1, None, None);
                 }
@@ -1226,6 +1244,15 @@ impl MailRuntime {
                 self.handle_runtime_error(account_id, &error, Duration::from_secs(2));
                 Err(error)
             }
+        }
+    }
+
+    fn emit_new_mail_candidates(&self, account_id: &str, candidates: Vec<PendingNewMailCandidate>) {
+        let Ok(preferences) = self.service.get_notification_preferences() else {
+            return;
+        };
+        for candidate in eligible_new_mail_candidates(&preferences, account_id, candidates) {
+            let _ = self.app.emit("new-mail-candidate", candidate);
         }
     }
 
@@ -1323,6 +1350,50 @@ struct RuntimeObserver<'a> {
     account_id: String,
     generation: u64,
     report_progress: bool,
+    candidates: Mutex<Vec<PendingNewMailCandidate>>,
+}
+
+impl RuntimeObserver<'_> {
+    fn take_candidates(&self) -> Vec<PendingNewMailCandidate> {
+        self.candidates
+            .lock()
+            .map(|mut candidates| std::mem::take(&mut *candidates))
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PendingNewMailCandidate {
+    candidate: NewMailCandidate,
+    default_enabled: bool,
+}
+
+fn eligible_new_mail_candidates(
+    preferences: &crate::core::NotificationPreferences,
+    account_id: &str,
+    candidates: Vec<PendingNewMailCandidate>,
+) -> Vec<NewMailCandidate> {
+    if !preferences.enabled || !preferences.account_enabled(account_id) {
+        return Vec::new();
+    }
+    let mut emitted = std::collections::HashSet::new();
+    candidates
+        .into_iter()
+        .filter_map(|pending| {
+            let candidate = pending.candidate;
+            if emitted.insert((candidate.mailbox_id.clone(), candidate.message_id.clone()))
+                && preferences.folder_enabled(
+                    account_id,
+                    &candidate.mailbox_id,
+                    pending.default_enabled,
+                )
+            {
+                Some(candidate)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 struct AccountSupervisor {
@@ -1407,6 +1478,28 @@ impl SyncObserver for RuntimeObserver<'_> {
                         revision,
                     },
                 );
+            }
+            SyncNotice::NewMessageCandidate {
+                mailbox_id,
+                message_id,
+                sender_name,
+                sender_email,
+                subject,
+                default_enabled,
+            } => {
+                if let Ok(mut candidates) = self.candidates.lock() {
+                    candidates.push(PendingNewMailCandidate {
+                        candidate: NewMailCandidate {
+                            account_id: self.account_id.clone(),
+                            mailbox_id,
+                            message_id,
+                            sender_name,
+                            sender_email,
+                            subject,
+                        },
+                        default_enabled,
+                    });
+                }
             }
         }
     }
@@ -1540,5 +1633,55 @@ mod tests {
         assert!(!is_authentication_error("account.imap_timeout"));
         assert!(!is_authentication_error("account.imap_tls_failed"));
         assert!(!is_authentication_error("send.smtp_temporary_failure"));
+    }
+
+    #[test]
+    fn notification_candidates_respect_hierarchy_and_deduplicate() {
+        let mut preferences = crate::core::NotificationPreferences::default();
+        preferences
+            .folders
+            .push(crate::core::NotificationFolderSetting {
+                account_id: "account".to_owned(),
+                mailbox_id: "archive".to_owned(),
+                enabled: true,
+            });
+        let candidate =
+            |mailbox_id: &str, message_id: &str, default_enabled: bool| PendingNewMailCandidate {
+                candidate: NewMailCandidate {
+                    account_id: "account".to_owned(),
+                    mailbox_id: mailbox_id.to_owned(),
+                    message_id: message_id.to_owned(),
+                    sender_name: Some("Sender".to_owned()),
+                    sender_email: "sender@example.com".to_owned(),
+                    subject: "Subject".to_owned(),
+                },
+                default_enabled,
+            };
+        let eligible = eligible_new_mail_candidates(
+            &preferences,
+            "account",
+            vec![
+                candidate("inbox", "one", true),
+                candidate("inbox", "one", true),
+                candidate("archive", "two", false),
+                candidate("sent", "three", false),
+            ],
+        );
+        assert_eq!(eligible.len(), 2);
+        assert_eq!(eligible[0].message_id, "one");
+        assert_eq!(eligible[1].message_id, "two");
+
+        preferences
+            .accounts
+            .push(crate::core::NotificationAccountSetting {
+                account_id: "account".to_owned(),
+                enabled: false,
+            });
+        assert!(eligible_new_mail_candidates(
+            &preferences,
+            "account",
+            vec![candidate("inbox", "four", true)],
+        )
+        .is_empty());
     }
 }
