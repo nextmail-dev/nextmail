@@ -323,6 +323,19 @@ export interface MailSignature extends MailSignatureDraft {
   updatedAt: number;
 }
 
+export interface SignaturePreferences {
+  defaultSignatureId: string | null;
+  autoInsert: boolean;
+  inherited: boolean;
+  revision: number;
+}
+
+export interface SignaturePreferencesDraft {
+  defaultSignatureId: string | null;
+  autoInsert: boolean;
+  inherit: boolean;
+}
+
 export interface RenderedMailTemplate {
   id: string;
   subject: string;

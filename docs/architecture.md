@@ -82,9 +82,9 @@ NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src
 
 ## 草稿与发件边界
 
-- 模板与签名使用独立窄 Repository 保存三格式富文本定义和四场景规则。全局定义/规则使用空账户槽，账户记录始终通过 Rust 将公开账户 ID 解析为匿名 `account_slot_id`；React 不接触数据槽。账户场景没有显式记录时整体继承全局规则，显式账户规则优先；引用范围在 Repository 边界验证，被引用定义禁止删除。
+- 模板与签名使用独立窄 Repository 保存三格式富文本定义、四场景模板规则和单一默认签名偏好。全局定义/偏好使用空账户槽，账户记录始终通过 Rust 将公开账户 ID 解析为匿名 `account_slot_id`；React 不接触数据槽。账户模板规则和签名偏好没有显式记录时分别继承全局值；创建某范围第一个签名时，签名和默认偏好在同一 SQLite 事务内提交。引用范围与 revision 在 Repository 边界验证。
 - 变量白名单、缺失上下文错误、HTML/主题/纯文本差异化转义与本地化日期在 application 完成。设置窗口和 Composer 只通过 `src/app/api.ts` 使用稳定 DTO；Composer 先取得可见定义摘要，再把当前收件人上下文交给 Rust 渲染。
-- Tiptap 使用 `nextmailTemplate` 和 `nextmailSignature` 可编辑块节点保存定义 ID，HTML 使用对应 `data-nextmail-*-id` 属性。显式切换只替换同类节点，自动规则只在草稿首次创建时应用，因此用户手动删除签名后自动保存或重开不会恢复。回复/转发草稿另以 `nextmailReply` 和原子 `nextmailOriginalMessage` 固定用户回复与原文边界；原文内部 HTML 不进入 ProseMirror schema，模板递归定位在回复区，签名固定在原文前，切换定义不会跨边界改写原始内容。
+- Tiptap 使用 `nextmailTemplate` 和 `nextmailSignature` 可编辑块节点保存定义 ID，HTML 使用对应 `data-nextmail-*-id` 属性。模板按四个场景解析，签名从账户覆盖/全局继承的单一偏好解析；自动选择开关只影响草稿首次创建，因此用户手动删除签名后自动保存或重开不会恢复。回复/转发草稿另以 `nextmailReply` 和原子 `nextmailOriginalMessage` 固定用户回复与原文边界；原文内部 HTML 不进入 ProseMirror schema，模板递归定位在回复区，签名固定在原文前，切换定义不会跨边界改写原始内容。
 - 独立 `composer-*` WebView 通过窄业务命令访问草稿，不直接访问数据库、任意文件或网络；发件人是只读标签，收件人标签在分隔符/失焦时提供即时语法反馈，空输入退格可恢复末尾标签继续编辑。存在尚未提交的收件人文本时不会由自动保存定时器静默转成标签，发送或关闭前仍由前端最终提交并由 Rust 发件校验。系统文件选择器只授权用户明确选择的普通附件，剪贴板图片只把受限字节交给 `add_draft_inline_image`，由 Rust 验证并写入受管内容存储。
 - 草稿保存 Tiptap JSON、HTML 和纯文本，使用修订号做乐观并发控制；CodeMirror 源码编辑仍产生同一三格式 DTO，Rust 在持久化前复验 HTML/JSON。写信窗口关闭前会提交未保存改动；关闭监听按账户与草稿身份单次订阅，并通过 ref 读取最新保存函数与编辑状态。
 - SMTP 联网前先用 `mail-builder` 生成完整 UTF-8 MIME，按内容哈希原子落盘并创建 `send_job`。正文为 `multipart/alternative`，CID 图片与 HTML 组成 `multipart/related`，普通附件存在时再组成 `multipart/mixed`。MIME `Date` 头在生成时读取操作系统本机时区并写入当时的 UTC 偏移；Bcc 只进入 SMTP envelope，不写入邮件头。
@@ -139,7 +139,7 @@ UI 使用操作系统原生字体栈，不再随 Vite 打包字体。Windows 使
 - “立即显示”或设备级“自动加载远程图片”只把当前 iframe 的图片 CSP 扩为 `data: http: https:`；sandbox 仍不启用 scripts、forms、same-origin 或 top-navigation，并使用 `no-referrer`。自动加载默认关闭，设置界面说明打开跟踪风险。
 - Tauri 顶层 CSP 允许图片协议只是为 iframe 的显式选择提供上限；默认阻止由邮件文档自身更严格的 CSP 执行。
 - 阅读 iframe 不继承应用 DOM 样式。NextMail 根据有效主题在 iframe 元素和内部文档设置 `color-scheme`，并注入不带 `!important` 的浅色或灰黑深色兜底；无明确样式的正文获得可读配色，邮件作者在页面、类或行内明确设置的颜色和背景按正常层叠优先。完整 HTML 的 `<body style>` 在清洗前转换为带固定标记的内部正文容器，经相同 CSS 过滤后保留页面级行内配色；该容器不增加脚本或 IPC 能力。正文实际引用的受限本地 CID 图片由 Rust 转为 data URL 并受 `img-src data:` 约束；远程样式资源仍未实现。
-- HTML 清洗策略升级时通过嵌入式迁移失效旧 HTML 正文缓存。迁移 0011 是未通过实机验收的链接映射原型且因 SQLx 校验不可修改；0012 删除临时表并失效旧 `safe_html`，0013 扩展草稿内嵌图片，0014 为安全选择器保真失效缓存，0015 回填本地搜索。当前数据格式版本 16 的迁移 0016 增加账户正文偏好与动作草稿生命周期标记，不索引 HTML。正文请求先按账户槽读取本地原始 EML，在不持有 SQLite 写锁的 blocking worker 中重新解析/清洗，再以单个事务写回正文与消息可用状态及索引；只有本地原文缺失或不可解析时才通过 IMAP 获取。
+- HTML 清洗策略升级时通过嵌入式迁移失效旧 HTML 正文缓存。迁移 0011 是未通过实机验收的链接映射原型且因 SQLx 校验不可修改；0012 删除临时表并失效旧 `safe_html`，0013 扩展草稿内嵌图片，0014 为安全选择器保真失效缓存，0015 回填本地搜索，0016 增加账户正文偏好与动作草稿生命周期标记。当前数据格式版本 17 的迁移 0017 新增签名偏好并收敛旧场景签名引用，不复制签名正文也不索引 HTML。正文请求先按账户槽读取本地原始 EML，在不持有 SQLite 写锁的 blocking worker 中重新解析/清洗，再以单个事务写回正文与消息可用状态及索引；只有本地原文缺失或不可解析时才通过 IMAP 获取。
 - Composer 不接收未经处理的邮件 HTML。回复/转发创建时优先在 blocking worker 中从账户槽内的原始 EML 提取 HTML part，缺失时回退到现有安全正文；compose 清洗器沿用主动内容与 URL/CSS 边界，并把保留的内嵌样式表重写到原文容器作用域。引用原文以 `sourceHtml` 原子节点保留，不进入会规范化表格的 ProseMirror schema；富文本视图和 HTML 源码实时预览都使用 `sandbox=""`、`no-referrer`、无脚本/表单/同源/导航权限的 iframe。原文 iframe 根据安全 HTML 的文本、表格行和可用内嵌图片估算无上限展开高度，关闭内部滚动并由外层 Composer 统一滚动；不会为读取 `scrollHeight` 放开脚本或同源。源码可由 CodeMirror 编辑，保存时 Rust 再清洗 HTML 与原文节点属性。
 - 原始 MIME 中被 HTML `cid:` 引用的安全图片和用户粘贴图片写入既有内容寻址 `attachments/` 存储，`draft_attachments` 只记录 CID/inline 元数据。前端不读取文件系统路径或内容哈希，只使用 Rust 返回的内存 data URL 预览；持久化 HTML 使用 `cid:`，发件 MIME 使用 `multipart/related`。远程 `http(s)` 图片既不显示占位卡片也不在 Composer 中静默下载，仍受现有远程内容隐私策略约束。
 - `testdata/mail-rendering/` 是 Rust/前端共享的正式保真与主动内容语料，包含合成的 `nth-child()` flex 发票表格。ADR 0008 保留不透明 origin，sandbox 仅为受宿主拦截的用户链接点击增加 `allow-popups`；不增加脚本、表单、same-origin、顶层导航、前端通用网络或通用 opener 权限。

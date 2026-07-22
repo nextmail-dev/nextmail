@@ -38,6 +38,8 @@ import type {
   CompositionSceneRuleDraft,
   RenderedMailSignature,
   RenderedMailTemplate,
+  SignaturePreferences,
+  SignaturePreferencesDraft,
 } from "./types";
 
 export const api = {
@@ -184,6 +186,15 @@ export const api = {
   }),
   deleteMailSignature: (accountId: string | null, signatureId: string, expectedRevision: number) =>
     invoke<void>("delete_mail_signature", { accountId, signatureId, expectedRevision }),
+  getSignaturePreferences: (accountId: string | null) =>
+    invoke<SignaturePreferences>("get_signature_preferences", { accountId }),
+  saveSignaturePreferences: (
+    accountId: string | null,
+    draft: SignaturePreferencesDraft,
+    expectedRevision: number,
+  ) => invoke<SignaturePreferences>("save_signature_preferences", {
+    accountId, draft, expectedRevision,
+  }),
   listCompositionSceneRules: (accountId: string | null) =>
     invoke<CompositionSceneRule[]>("list_composition_scene_rules", { accountId }),
   saveCompositionSceneRule: (

@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { api } from "@/app/api";
 import i18n from "@/app/i18n";
-import type { DraftContent, MailTemplate } from "@/app/types";
+import type { DraftContent, MailSignature, MailTemplate } from "@/app/types";
 import { CompositionDefinitionsSettings } from "./CompositionDefinitionsSettings";
 
 vi.mock("@/app/api", () => ({
@@ -14,10 +14,12 @@ vi.mock("@/app/api", () => ({
     createMailTemplate: vi.fn(),
     deleteMailSignature: vi.fn(),
     deleteMailTemplate: vi.fn(),
+    getSignaturePreferences: vi.fn(),
     listMailSignatures: vi.fn(),
     listMailTemplates: vi.fn(),
     listCompositionSceneRules: vi.fn(),
     saveCompositionSceneRule: vi.fn(),
+    saveSignaturePreferences: vi.fn(),
     updateMailSignature: vi.fn(),
     updateMailTemplate: vi.fn(),
   },
@@ -62,6 +64,35 @@ const existingTemplate: MailTemplate = {
   updatedAt: 1,
 };
 
+const signatures: MailSignature[] = [
+  {
+    id: "signature-one",
+    scope: "global",
+    accountId: null,
+    name: "Primary",
+    content: {
+      editorJson: '{"type":"doc","content":[{"type":"paragraph"}]}',
+      html: "<p>Alice</p>",
+      plainText: "Alice",
+    },
+    revision: 1,
+    updatedAt: 1,
+  },
+  {
+    id: "signature-two",
+    scope: "global",
+    accountId: null,
+    name: "Compact",
+    content: {
+      editorJson: '{"type":"doc","content":[{"type":"paragraph"}]}',
+      html: "<p>A</p>",
+      plainText: "A",
+    },
+    revision: 1,
+    updatedAt: 2,
+  },
+];
+
 function renderSettings() {
   const client = new QueryClient({
     defaultOptions: {
@@ -83,6 +114,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.listMailTemplates).mockResolvedValue([]);
   vi.mocked(api.listMailSignatures).mockResolvedValue([]);
+  vi.mocked(api.getSignaturePreferences).mockResolvedValue({
+    defaultSignatureId: null,
+    autoInsert: true,
+    inherited: false,
+    revision: 0,
+  });
   vi.mocked(api.listCompositionSceneRules).mockResolvedValue([
     { scene: "new", templateId: null, signatureId: null, inherited: false, revision: 0 },
     { scene: "reply", templateId: null, signatureId: null, inherited: false, revision: 0 },
@@ -95,6 +132,12 @@ beforeEach(() => {
     signatureId: draft.signatureId,
     inherited: false,
     revision: 1,
+  }));
+  vi.mocked(api.saveSignaturePreferences).mockImplementation(async (_accountId, draft) => ({
+    defaultSignatureId: draft.defaultSignatureId,
+    autoInsert: draft.autoInsert,
+    inherited: false,
+    revision: 2,
   }));
   vi.mocked(api.createMailTemplate).mockImplementation(async (_accountId, draft) => ({
     id: "template-new",
@@ -185,6 +228,56 @@ describe("CompositionDefinitionsSettings", () => {
         inherit: false,
       },
       0,
+    ));
+  });
+
+  it("marks the default signature and can select another one", async () => {
+    vi.mocked(api.listMailSignatures).mockResolvedValue(signatures);
+    vi.mocked(api.getSignaturePreferences).mockResolvedValue({
+      defaultSignatureId: signatures[0].id,
+      autoInsert: true,
+      inherited: false,
+      revision: 4,
+    });
+    renderSettings();
+
+    expect(await screen.findByText("Default")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Set as default" }));
+
+    await waitFor(() => expect(api.saveSignaturePreferences).toHaveBeenCalledWith(
+      null,
+      {
+        defaultSignatureId: signatures[1].id,
+        autoInsert: true,
+        inherit: false,
+      },
+      4,
+    ));
+  });
+
+  it("toggles automatic default signature selection", async () => {
+    vi.mocked(api.listMailSignatures).mockResolvedValue(signatures);
+    vi.mocked(api.getSignaturePreferences).mockResolvedValue({
+      defaultSignatureId: signatures[0].id,
+      autoInsert: true,
+      inherited: false,
+      revision: 7,
+    });
+    renderSettings();
+
+    await screen.findByText("Current default signature: Primary.");
+    fireEvent.click(await screen.findByRole("checkbox", {
+      name: "Automatically select the default signature for messages",
+    }));
+
+    await waitFor(() => expect(api.saveSignaturePreferences).toHaveBeenCalledWith(
+      null,
+      {
+        defaultSignatureId: signatures[0].id,
+        autoInsert: false,
+        inherit: false,
+      },
+      7,
     ));
   });
 });

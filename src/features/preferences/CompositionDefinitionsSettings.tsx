@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Pencil, Plus, Signature, Trash2 } from "lucide-react";
+import { FileText, Pencil, Plus, Signature, Star, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -13,9 +13,11 @@ import type {
   MailSignatureDraft,
   MailTemplate,
   MailTemplateDraft,
+  SignaturePreferences,
 } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Surface } from "@/components/ui/card";
 import { Modal } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -53,6 +55,7 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
   const templatesKey = ["mail-templates", scopeKey] as const;
   const signaturesKey = ["mail-signatures", scopeKey] as const;
   const rulesKey = ["composition-scene-rules", scopeKey] as const;
+  const signaturePreferencesKey = ["signature-preferences", scopeKey] as const;
   const templates = useQuery({
     queryKey: templatesKey,
     queryFn: () => api.listMailTemplates(accountId),
@@ -75,20 +78,37 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
     queryKey: rulesKey,
     queryFn: () => api.listCompositionSceneRules(accountId),
   });
+  const signaturePreferences = useQuery({
+    queryKey: signaturePreferencesKey,
+    queryFn: () => api.getSignaturePreferences(accountId),
+  });
   const ruleUpdate = useMutation({
-    mutationFn: ({ rule, templateId, signatureId, inherit }: {
+    mutationFn: ({ rule, templateId, inherit }: {
       rule: CompositionSceneRule;
       templateId: string | null;
-      signatureId: string | null;
       inherit: boolean;
     }) => api.saveCompositionSceneRule(accountId, {
       scene: rule.scene,
       templateId,
-      signatureId,
+      signatureId: null,
       inherit,
     }, rule.revision),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: rulesKey });
+    },
+  });
+  const signaturePreferencesUpdate = useMutation({
+    mutationFn: ({ preferences, defaultSignatureId, autoInsert }: {
+      preferences: SignaturePreferences;
+      defaultSignatureId: string | null;
+      autoInsert: boolean;
+    }) => api.saveSignaturePreferences(accountId, {
+      defaultSignatureId,
+      autoInsert,
+      inherit: false,
+    }, preferences.revision),
+    onSuccess: (preferences) => {
+      queryClient.setQueryData(signaturePreferencesKey, preferences);
     },
   });
   const deletion = useMutation({
@@ -103,6 +123,9 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
     onSuccess: async (kind) => {
       setPendingDelete(null);
       await queryClient.invalidateQueries({ queryKey: kind === "template" ? templatesKey : signaturesKey });
+      if (kind === "signature") {
+        await queryClient.invalidateQueries({ queryKey: signaturePreferencesKey });
+      }
     },
   });
 
@@ -117,7 +140,8 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
   }, [scope]);
 
   const error = templates.error ?? signatures.error ?? globalTemplates.error
-    ?? globalSignatures.error ?? rules.error ?? ruleUpdate.error ?? deletion.error;
+    ?? globalSignatures.error ?? rules.error ?? signaturePreferences.error
+    ?? ruleUpdate.error ?? signaturePreferencesUpdate.error ?? deletion.error;
   const availableTemplates = accountId
     ? [...(globalTemplates.data ?? []), ...(templates.data ?? [])]
     : templates.data ?? [];
@@ -147,6 +171,7 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
         await api.createMailSignature(accountId, draft);
       }
       await queryClient.invalidateQueries({ queryKey: signaturesKey });
+      await queryClient.invalidateQueries({ queryKey: signaturePreferencesKey });
     }
     setEditor(null);
   }
@@ -183,10 +208,9 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
         accountScope={accountId !== null}
         rules={rules.data ?? []}
         templates={availableTemplates}
-        signatures={availableSignatures}
         loading={rules.isPending || ruleUpdate.isPending}
-        onChange={(rule, templateId, signatureId, inherit) => {
-          ruleUpdate.mutate({ rule, templateId, signatureId, inherit });
+        onChange={(rule, templateId, inherit) => {
+          ruleUpdate.mutate({ rule, templateId, inherit });
         }}
       />
       <DefinitionList
@@ -199,15 +223,41 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
         onEdit={(value) => setEditor({ kind: "template", value })}
         onDelete={(value) => requestDelete("template", value.id, value.revision)}
       />
+      <SignaturePreferencesPanel
+        preferences={signaturePreferences.data}
+        signatures={availableSignatures}
+        accountScope={accountId !== null}
+        loading={signaturePreferences.isPending || signaturePreferencesUpdate.isPending}
+        onAutoInsertChange={(autoInsert) => {
+          if (!signaturePreferences.data) return;
+          signaturePreferencesUpdate.mutate({
+            preferences: signaturePreferences.data,
+            defaultSignatureId: signaturePreferences.data.defaultSignatureId,
+            autoInsert,
+          });
+        }}
+      />
       <DefinitionList
         kind="signature"
-        values={signatures.data ?? []}
-        loading={signatures.isPending}
+        values={availableSignatures}
+        loading={signatures.isPending || globalSignatures.isPending}
         pendingDelete={pendingDelete}
         deleting={deletion.isPending}
         onAdd={() => setEditor({ kind: "signature", value: null })}
         onEdit={(value) => setEditor({ kind: "signature", value })}
         onDelete={(value) => requestDelete("signature", value.id, value.revision)}
+        canManage={(value) => accountId === null || value.scope === "account"}
+        showScope={accountId !== null}
+        defaultValueId={signaturePreferences.data?.defaultSignatureId ?? null}
+        settingDefault={signaturePreferencesUpdate.isPending}
+        onSetDefault={(value) => {
+          if (!signaturePreferences.data) return;
+          signaturePreferencesUpdate.mutate({
+            preferences: signaturePreferences.data,
+            defaultSignatureId: value.id,
+            autoInsert: signaturePreferences.data.autoInsert,
+          });
+        }}
       />
       {editor ? (
         <DefinitionEditor
@@ -227,19 +277,16 @@ function SceneRules({
   accountScope,
   rules,
   templates,
-  signatures,
   loading,
   onChange,
 }: {
   accountScope: boolean;
   rules: CompositionSceneRule[];
   templates: MailTemplate[];
-  signatures: MailSignature[];
   loading: boolean;
   onChange: (
     rule: CompositionSceneRule,
     templateId: string | null,
-    signatureId: string | null,
     inherit: boolean,
   ) => void;
 }) {
@@ -279,7 +326,6 @@ function SceneRules({
                     onValueChange={(value) => onChange(
                       rule,
                       rule.templateId,
-                      rule.signatureId,
                       value === "inherit",
                     )}
                   />
@@ -298,25 +344,6 @@ function SceneRules({
                   onValueChange={(value) => onChange(
                     rule,
                     value === "none" ? null : value,
-                    rule.signatureId,
-                    false,
-                  )}
-                />
-                <SelectField
-                  label={t("composer.signature")}
-                  value={rule.signatureId ?? "none"}
-                  options={[
-                    { value: "none", label: t("composer.noSignature") },
-                    ...signatures.map((value) => ({
-                      value: value.id,
-                      label: scopedDefinitionLabel(value.name, value.scope, t),
-                    })),
-                  ]}
-                  disabled={loading || rule.inherited}
-                  onValueChange={(value) => onChange(
-                    rule,
-                    rule.templateId,
-                    value === "none" ? null : value,
                     false,
                   )}
                 />
@@ -326,6 +353,43 @@ function SceneRules({
         );
       })}
     </Stack>
+  );
+}
+
+function SignaturePreferencesPanel({
+  preferences,
+  signatures,
+  accountScope,
+  loading,
+  onAutoInsertChange,
+}: {
+  preferences?: SignaturePreferences;
+  signatures: MailSignature[];
+  accountScope: boolean;
+  loading: boolean;
+  onAutoInsertChange: (enabled: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const defaultSignature = signatures.find((value) => value.id === preferences?.defaultSignatureId);
+  return (
+    <Surface className="p-4 shadow-none ring-1 ring-border/70">
+      <Stack gap="sm">
+        <Checkbox
+          checked={preferences?.autoInsert ?? true}
+          disabled={!preferences || loading}
+          label={t("compositionLibrary.autoSelectDefaultSignature")}
+          onCheckedChange={onAutoInsertChange}
+        />
+        <Text className="pl-7 text-xs">
+          {defaultSignature
+            ? t("compositionLibrary.currentDefaultSignature", { name: defaultSignature.name })
+            : t("compositionLibrary.noDefaultSignature")}
+          {accountScope && preferences?.inherited
+            ? ` ${t("compositionLibrary.inheritedDefaultSignature")}`
+            : ""}
+        </Text>
+      </Stack>
+    </Surface>
   );
 }
 
@@ -349,6 +413,11 @@ function DefinitionList<T extends MailTemplate | MailSignature>({
   onAdd,
   onEdit,
   onDelete,
+  defaultValueId,
+  settingDefault = false,
+  onSetDefault,
+  canManage,
+  showScope = false,
 }: {
   kind: "template" | "signature";
   values: T[];
@@ -358,6 +427,11 @@ function DefinitionList<T extends MailTemplate | MailSignature>({
   onAdd: () => void;
   onEdit: (value: T) => void;
   onDelete: (value: T) => void;
+  defaultValueId?: string | null;
+  settingDefault?: boolean;
+  onSetDefault?: (value: T) => void;
+  canManage?: (value: T) => boolean;
+  showScope?: boolean;
 }) {
   const { t } = useTranslation();
   const Icon = kind === "template" ? FileText : Signature;
@@ -382,46 +456,88 @@ function DefinitionList<T extends MailTemplate | MailSignature>({
           description={t(`compositionLibrary.no${kind === "template" ? "Templates" : "Signatures"}Description`)}
         />
       ) : null}
-      {values.map((value) => {
-        const confirming = pendingDelete?.kind === kind && pendingDelete.id === value.id;
-        const subject = "subject" in value ? value.subject : "";
-        return (
-          <Surface key={value.id} className="p-4 shadow-none ring-1 ring-border/70">
+      <Stack
+        className={kind === "signature" && values.length
+          ? "overflow-hidden rounded-lg bg-card ring-1 ring-border/70"
+          : undefined}
+        gap={kind === "signature" ? "none" : "sm"}
+      >
+        {values.map((value) => {
+          const confirming = pendingDelete?.kind === kind && pendingDelete.id === value.id;
+          const isDefault = kind === "signature" && value.id === defaultValueId;
+          const manageable = canManage?.(value) ?? true;
+          const subject = "subject" in value ? value.subject : "";
+          return (
+            <Surface
+              key={value.id}
+              className={kind === "signature"
+                ? "rounded-none border-b border-border/70 p-3 shadow-none last:border-b-0"
+                : "p-4 shadow-none ring-1 ring-border/70"}
+            >
             <Inline className="items-start justify-between">
               <Stack className="min-w-0 flex-1" gap="xs">
-                <LabelText className="truncate">{value.name}</LabelText>
+                <Inline className="gap-2">
+                  <LabelText className="truncate">{value.name}</LabelText>
+                  {isDefault ? (
+                    <Text className="shrink-0 rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                      {t("compositionLibrary.defaultSignature")}
+                    </Text>
+                  ) : null}
+                  {showScope ? (
+                    <Text className="shrink-0 text-[11px]">
+                      {t(`compositionLibrary.${value.scope}Badge`)}
+                    </Text>
+                  ) : null}
+                </Inline>
                 {subject ? <Text className="truncate text-xs text-foreground">{subject}</Text> : null}
                 <Text className="line-clamp-2 whitespace-pre-line text-xs">
                   {value.content.plainText || t("compositionLibrary.emptyContent")}
                 </Text>
               </Stack>
               <Inline className="shrink-0 gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={t("common.edit")}
-                  title={t("common.edit")}
-                  onClick={() => onEdit(value)}
-                >
-                  <Pencil size={15} />
-                </Button>
-                <Button
-                  type="button"
-                  variant={confirming ? "danger" : "ghost"}
-                  size="icon"
-                  loading={deleting && confirming}
-                  aria-label={confirming ? t("compositionLibrary.confirmDelete") : t("common.delete")}
-                  title={confirming ? t("compositionLibrary.confirmDelete") : t("common.delete")}
-                  onClick={() => onDelete(value)}
-                >
-                  <Trash2 size={15} />
-                </Button>
+                {kind === "signature" && !isDefault && onSetDefault ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={settingDefault}
+                    onClick={() => onSetDefault(value)}
+                  >
+                    <Star size={14} />
+                    {t("compositionLibrary.setAsDefault")}
+                  </Button>
+                ) : null}
+                {manageable ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t("common.edit")}
+                      title={t("common.edit")}
+                      onClick={() => onEdit(value)}
+                    >
+                      <Pencil size={15} />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={confirming ? "danger" : "ghost"}
+                      size="icon"
+                      loading={deleting && confirming}
+                      aria-label={confirming ? t("compositionLibrary.confirmDelete") : t("common.delete")}
+                      title={confirming ? t("compositionLibrary.confirmDelete") : t("common.delete")}
+                      onClick={() => onDelete(value)}
+                    >
+                      <Trash2 size={15} />
+                    </Button>
+                  </>
+                ) : null}
               </Inline>
             </Inline>
-          </Surface>
-        );
-      })}
+            </Surface>
+          );
+        })}
+      </Stack>
     </Stack>
   );
 }

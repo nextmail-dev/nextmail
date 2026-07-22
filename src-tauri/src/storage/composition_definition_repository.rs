@@ -1,7 +1,8 @@
 use crate::core::{
     CommandError, CommandResult, CompositionDefinitionScope, CompositionScene,
     CompositionSceneRule, CompositionSceneRuleDraft, DraftContent, MailSignature,
-    MailSignatureDraft, MailTemplate, MailTemplateDraft,
+    MailSignatureDraft, MailTemplate, MailTemplateDraft, SignaturePreferences,
+    SignaturePreferencesDraft,
 };
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
@@ -42,6 +43,13 @@ struct MailSignatureRow {
 struct CompositionSceneRuleRow {
     template_id: Option<String>,
     signature_id: Option<String>,
+    revision: i64,
+}
+
+#[derive(FromRow)]
+struct SignaturePreferencesRow {
+    default_signature_id: Option<String>,
+    auto_insert: i64,
     revision: i64,
 }
 
@@ -203,6 +211,11 @@ impl CompositionDefinitionRepository {
         let scope = definition_scope(account_id, account_slot_id)?;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| CommandError::new("signature.create_failed"))?;
         sqlx::query(
             "INSERT INTO mail_signatures( \
                  id, account_slot_id, name, editor_json, html, plain_text, created_at, updated_at \
@@ -216,9 +229,47 @@ impl CompositionDefinitionRepository {
         .bind(&draft.content.plain_text)
         .bind(timestamp)
         .bind(timestamp)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await
         .map_err(|_| CommandError::new("signature.create_failed"))?;
+        let assigned = sqlx::query(
+            "UPDATE signature_preferences SET \
+                 default_signature_id = ?, revision = revision + 1, updated_at = ? \
+             WHERE ((? IS NULL AND account_slot_id IS NULL) OR account_slot_id = ?) \
+                 AND default_signature_id IS NULL",
+        )
+        .bind(&id)
+        .bind(timestamp)
+        .bind(account_slot_id)
+        .bind(account_slot_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| CommandError::new("signature.create_failed"))?;
+        if assigned.rows_affected() == 0 {
+            sqlx::query(
+                "INSERT INTO signature_preferences( \
+                     id, account_slot_id, default_signature_id, auto_insert, created_at, updated_at \
+                 ) SELECT ?, ?, ?, 1, ?, ? \
+                 WHERE NOT EXISTS ( \
+                     SELECT 1 FROM signature_preferences \
+                     WHERE (? IS NULL AND account_slot_id IS NULL) OR account_slot_id = ? \
+                 )",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(account_slot_id)
+            .bind(&id)
+            .bind(timestamp)
+            .bind(timestamp)
+            .bind(account_slot_id)
+            .bind(account_slot_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| CommandError::new("signature.create_failed"))?;
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| CommandError::new("signature.create_failed"))?;
         self.mail_signature(&id, account_id, account_slot_id, scope)
             .await
     }
@@ -380,6 +431,133 @@ impl CompositionDefinitionRepository {
             .into_iter()
             .find(|value| value.id == signature_id)
             .ok_or_else(|| CommandError::new("signature.not_found"))
+    }
+
+    pub async fn signature_preferences(
+        &self,
+        account_slot_id: Option<&str>,
+    ) -> CommandResult<SignaturePreferences> {
+        if let Some(row) = self.exact_signature_preferences(account_slot_id).await? {
+            return Ok(signature_preferences_from_row(row, false));
+        }
+        if account_slot_id.is_some() {
+            return Ok(self.exact_signature_preferences(None).await?.map_or_else(
+                || SignaturePreferences {
+                    default_signature_id: None,
+                    auto_insert: true,
+                    inherited: true,
+                    revision: 0,
+                },
+                |row| {
+                    let mut preferences = signature_preferences_from_row(row, true);
+                    preferences.revision = 0;
+                    preferences
+                },
+            ));
+        }
+        Ok(SignaturePreferences {
+            default_signature_id: None,
+            auto_insert: true,
+            inherited: false,
+            revision: 0,
+        })
+    }
+
+    pub async fn save_signature_preferences(
+        &self,
+        account_slot_id: Option<&str>,
+        draft: &SignaturePreferencesDraft,
+        expected_revision: u64,
+    ) -> CommandResult<SignaturePreferences> {
+        if account_slot_id.is_none() && draft.inherit {
+            return Err(CommandError::new(
+                "signature_preferences.global_cannot_inherit",
+            ));
+        }
+        if draft.inherit {
+            if expected_revision == 0 {
+                if self
+                    .exact_signature_preferences(account_slot_id)
+                    .await?
+                    .is_some()
+                {
+                    return Err(CommandError::new("signature_preferences.revision_conflict"));
+                }
+            } else {
+                let result = sqlx::query(
+                    "DELETE FROM signature_preferences \
+                     WHERE account_slot_id = ? AND revision = ?",
+                )
+                .bind(account_slot_id)
+                .bind(expected_revision as i64)
+                .execute(&self.pool)
+                .await
+                .map_err(|_| CommandError::new("signature_preferences.save_failed"))?;
+                if result.rows_affected() != 1 {
+                    return Err(CommandError::new("signature_preferences.revision_conflict"));
+                }
+            }
+            return self.signature_preferences(account_slot_id).await;
+        }
+
+        if let Some(signature_id) = draft.default_signature_id.as_deref() {
+            let available = definition_reference_exists(
+                &self.pool,
+                "mail_signatures",
+                account_slot_id,
+                signature_id,
+            )
+            .await
+            .map_err(|_| CommandError::new("signature_preferences.read_failed"))?;
+            if !available {
+                return Err(CommandError::new(
+                    "signature_preferences.signature_unavailable",
+                ));
+            }
+        }
+
+        let timestamp = now();
+        if expected_revision == 0 {
+            sqlx::query(
+                "INSERT INTO signature_preferences( \
+                     id, account_slot_id, default_signature_id, auto_insert, created_at, updated_at \
+                 ) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(account_slot_id)
+            .bind(&draft.default_signature_id)
+            .bind(i64::from(draft.auto_insert))
+            .bind(timestamp)
+            .bind(timestamp)
+            .execute(&self.pool)
+            .await
+            .map_err(|_| CommandError::new("signature_preferences.revision_conflict"))?;
+        } else {
+            let result = sqlx::query(
+                "UPDATE signature_preferences SET \
+                     default_signature_id = ?, auto_insert = ?, \
+                     revision = revision + 1, updated_at = ? \
+                 WHERE ((? IS NULL AND account_slot_id IS NULL) OR account_slot_id = ?) \
+                     AND revision = ?",
+            )
+            .bind(&draft.default_signature_id)
+            .bind(i64::from(draft.auto_insert))
+            .bind(timestamp)
+            .bind(account_slot_id)
+            .bind(account_slot_id)
+            .bind(expected_revision as i64)
+            .execute(&self.pool)
+            .await
+            .map_err(|_| CommandError::new("signature_preferences.save_failed"))?;
+            if result.rows_affected() != 1 {
+                return Err(CommandError::new("signature_preferences.revision_conflict"));
+            }
+        }
+
+        self.exact_signature_preferences(account_slot_id)
+            .await?
+            .map(|row| signature_preferences_from_row(row, false))
+            .ok_or_else(|| CommandError::new("signature_preferences.read_failed"))
     }
 
     pub async fn list_composition_scene_rules(
@@ -545,6 +723,22 @@ impl CompositionDefinitionRepository {
         .map_err(|_| CommandError::new("composition_rule.read_failed"))
     }
 
+    async fn exact_signature_preferences(
+        &self,
+        account_slot_id: Option<&str>,
+    ) -> CommandResult<Option<SignaturePreferencesRow>> {
+        sqlx::query_as::<_, SignaturePreferencesRow>(
+            "SELECT default_signature_id, auto_insert, revision \
+             FROM signature_preferences \
+             WHERE (? IS NULL AND account_slot_id IS NULL) OR account_slot_id = ?",
+        )
+        .bind(account_slot_id)
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("signature_preferences.read_failed"))
+    }
+
     async fn mail_template(
         &self,
         template_id: &str,
@@ -640,6 +834,18 @@ fn rule_from_row(
             revision: if inherited { 0 } else { row.revision as u64 },
         },
     )
+}
+
+fn signature_preferences_from_row(
+    row: SignaturePreferencesRow,
+    inherited: bool,
+) -> SignaturePreferences {
+    SignaturePreferences {
+        default_signature_id: row.default_signature_id,
+        auto_insert: row.auto_insert != 0,
+        inherited,
+        revision: row.revision as u64,
+    }
 }
 
 async fn definition_reference_exists(
@@ -809,6 +1015,44 @@ mod tests {
             )
             .await
             .expect("signature");
+        let initial_preferences = definitions
+            .signature_preferences(None)
+            .await
+            .expect("initial signature preferences");
+        assert_eq!(
+            initial_preferences.default_signature_id.as_deref(),
+            Some(signature.id.as_str())
+        );
+        assert!(initial_preferences.auto_insert);
+        let saved_preferences = definitions
+            .save_signature_preferences(
+                None,
+                &SignaturePreferencesDraft {
+                    default_signature_id: Some(signature.id.clone()),
+                    auto_insert: false,
+                    inherit: false,
+                },
+                initial_preferences.revision,
+            )
+            .await
+            .expect("disable automatic signature");
+        assert!(!saved_preferences.auto_insert);
+        let stale_preferences = definitions
+            .save_signature_preferences(
+                None,
+                &SignaturePreferencesDraft {
+                    default_signature_id: Some(signature.id.clone()),
+                    auto_insert: true,
+                    inherit: false,
+                },
+                initial_preferences.revision,
+            )
+            .await
+            .expect_err("stale signature preferences");
+        assert_eq!(
+            stale_preferences.code,
+            "signature_preferences.revision_conflict"
+        );
         let updated = definitions
             .update_mail_signature(
                 None,
@@ -849,6 +1093,73 @@ mod tests {
             .expect("stored signatures");
         assert_eq!(stored[0].name, "Primary");
         assert_eq!(stored[0].revision, updated.revision);
+        let stored_preferences = reopened
+            .composition_definitions()
+            .signature_preferences(None)
+            .await
+            .expect("stored signature preferences");
+        assert_eq!(
+            stored_preferences.default_signature_id.as_deref(),
+            Some(signature.id.as_str())
+        );
+        assert!(!stored_preferences.auto_insert);
+    }
+
+    #[tokio::test]
+    async fn account_signature_preferences_inherit_until_the_first_local_signature() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        initialize_content_database(directory.path())
+            .await
+            .expect("initialize database");
+        let repository = MailRepository::open(directory.path())
+            .await
+            .expect("repository");
+        create_account_slot(directory.path(), "slot-one", 1)
+            .await
+            .expect("account slot");
+        let definitions = repository.composition_definitions();
+        let global = definitions
+            .create_mail_signature(
+                None,
+                None,
+                &MailSignatureDraft {
+                    name: "Shared".to_owned(),
+                    content: content("Shared signature"),
+                },
+            )
+            .await
+            .expect("global signature");
+
+        let inherited = definitions
+            .signature_preferences(Some("slot-one"))
+            .await
+            .expect("inherited preferences");
+        assert!(inherited.inherited);
+        assert_eq!(
+            inherited.default_signature_id.as_deref(),
+            Some(global.id.as_str())
+        );
+
+        let local = definitions
+            .create_mail_signature(
+                Some("account-one"),
+                Some("slot-one"),
+                &MailSignatureDraft {
+                    name: "Account".to_owned(),
+                    content: content("Account signature"),
+                },
+            )
+            .await
+            .expect("account signature");
+        let account_preferences = definitions
+            .signature_preferences(Some("slot-one"))
+            .await
+            .expect("account preferences");
+        assert!(!account_preferences.inherited);
+        assert_eq!(
+            account_preferences.default_signature_id.as_deref(),
+            Some(local.id.as_str())
+        );
     }
 
     #[tokio::test]

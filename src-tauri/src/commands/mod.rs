@@ -11,7 +11,7 @@ use crate::{
         MailSignature, MailSignatureDraft, MailTemplate, MailTemplateDraft, MailboxRole,
         MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage,
         PendingOperationSummary, ReadingPreferences, RenderedMailSignature, RenderedMailTemplate,
-        SendJobSummary, SyncPolicy, SyncProgress,
+        SendJobSummary, SignaturePreferences, SignaturePreferencesDraft, SyncPolicy, SyncProgress,
     },
     error::CommandResult,
     state::AppState,
@@ -746,6 +746,30 @@ pub async fn delete_mail_signature(
     state
         .composer
         .delete_mail_signature(account_id.as_deref(), &signature_id, expected_revision)
+        .await
+}
+
+#[tauri::command]
+pub async fn get_signature_preferences(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+) -> CommandResult<SignaturePreferences> {
+    state
+        .composer
+        .get_signature_preferences(account_id.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn save_signature_preferences(
+    state: State<'_, AppState>,
+    account_id: Option<String>,
+    draft: SignaturePreferencesDraft,
+    expected_revision: u64,
+) -> CommandResult<SignaturePreferences> {
+    state
+        .composer
+        .save_signature_preferences(account_id.as_deref(), draft, expected_revision)
         .await
 }
 

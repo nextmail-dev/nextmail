@@ -639,6 +639,23 @@ pub struct MailSignature {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct SignaturePreferences {
+    pub default_signature_id: Option<String>,
+    pub auto_insert: bool,
+    pub inherited: bool,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SignaturePreferencesDraft {
+    pub default_signature_id: Option<String>,
+    pub auto_insert: bool,
+    pub inherit: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct RenderedMailTemplate {
     pub id: String,
     pub subject: String,

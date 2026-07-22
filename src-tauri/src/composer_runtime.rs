@@ -14,7 +14,8 @@ use crate::core::{
     CompositionSceneRuleDraft, DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem,
     DraftRecipientFields, DraftStatus, LanguagePreference, MailSignature, MailSignatureDraft,
     MailTemplate, MailTemplateDraft, MailboxRole, MessageAddress, MessageComposeAction,
-    RenderedMailSignature, RenderedMailTemplate, SendJobSummary,
+    RenderedMailSignature, RenderedMailTemplate, SendJobSummary, SignaturePreferences,
+    SignaturePreferencesDraft,
 };
 use crate::protocols::{build_outgoing_message, OutgoingAttachment};
 use crate::storage::{
@@ -693,6 +694,36 @@ impl ComposerRuntime {
             .await
     }
 
+    pub async fn get_signature_preferences(
+        &self,
+        account_id: Option<&str>,
+    ) -> CommandResult<SignaturePreferences> {
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .signature_preferences(account.as_ref().map(|value| value.data_slot_id.as_str()))
+            .await
+    }
+
+    pub async fn save_signature_preferences(
+        &self,
+        account_id: Option<&str>,
+        draft: SignaturePreferencesDraft,
+        expected_revision: u64,
+    ) -> CommandResult<SignaturePreferences> {
+        let account = self.definition_account(account_id)?;
+        self.repository()
+            .await?
+            .composition_definitions()
+            .save_signature_preferences(
+                account.as_ref().map(|value| value.data_slot_id.as_str()),
+                &draft,
+                expected_revision,
+            )
+            .await
+    }
+
     pub async fn list_composition_scene_rules(
         &self,
         account_id: Option<&str>,
@@ -708,9 +739,10 @@ impl ComposerRuntime {
     pub async fn save_composition_scene_rule(
         &self,
         account_id: Option<&str>,
-        draft: CompositionSceneRuleDraft,
+        mut draft: CompositionSceneRuleDraft,
         expected_revision: u64,
     ) -> CommandResult<CompositionSceneRule> {
+        draft.signature_id = None;
         let account = self.definition_account(account_id)?;
         self.repository()
             .await?
@@ -1209,6 +1241,9 @@ impl ComposerRuntime {
         let rule = definitions
             .resolved_composition_scene_rule(&account.data_slot_id, scene)
             .await?;
+        let signature_preferences = definitions
+            .signature_preferences(Some(&account.data_slot_id))
+            .await?;
         let context = self.render_context(account, recipients.to.first())?;
         let template = if let Some(id) = rule.template_id.as_deref() {
             let value = definitions
@@ -1218,7 +1253,12 @@ impl ComposerRuntime {
         } else {
             None
         };
-        let signature = if let Some(id) = rule.signature_id.as_deref() {
+        let signature = if signature_preferences.auto_insert {
+            signature_preferences.default_signature_id.as_deref()
+        } else {
+            None
+        };
+        let signature = if let Some(id) = signature {
             let value = definitions
                 .available_mail_signature(&account.id, &account.data_slot_id, id)
                 .await?;
