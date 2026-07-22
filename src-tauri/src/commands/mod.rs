@@ -283,8 +283,7 @@ pub async fn open_settings_window(app: AppHandle) -> CommandResult<()> {
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(12.0, 11.0));
+        .hidden_title(true);
 
     builder
         .build()
@@ -500,6 +499,18 @@ pub async fn set_account_sync_policy(
 }
 
 #[tauri::command]
+pub async fn set_download_non_inbox_bodies(
+    state: State<'_, AppState>,
+    account_id: String,
+    enabled: bool,
+) -> CommandResult<bool> {
+    state
+        .mail
+        .set_download_non_inbox_bodies(&account_id, enabled)
+        .await
+}
+
+#[tauri::command]
 pub async fn request_raw_message(
     state: State<'_, AppState>,
     account_id: String,
@@ -520,7 +531,7 @@ pub async fn request_message_body(
 ) -> CommandResult<MessageDetail> {
     state
         .mail
-        .request_message_body(&account_id, &message_id, mailbox_id.as_deref())
+        .request_message_body_with_progress(&account_id, &message_id, mailbox_id.as_deref())
         .await
 }
 
@@ -857,7 +868,7 @@ pub async fn discard_empty_draft(
     state: State<'_, AppState>,
     account_id: String,
     draft_id: String,
-) -> CommandResult<()> {
+) -> CommandResult<bool> {
     state
         .composer
         .discard_empty_draft(&account_id, &draft_id)

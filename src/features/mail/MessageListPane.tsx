@@ -87,7 +87,7 @@ export function MessageListPane({
         />
       </Stack>
       {items.length ? (
-        <OverlayScrollArea className="min-h-0 flex-1" viewportClassName="pr-3">
+        <OverlayScrollArea alwaysVisible className="min-h-0 flex-1" viewportClassName="pr-3">
           {items.map((message) => (
             <MessageRow
               key={message.id}

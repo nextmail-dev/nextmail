@@ -7,6 +7,8 @@ import i18n from "@/app/i18n";
 import { MessageViewer } from "./MessageViewer";
 import { messageQueryKeys } from "./mail-query-keys";
 
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(vi.fn()) }));
+
 vi.mock("@/app/api", () => ({
   api: {
     getMessageDetail: vi.fn().mockResolvedValue({

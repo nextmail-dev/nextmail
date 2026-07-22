@@ -437,6 +437,7 @@ pub struct AccountManagementDetail {
     pub incoming_port: u16,
     pub security: ConnectionSecurity,
     pub sync_policy: SyncPolicy,
+    pub download_non_inbox_bodies: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

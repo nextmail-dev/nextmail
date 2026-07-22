@@ -46,6 +46,12 @@ struct FetchedMessageSummary {
     modseq: Option<u64>,
 }
 
+struct FolderSyncContext<'a> {
+    uid_validity: u32,
+    mailbox: &'a StoredMailbox,
+    download_all_bodies: bool,
+}
+
 struct FolderDescriptor {
     name: String,
     display_name: String,
@@ -280,6 +286,8 @@ where
         .await
         .map_err(|_| CommandError::retryable("sync.mailbox_search_failed"))?;
     let highest_modseq = selected.highest_modseq;
+    let download_all_bodies =
+        account.download_non_inbox_bodies && folder.role != crate::core::MailboxRole::Inbox;
     let mailbox = sink
         .upsert_mailbox(
             &account.account_slot_id,
@@ -299,17 +307,15 @@ where
         .await?;
     notify_mailbox(observer, mailbox.id.clone());
 
-    let highest_uid = fetch_summaries(
-        session,
-        account,
-        sink,
-        observer,
-        condstore,
+    let context = FolderSyncContext {
         uid_validity,
-        &mailbox,
-    )
-    .await?;
-    backfill_bodies(session, account, sink, observer, uid_validity, &mailbox).await?;
+        mailbox: &mailbox,
+        download_all_bodies,
+    };
+
+    let highest_uid =
+        fetch_summaries(session, account, sink, observer, condstore, &context).await?;
+    backfill_bodies(session, account, sink, observer, &context).await?;
     reconcile_flags(
         session,
         sink,
@@ -330,8 +336,7 @@ async fn fetch_summaries<T>(
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
     condstore: bool,
-    uid_validity: u32,
-    mailbox: &StoredMailbox,
+    context: &FolderSyncContext<'_>,
 ) -> CommandResult<u32>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
@@ -341,19 +346,20 @@ where
         .await
         .map_err(|_| CommandError::retryable("sync.mailbox_search_failed"))?
         .into_iter()
-        .filter(|uid| *uid > mailbox.last_uid)
+        .filter(|uid| *uid > context.mailbox.last_uid)
         .collect::<Vec<_>>();
     uids.sort_unstable();
     let total = uids.len() as u64;
     let mut completed = 0_u64;
-    let mut highest_uid = mailbox.last_uid;
+    let mut highest_uid = context.mailbox.last_uid;
 
     for batch in uids.chunks(FETCH_BATCH_SIZE) {
         let summaries = fetch_summary_batch(session, batch, condstore).await?;
         let body_uids = summaries
             .iter()
             .filter(|summary| {
-                should_download_body(account.sync_policy.clone(), summary.received_at)
+                context.download_all_bodies
+                    || should_download_body(account.sync_policy.clone(), summary.received_at)
             })
             .map(|summary| summary.uid)
             .collect::<Vec<_>>();
@@ -362,7 +368,7 @@ where
         for summary in summaries {
             let mut message = parse_message_in_background(MessageParseInput {
                 uid: summary.uid,
-                uid_validity,
+                uid_validity: context.uid_validity,
                 size: summary.size,
                 received_at: summary.received_at,
                 unread: summary.unread,
@@ -372,13 +378,13 @@ where
             })
             .await?;
             message.modseq = summary.modseq;
-            sink.upsert_message(&account.account_slot_id, &mailbox.id, &message)
+            sink.upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
                 .await?;
             highest_uid = highest_uid.max(summary.uid);
             completed += 1;
             observer.notify(SyncNotice::Summaries { completed, total });
+            notify_mailbox(observer, context.mailbox.id.clone());
         }
-        notify_mailbox(observer, mailbox.id.clone());
     }
     Ok(highest_uid)
 }
@@ -429,17 +435,21 @@ async fn backfill_bodies<T>(
     account: &ImapAccountConfig,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
-    uid_validity: u32,
-    mailbox: &StoredMailbox,
+    context: &FolderSyncContext<'_>,
 ) -> CommandResult<()>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
+    let received_after = if context.download_all_bodies {
+        None
+    } else {
+        sync_policy_cutoff(account.sync_policy.clone())
+    };
     let pending = sink
-        .pending_body_locations(&mailbox.id, sync_policy_cutoff(account.sync_policy.clone()))
+        .pending_body_locations(&context.mailbox.id, received_after)
         .await?
         .into_iter()
-        .filter(|location| location.uid_validity == uid_validity)
+        .filter(|location| location.uid_validity == context.uid_validity)
         .collect::<Vec<_>>();
     let total = pending.len() as u64;
     let mut completed = 0_u64;
@@ -449,11 +459,12 @@ where
             .iter()
             .map(|location| location.uid)
             .collect::<Vec<_>>();
-        for message in fetch_remote_messages(session, &uids, uid_validity).await? {
-            sink.upsert_message(&account.account_slot_id, &mailbox.id, &message)
+        for message in fetch_remote_messages(session, &uids, context.uid_validity).await? {
+            sink.upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
                 .await?;
             completed += 1;
             observer.notify(SyncNotice::Bodies { completed, total });
+            notify_mailbox(observer, context.mailbox.id.clone());
         }
     }
     Ok(())
@@ -587,6 +598,43 @@ mod tests {
         assert_eq!(message.subject, "Hello");
         assert!(!message.unread);
         assert!(!message.safe_html.unwrap().contains("<script"));
+    }
+
+    #[test]
+    fn embeds_referenced_cid_images_without_listing_them_as_attachments() {
+        let raw = concat!(
+            "From: sender@example.com\r\n",
+            "To: reader@example.com\r\n",
+            "Subject: Inline image\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/related; boundary=nextmail\r\n\r\n",
+            "--nextmail\r\n",
+            "Content-Type: text/html; charset=utf-8\r\n\r\n",
+            "<p>Logo <img src=\"cid:logo@example.test\"></p>\r\n",
+            "--nextmail\r\n",
+            "Content-Type: image/png; name=logo.png\r\n",
+            "Content-Disposition: attachment; filename=logo.png\r\n",
+            "Content-ID: <logo@example.test>\r\n",
+            "Content-Transfer-Encoding: base64\r\n\r\n",
+            "aW1hZ2U=\r\n",
+            "--nextmail--\r\n"
+        );
+        let message = parse_message(
+            1,
+            1,
+            raw.len() as u64,
+            1,
+            [Flag::Seen].into_iter(),
+            raw.as_bytes(),
+            Some(raw.as_bytes().to_vec()),
+        )
+        .unwrap();
+
+        assert!(message
+            .safe_html
+            .expect("safe HTML")
+            .contains("data:image/png;base64,aW1hZ2U="));
+        assert!(message.attachments.is_empty());
     }
 
     #[test]

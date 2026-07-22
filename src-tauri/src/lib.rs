@@ -70,6 +70,7 @@ pub fn run() {
             commands::retry_pending_operation,
             commands::get_account_management_detail,
             commands::set_account_sync_policy,
+            commands::set_download_non_inbox_bodies,
             commands::request_raw_message,
             commands::request_message_body,
             commands::request_attachment,

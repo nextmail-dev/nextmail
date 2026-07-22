@@ -59,6 +59,22 @@ describe("AccountSwitcher", () => {
     fireEvent.click(runtimeLabel);
     expect(onAccountChange).toHaveBeenCalledWith("two");
   });
+
+  it("does not add synchronization status text to the account identity", () => {
+    render(
+      <AccountSwitcher
+        accounts={[first]}
+        selectedAccountId="one"
+        onAccountChange={vi.fn()}
+        runtimeSummaries={[
+          { accountId: "one", state: "syncing", errorCode: null, retryAt: null, revision: 2 },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+    expect(screen.queryByText("Synchronizing")).not.toBeInTheDocument();
+  });
 });
 
 function renderSwitcher(accounts: AccountSummary[]) {

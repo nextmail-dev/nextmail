@@ -5,7 +5,7 @@
 - `technical-reference.md`：当前已经实现的能力、技术栈、模块、Command/Event、数据、同步、发件、安全与已知限制。
 - `architecture.md`：当前有效的模块、存储、安全、同步、窗口和设计系统边界。
 - `development.md`：环境、命令、测试、渐进交付、代码边界与文档维护规范。
-- `plans/master-plan.md`：产品目标、技术基线、十一阶段总体路线与未排期设想。
+- `plans/master-plan.md`：产品目标、技术基线、十二阶段总体路线与未排期设想。
 - `iterations/`：每个实施阶段的范围、当前状态、自动验证与手动验收；后续阶段计划统一在此维护。
 - `iterations/0002-imap-local-reading.md`：第二阶段计划、当前实现结果与待确认差异。
 - `iterations/0003-compose-drafts-smtp.md`：第三阶段写信、草稿与 SMTP 发件实施计划与验收。
@@ -17,6 +17,7 @@
 - `iterations/0009-templates-and-signatures.md`：第九阶段模板、签名、变量和写信场景集成计划。
 - `iterations/0010-mail-reading-and-reply-experience.md`：第十阶段 HTML/CSS 与传统布局保真、系统外链、深色阅读及完整富文本引用计划。
 - `iterations/0011-search-conversations-and-desktop.md`：第十一阶段搜索、会话与桌面集成范围。
+- `iterations/0012-experience-optimization.md`：第十二阶段收信、写信与跨平台体验优化计划及验收门禁。
 - `changes/`：按实施批次记录已经发生的功能和架构变动。
 - `changes/0005-message-and-mailbox-encoding.md`：邮件多字符集、IMAP 文件夹名和旧缓存重建说明。
 - `changes/0006-rfc2047-robustness.md`：完整 RFC 2047 encoded-word、安全降级和回归语料。
@@ -55,6 +56,9 @@
 - `changes/0039-complete-html-reply-and-forward.md`：第十阶段第四批原始 HTML 回复/转发、源码双栏、CID/粘贴图片缓存和签名布局。
 - `changes/0040-local-message-search.md`：第十一阶段第一批当前文件夹 FTS5 搜索、中文短词、分页与账户/文件夹隔离。
 - `changes/0041-windows-installer-languages.md`：Windows NSIS 简体中文、繁体中文、英文和语言选择器配置。
+- `changes/0042-receive-body-and-inline-cid.md`：非收件箱正文偏好、逐封可见性、手动正文进度与 CID 内联阅读。
+- `changes/0043-recipient-tags-and-action-draft-lifecycle.md`：收件人标签校验与未编辑回复/转发草稿条件删除。
+- `changes/0044-workspace-and-macos-layout-polish.md`：主题高亮、滚动槽、初始向导、分栏和 macOS 交通灯配置修正。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
@@ -66,6 +70,7 @@
 - `adr/0008-mail-rendering-fidelity-boundary.md`：已接受的安全 CSS/传统布局、深色兜底和宿主系统外链边界。
 - `adr/0009-composer-source-html-and-inline-images.md`：Composer 原始 HTML 沙箱、CodeMirror 源码双栏、受管 CID 图片与远程图片隐私边界。
 - `adr/0010-local-message-search.md`：本地搜索范围、FTS 语料、trigram/中文短词和账户槽隔离决策。
+- `adr/0011-inline-cid-reading.md`：已收邮件 CID 图片的本地 data URL、附件分类和权限边界。
 - `third-party-notices.md`：当前随应用分发的独立第三方资源及许可证说明。
 
 当架构或安全决策出现需要长期解释的取舍时，在 `adr/` 中新增 ADR；单纯实现细节不创建 ADR。

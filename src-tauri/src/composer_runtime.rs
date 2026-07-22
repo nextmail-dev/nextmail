@@ -186,7 +186,8 @@ impl ComposerRuntime {
             .create_initialized_draft(account_id, &account.data_slot_id, &subject, &content)
             .await?;
         if let Err(error) = self.show_composer_window(&account.id, &draft.id).await {
-            self.repository()
+            let _ = self
+                .repository()
                 .await?
                 .drafts()
                 .discard_empty_draft(&account.data_slot_id, &draft.id)
@@ -463,8 +464,7 @@ impl ComposerRuntime {
         #[cfg(target_os = "macos")]
         let builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true)
-            .traffic_light_position(tauri::LogicalPosition::new(12.0, 11.0));
+            .hidden_title(true);
         builder
             .build()
             .map_err(|_| CommandError::new("composer.window_create_failed"))?;
@@ -927,7 +927,11 @@ impl ComposerRuntime {
             .await
     }
 
-    pub async fn discard_empty_draft(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {
+    pub async fn discard_empty_draft(
+        &self,
+        account_id: &str,
+        draft_id: &str,
+    ) -> CommandResult<bool> {
         let account = self.service.account_record(account_id)?;
         let repository = self.repository().await?;
         let drafts = repository.drafts();
@@ -936,8 +940,7 @@ impl ComposerRuntime {
             .await?;
         drafts
             .discard_empty_draft(&account.data_slot_id, draft_id)
-            .await;
-        Ok(())
+            .await
     }
 
     pub async fn delete_draft(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {

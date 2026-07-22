@@ -3,7 +3,7 @@ use mail_parser::{Address, Message, MessageParser, MimeHeaders};
 
 use crate::{
     core::{CommandError, CommandResult, MessageAddress, RemoteAttachment, RemoteMessage},
-    protocols::sanitize_mail_html,
+    protocols::sanitize_mail_html_with_cid_images,
 };
 
 pub(super) struct MessageParseInput {
@@ -71,13 +71,22 @@ fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMes
         .as_ref()
         .and_then(|message| message.body_text(0))
         .map(|value| value.into_owned());
-    let sanitized = parsed
-        .as_ref()
-        .and_then(|message| message.body_html(0))
-        .map(|value| sanitize_mail_html(&value));
+    let sanitized = parsed.as_ref().and_then(|message| {
+        message
+            .body_html(0)
+            .map(|value| sanitize_mail_html_with_cid_images(&value, message))
+    });
     let attachments = parsed
         .as_ref()
-        .map(attachment_summaries)
+        .map(|message| {
+            attachment_summaries(
+                message,
+                sanitized
+                    .as_ref()
+                    .map(|value| &value.inline_content_ids)
+                    .unwrap_or(&std::collections::HashSet::new()),
+            )
+        })
         .unwrap_or_default();
     let preview = parsed
         .as_ref()
@@ -132,11 +141,23 @@ fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMes
     })
 }
 
-fn attachment_summaries(message: &Message<'_>) -> Vec<RemoteAttachment> {
+fn attachment_summaries(
+    message: &Message<'_>,
+    inline_content_ids: &std::collections::HashSet<String>,
+) -> Vec<RemoteAttachment> {
     message
         .attachments()
         .enumerate()
-        .map(|(index, attachment)| {
+        .filter_map(|(index, attachment)| {
+            let content_id = attachment
+                .content_id()
+                .map(|value| value.trim().trim_matches(['<', '>']).to_owned());
+            if content_id
+                .as_ref()
+                .is_some_and(|value| inline_content_ids.contains(&value.to_ascii_lowercase()))
+            {
+                return None;
+            }
             let content_type = attachment
                 .content_type()
                 .map(|value| {
@@ -147,7 +168,7 @@ fn attachment_summaries(message: &Message<'_>) -> Vec<RemoteAttachment> {
                     )
                 })
                 .unwrap_or_else(|| "application/octet-stream".to_owned());
-            RemoteAttachment {
+            Some(RemoteAttachment {
                 part_index: index as u32,
                 file_name: attachment
                     .attachment_name()
@@ -155,8 +176,8 @@ fn attachment_summaries(message: &Message<'_>) -> Vec<RemoteAttachment> {
                     .to_owned(),
                 content_type,
                 size: attachment.len() as u64,
-                content_id: attachment.content_id().map(str::to_owned),
-            }
+                content_id,
+            })
         })
         .collect()
 }

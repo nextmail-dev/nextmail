@@ -191,7 +191,7 @@ export function MailboxPane({
                 <Inline
                   key={mailbox.id}
                   className={selected
-                    ? "h-10 w-full gap-0 rounded-md bg-card pr-2 text-foreground shadow-[0_6px_20px_rgb(15_23_42/0.06)]"
+                    ? "h-10 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary"
                     : "h-10 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5"}
                   style={{ paddingInlineStart: `${4 + depth * 16}px` }}
                 >
@@ -229,7 +229,7 @@ export function MailboxPane({
                 key={mailbox.id}
                 variant="ghost"
                 className={selected
-                  ? "mx-auto size-11 flex-none justify-center bg-card p-0 text-foreground shadow-[0_6px_20px_rgb(15_23_42/0.06)] hover:bg-card"
+                  ? "mx-auto size-11 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
                   : "mx-auto size-11 flex-none justify-center p-0"}
                 aria-label={label}
                 title={label}

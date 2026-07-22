@@ -214,8 +214,8 @@ impl DraftRepository {
             .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
         sqlx::query(
             "INSERT INTO drafts(id, account_slot_id, related_message_id, in_reply_to, references_json, \
-             to_json, cc_json, subject, editor_json, html, plain_text, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             to_json, cc_json, subject, editor_json, html, plain_text, discard_if_untouched, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
         )
         .bind(&id)
         .bind(account_slot_id)
@@ -431,17 +431,24 @@ impl DraftRepository {
         self.get_draft(account_id, account_slot_id, &id).await
     }
 
-    pub async fn discard_empty_draft(&self, account_slot_id: &str, draft_id: &str) {
-        let _ = sqlx::query(
+    pub async fn discard_empty_draft(
+        &self,
+        account_slot_id: &str,
+        draft_id: &str,
+    ) -> CommandResult<bool> {
+        let result = sqlx::query(
             "DELETE FROM drafts WHERE id = ? AND account_slot_id = ? AND status = 'editing' \
-             AND subject = '' AND to_json = '[]' AND cc_json = '[]' AND bcc_json = '[]' \
-             AND plain_text = '' AND (html = '' OR html = '<p></p>') \
-             AND NOT EXISTS(SELECT 1 FROM draft_attachments WHERE draft_id = drafts.id)",
+             AND ((discard_if_untouched = 1 AND user_edited = 0) OR ( \
+               subject = '' AND to_json = '[]' AND cc_json = '[]' AND bcc_json = '[]' \
+               AND plain_text = '' AND (html = '' OR html = '<p></p>') \
+               AND NOT EXISTS(SELECT 1 FROM draft_attachments WHERE draft_id = drafts.id)))",
         )
         .bind(draft_id)
         .bind(account_slot_id)
         .execute(&self.pool)
-        .await;
+        .await
+        .map_err(|_| CommandError::new("draft.discard_failed"))?;
+        Ok(result.rows_affected() == 1)
     }
 
     pub async fn delete_editing_draft(
@@ -515,7 +522,7 @@ impl DraftRepository {
     pub async fn save_draft(&self, request: SaveDraftRequest<'_>) -> CommandResult<DraftDetail> {
         let result = sqlx::query(
             "UPDATE drafts SET to_json = ?, cc_json = ?, bcc_json = ?, subject = ?, editor_json = ?, \
-             html = ?, plain_text = ?, revision = revision + 1, updated_at = ? \
+             html = ?, plain_text = ?, user_edited = 1, revision = revision + 1, updated_at = ? \
              WHERE id = ? AND account_slot_id = ? AND revision = ? AND status = 'editing'",
         )
         .bind(encode_addresses(&request.recipients.to)?)
@@ -1240,6 +1247,51 @@ mod tests {
             threading.references,
             vec!["root@example.com", "child@example.com"]
         );
+
+        assert!(repository
+            .drafts()
+            .discard_empty_draft("slot", &draft.id)
+            .await
+            .unwrap());
+        assert_eq!(
+            repository
+                .drafts()
+                .get_draft("account", "slot", &draft.id)
+                .await
+                .unwrap_err()
+                .code,
+            "draft.not_found"
+        );
+
+        let edited = repository
+            .drafts()
+            .persist_message_action_draft(PersistMessageActionDraftRequest {
+                account_id: "account",
+                account_slot_id: "slot",
+                message_id: "message",
+                action: MessageComposeAction::ReplyAll,
+                draft: &composed,
+            })
+            .await
+            .unwrap();
+        repository
+            .drafts()
+            .save_draft(SaveDraftRequest {
+                account_id: "account",
+                account_slot_id: "slot",
+                draft_id: &edited.id,
+                recipients: &edited.recipients,
+                subject: &edited.subject,
+                content: &edited.content,
+                expected_revision: edited.revision,
+            })
+            .await
+            .unwrap();
+        assert!(!repository
+            .drafts()
+            .discard_empty_draft("slot", &edited.id)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
@@ -1255,10 +1307,12 @@ mod tests {
             .create_draft("account", "slot")
             .await
             .unwrap();
-        repository
+        let discarded = repository
             .drafts()
             .discard_empty_draft("slot", &empty.id)
-            .await;
+            .await
+            .unwrap();
+        assert!(discarded);
         assert_eq!(
             repository
                 .drafts()
@@ -1291,10 +1345,12 @@ mod tests {
             })
             .await
             .unwrap();
-        repository
+        let discarded = repository
             .drafts()
             .discard_empty_draft("slot", &retained.id)
-            .await;
+            .await
+            .unwrap();
+        assert!(!discarded);
         assert!(repository
             .drafts()
             .get_draft("account", "slot", &retained.id)

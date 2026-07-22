@@ -8,6 +8,7 @@ import type { AccountDraft, MailboxRole, SyncPolicy } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Modal } from "@/components/ui/dialog";
 import { PasswordField } from "@/components/ui/input";
 import { Inline, Stack } from "@/components/ui/layout";
@@ -52,6 +53,10 @@ export function AccountManagementPanel({
     mutationFn: (syncPolicy: SyncPolicy) => api.setAccountSyncPolicy(accountId, syncPolicy),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
   });
+  const nonInboxBodyMutation = useMutation({
+    mutationFn: (enabled: boolean) => api.setDownloadNonInboxBodies(accountId, enabled),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
+  });
   const roleMutation = useMutation({
     mutationFn: ({ role, mailboxId }: { role: MailboxRole; mailboxId: string | null }) => api.setMailboxRoleMapping(accountId, role, mailboxId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["mailboxes", accountId] }),
@@ -75,7 +80,7 @@ export function AccountManagementPanel({
   });
   const account = detailQuery.data;
   const runtime = runtimeQuery.data?.find((item) => item.accountId === accountId);
-  const operationError = detailQuery.error ?? mailboxesQuery.error ?? policyMutation.error ?? roleMutation.error ?? reauthMutation.error ?? removeMutation.error;
+  const operationError = detailQuery.error ?? mailboxesQuery.error ?? policyMutation.error ?? nonInboxBodyMutation.error ?? roleMutation.error ?? reauthMutation.error ?? removeMutation.error;
   const normalizedError = operationError ? normalizeCommandError(operationError) : null;
 
   async function updateAccount(draft: AccountDraft) {
@@ -129,6 +134,14 @@ export function AccountManagementPanel({
             onValueChange={(value) => policyMutation.mutate(value as SyncPolicy)}
             disabled={policyMutation.isPending}
           />
+          <Stack gap="xs">
+            <Checkbox
+              checked={account.downloadNonInboxBodies}
+              onCheckedChange={(enabled) => nonInboxBodyMutation.mutate(enabled)}
+              label={t("accounts.downloadNonInboxBodies")}
+            />
+            <Text className="pl-7 text-xs">{t("accounts.downloadNonInboxBodiesDescription")}</Text>
+          </Stack>
           <Stack gap="sm">
             <LabelText>{t("accounts.folderMappings")}</LabelText>
             {(["sent", "drafts", "trash", "archive"] as MailboxRole[]).map((role) => (

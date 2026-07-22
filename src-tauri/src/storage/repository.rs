@@ -592,6 +592,39 @@ impl MailReadRepository {
         Ok(policy)
     }
 
+    pub async fn get_download_non_inbox_bodies(
+        &self,
+        account_slot_id: &str,
+    ) -> CommandResult<bool> {
+        let value = sqlx::query_scalar::<_, i64>(
+            "SELECT download_non_inbox_bodies FROM account_sync_settings WHERE account_slot_id = ?",
+        )
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("storage.sync_settings_read_failed"))?;
+        Ok(value.is_some_and(|value| value != 0))
+    }
+
+    pub async fn set_download_non_inbox_bodies(
+        &self,
+        account_slot_id: &str,
+        enabled: bool,
+    ) -> CommandResult<bool> {
+        sqlx::query(
+            "INSERT INTO account_sync_settings(account_slot_id, download_non_inbox_bodies, updated_at) \
+             VALUES (?, ?, ?) ON CONFLICT(account_slot_id) DO UPDATE SET \
+             download_non_inbox_bodies = excluded.download_non_inbox_bodies, updated_at = excluded.updated_at",
+        )
+        .bind(account_slot_id)
+        .bind(i64::from(enabled))
+        .bind(now())
+        .execute(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("storage.sync_settings_write_failed"))?;
+        Ok(enabled)
+    }
+
     pub async fn raw_message(
         &self,
         account_slot_id: &str,

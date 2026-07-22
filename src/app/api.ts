@@ -134,6 +134,8 @@ export const api = {
     invoke<AccountManagementDetail>("get_account_management_detail", { accountId }),
   setAccountSyncPolicy: (accountId: string, syncPolicy: SyncPolicy) =>
     invoke<SyncPolicy>("set_account_sync_policy", { accountId, syncPolicy }),
+  setDownloadNonInboxBodies: (accountId: string, enabled: boolean) =>
+    invoke<boolean>("set_download_non_inbox_bodies", { accountId, enabled }),
   requestRawMessage: (accountId: string, messageId: string) =>
     invoke<string>("request_raw_message", { accountId, messageId }),
   requestAttachment: (accountId: string, attachmentId: string) =>
@@ -231,7 +233,7 @@ export const api = {
   removeDraftAttachment: (accountId: string, draftId: string, attachmentId: string) =>
     invoke<void>("remove_draft_attachment", { accountId, draftId, attachmentId }),
   discardEmptyDraft: (accountId: string, draftId: string) =>
-    invoke<void>("discard_empty_draft", { accountId, draftId }),
+    invoke<boolean>("discard_empty_draft", { accountId, draftId }),
   deleteDraft: (accountId: string, draftId: string) =>
     invoke<void>("delete_draft", { accountId, draftId }),
   queueRemoteDraft: (accountId: string, draftId: string) =>

@@ -39,6 +39,7 @@ pub struct ImapAccountConfig {
     pub username: String,
     pub password: String,
     pub sync_policy: SyncPolicy,
+    pub download_non_inbox_bodies: bool,
 }
 
 #[derive(Clone, Debug)]

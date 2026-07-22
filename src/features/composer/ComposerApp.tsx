@@ -12,6 +12,8 @@ import type {
   ComposerBootstrap,
   DraftAttachmentSummary,
   DraftContent,
+  DraftRecipientFields,
+  MessageAddress,
   SendJobSummary,
 } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
@@ -27,7 +29,8 @@ import {
   type CompositionNodeSelection,
   type RichTextEditorHandle,
 } from "./RichTextEditor";
-import { formatAddresses, parseAddresses } from "./recipient-utils";
+import { RecipientField } from "./RecipientField";
+import { addRecipientInput } from "./recipient-utils";
 
 interface ComposerAppProps {
   accountId: string;
@@ -61,10 +64,14 @@ export function ComposerApp({ accountId, draftId }: ComposerAppProps) {
 function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   const { t } = useTranslation();
   const { draft, sender } = bootstrap;
-  const [to, setTo] = useState(formatAddresses(draft.recipients.to));
-  const [cc, setCc] = useState(formatAddresses(draft.recipients.cc));
-  const [bcc, setBcc] = useState(formatAddresses(draft.recipients.bcc));
-  const [showCopies, setShowCopies] = useState(Boolean(cc || bcc));
+  const [to, setTo] = useState(draft.recipients.to);
+  const [cc, setCc] = useState(draft.recipients.cc);
+  const [bcc, setBcc] = useState(draft.recipients.bcc);
+  const [toInput, setToInput] = useState("");
+  const [ccInput, setCcInput] = useState("");
+  const [bccInput, setBccInput] = useState("");
+  const [recipientErrors, setRecipientErrors] = useState<Record<RecipientKind, string | null>>({ to: null, cc: null, bcc: null });
+  const [showCopies, setShowCopies] = useState(Boolean(cc.length || bcc.length));
   const [subject, setSubject] = useState(draft.subject);
   const [content, setContent] = useState<DraftContent>(draft.content);
   const [attachments, setAttachments] = useState(draft.attachments);
@@ -89,8 +96,39 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
 
   useEffect(() => { revisionRef.current = revision; }, [revision]);
 
+  const resolveAllRecipients = useCallback((): DraftRecipientFields | null => {
+    const resolved = {
+      to: addRecipientInput(to, toInput),
+      cc: addRecipientInput(cc, ccInput),
+      bcc: addRecipientInput(bcc, bccInput),
+    };
+    const nextErrors = {
+      to: resolved.to.invalid,
+      cc: resolved.cc.invalid,
+      bcc: resolved.bcc.invalid,
+    };
+    setRecipientErrors(nextErrors);
+    if (nextErrors.to || nextErrors.cc || nextErrors.bcc) {
+      setErrorCode("draft.recipient_invalid");
+      return null;
+    }
+    if (toInput.trim()) { setTo(resolved.to.addresses); setToInput(""); }
+    if (ccInput.trim()) { setCc(resolved.cc.addresses); setCcInput(""); }
+    if (bccInput.trim()) { setBcc(resolved.bcc.addresses); setBccInput(""); }
+    return {
+      to: resolved.to.addresses,
+      cc: resolved.cc.addresses,
+      bcc: resolved.bcc.addresses,
+    };
+  }, [bcc, bccInput, cc, ccInput, to, toInput]);
+
   const saveNow = useCallback(async () => {
     if (!dirty || savingRef.current || !editable) return null;
+    const resolvedRecipients = resolveAllRecipients();
+    if (!resolvedRecipients) {
+      setSaveState("failed");
+      return null;
+    }
     savingRef.current = true;
     const savingVersion = changeVersionRef.current;
     setSaveState("saving");
@@ -98,7 +136,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       const saved = await api.saveDraft(
         sender.id,
         draft.id,
-        { to: parseAddresses(to), cc: parseAddresses(cc), bcc: parseAddresses(bcc) },
+        resolvedRecipients,
         subject,
         content,
         revisionRef.current,
@@ -122,7 +160,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         setSaveRetry((value) => value + 1);
       }
     }
-  }, [bcc, cc, content, dirty, draft.id, editable, sender.id, subject, to]);
+  }, [content, dirty, draft.id, editable, resolveAllRecipients, sender.id, subject]);
   const saveNowRef = useRef(saveNow);
   saveNowRef.current = saveNow;
   const closeStateRef = useRef({ dirty, editable, sendJob, submitting });
@@ -162,8 +200,8 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         if (!saved) return;
       }
       try {
-        await api.queueRemoteDraft(sender.id, draft.id);
-        await api.discardEmptyDraft(sender.id, draft.id);
+        const discarded = await api.discardEmptyDraft(sender.id, draft.id);
+        if (!discarded) await api.queueRemoteDraft(sender.id, draft.id);
         await currentWindow.destroy();
       } catch (error) {
         setErrorCode(normalizeCommandError(error).code);
@@ -202,11 +240,50 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     setDirty(true);
   };
 
-  const recipients = () => ({
-    to: parseAddresses(to),
-    cc: parseAddresses(cc),
-    bcc: parseAddresses(bcc),
+  const recipients = (): DraftRecipientFields => ({
+    to: addRecipientInput(to, toInput).addresses,
+    cc: addRecipientInput(cc, ccInput).addresses,
+    bcc: addRecipientInput(bcc, bccInput).addresses,
   });
+
+  function recipientValue(kind: RecipientKind) {
+    if (kind === "to") return { addresses: to, input: toInput };
+    if (kind === "cc") return { addresses: cc, input: ccInput };
+    return { addresses: bcc, input: bccInput };
+  }
+
+  function setRecipientAddresses(kind: RecipientKind, value: MessageAddress[]) {
+    if (kind === "to") setTo(value);
+    else if (kind === "cc") setCc(value);
+    else setBcc(value);
+  }
+
+  function setRecipientInput(kind: RecipientKind, value: string) {
+    if (kind === "to") setToInput(value);
+    else if (kind === "cc") setCcInput(value);
+    else setBccInput(value);
+    setRecipientErrors((current) => ({ ...current, [kind]: null }));
+    markDirty();
+  }
+
+  function commitRecipient(kind: RecipientKind) {
+    const current = recipientValue(kind);
+    const result = addRecipientInput(current.addresses, current.input);
+    if (result.invalid) {
+      setRecipientErrors((errors) => ({ ...errors, [kind]: result.invalid }));
+      return;
+    }
+    setRecipientAddresses(kind, result.addresses);
+    if (kind === "to") setToInput("");
+    else if (kind === "cc") setCcInput("");
+    else setBccInput("");
+    setRecipientErrors((errors) => ({ ...errors, [kind]: null }));
+  }
+
+  function removeRecipient(kind: RecipientKind, index: number) {
+    setRecipientAddresses(kind, recipientValue(kind).addresses.filter((_, itemIndex) => itemIndex !== index));
+    markDirty();
+  }
 
   async function selectTemplate(value: string) {
     setSwitchingDefinition(true);
@@ -254,6 +331,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     try {
       const added = await api.addDraftAttachments(sender.id, draft.id, paths);
       setAttachments((current) => [...current, ...added]);
+      markDirty();
       setErrorCode(null);
     } catch (error) {
       setErrorCode(normalizeCommandError(error).code);
@@ -264,6 +342,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     try {
       await api.removeDraftAttachment(sender.id, draft.id, attachment.id);
       setAttachments((current) => current.filter((item) => item.id !== attachment.id));
+      markDirty();
     } catch (error) {
       setErrorCode(normalizeCommandError(error).code);
     }
@@ -336,12 +415,16 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           <Text className="w-16 shrink-0 text-xs font-semibold">{t("composer.from")}</Text>
           <Text className="text-sm text-foreground">{sender.displayName || sender.email} &lt;{sender.email}&gt;</Text>
         </Inline>
-        <CompactField
+        <RecipientField
           label={t("composer.to")}
-          value={to}
+          addresses={to}
+          input={toInput}
+          error={recipientErrors.to ? t("composer.invalidRecipient", { value: recipientErrors.to }) : null}
           disabled={!editable}
           placeholder={t("composer.recipientPlaceholder")}
-          onChange={(event) => { setTo(event.currentTarget.value); markDirty(); }}
+          onInputChange={(value) => setRecipientInput("to", value)}
+          onCommit={() => commitRecipient("to")}
+          onRemove={(index) => removeRecipient("to", index)}
           trailing={
             <Button type="button" variant="ghost" size="sm" className="mr-2" onClick={() => setShowCopies((value) => !value)}>
               {t("composer.ccBcc")}<ChevronDown size={14} />
@@ -350,8 +433,26 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         />
         {showCopies ? (
           <>
-            <CompactField label={t("composer.cc")} value={cc} disabled={!editable} onChange={(event) => { setCc(event.currentTarget.value); markDirty(); }} />
-            <CompactField label={t("composer.bcc")} value={bcc} disabled={!editable} onChange={(event) => { setBcc(event.currentTarget.value); markDirty(); }} />
+            <RecipientField
+              label={t("composer.cc")}
+              addresses={cc}
+              input={ccInput}
+              error={recipientErrors.cc ? t("composer.invalidRecipient", { value: recipientErrors.cc }) : null}
+              disabled={!editable}
+              onInputChange={(value) => setRecipientInput("cc", value)}
+              onCommit={() => commitRecipient("cc")}
+              onRemove={(index) => removeRecipient("cc", index)}
+            />
+            <RecipientField
+              label={t("composer.bcc")}
+              addresses={bcc}
+              input={bccInput}
+              error={recipientErrors.bcc ? t("composer.invalidRecipient", { value: recipientErrors.bcc }) : null}
+              disabled={!editable}
+              onInputChange={(value) => setRecipientInput("bcc", value)}
+              onCommit={() => commitRecipient("bcc")}
+              onRemove={(index) => removeRecipient("bcc", index)}
+            />
           </>
         ) : null}
         <CompactField label={t("composer.subject")} value={subject} disabled={!editable} onChange={(event) => { setSubject(event.currentTarget.value); markDirty(); }} />
@@ -470,6 +571,8 @@ function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
+
+type RecipientKind = "to" | "cc" | "bcc";
 
 function fileToBase64(file: File) {
   return new Promise<string>((resolve, reject) => {

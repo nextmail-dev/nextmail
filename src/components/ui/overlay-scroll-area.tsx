@@ -17,6 +17,7 @@ interface OverlayScrollAreaProps {
   style?: CSSProperties;
   trackClassName?: string;
   viewportClassName?: string;
+  alwaysVisible?: boolean;
 }
 
 interface ScrollbarMetrics {
@@ -42,6 +43,7 @@ export function OverlayScrollArea({
   style,
   trackClassName,
   viewportClassName,
+  alwaysVisible = false,
 }: OverlayScrollAreaProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -158,7 +160,9 @@ export function OverlayScrollArea({
           <div
             className={cn(
               "absolute right-0 w-1 cursor-ns-resize touch-none rounded-full bg-muted-foreground/55 transition-opacity duration-150",
-              scrollbar.active ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
+              scrollbar.active || alwaysVisible
+                ? "pointer-events-auto opacity-100"
+                : "pointer-events-none opacity-0",
             )}
             style={{
               height: `${scrollbar.thumbHeight}px`,

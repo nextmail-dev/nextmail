@@ -16,18 +16,20 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
-import type { AttachmentSummary, MailboxSummary, MessageAddress, MessageComposeAction } from "@/app/types";
+import type { AttachmentSummary, MailboxSummary, MessageAddress, MessageBodyProgress, MessageComposeAction } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Modal } from "@/components/ui/dialog";
 import { Inline, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
+import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, LabelText, Text } from "@/components/ui/typography";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -47,12 +49,22 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
   const queryClient = useQueryClient();
   const [rawSource, setRawSource] = useState<string | null>(null);
   const [remoteImagesAllowed, setRemoteImagesAllowed] = useState(false);
+  const [bodyProgress, setBodyProgress] = useState<MessageBodyProgress | null>(null);
   const readingPreferences = useQuery({
     queryKey: ["reading-preferences"],
     queryFn: api.getReadingPreferences,
   });
 
   useEffect(() => setRemoteImagesAllowed(false), [messageId]);
+  useEffect(() => {
+    setBodyProgress(null);
+    const unlisten = listen<MessageBodyProgress>("message-body-progress", (event) => {
+      if (event.payload.accountId === accountId && event.payload.messageId === messageId) {
+        setBodyProgress(event.payload);
+      }
+    });
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, [accountId, messageId]);
   const query = useQuery({
     queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId),
     queryFn: () => api.getMessageDetail(accountId, messageId, mailboxId),
@@ -76,7 +88,9 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
   });
   const bodyMutation = useMutation({
     mutationFn: () => api.requestMessageBody(accountId, messageId, mailboxId),
+    onMutate: () => setBodyProgress({ accountId, messageId, stage: "preparing", progress: 0 }),
     onSuccess: (detail) => queryClient.setQueryData(messageQueryKeys.detail(accountId, mailboxId, messageId), detail),
+    onSettled: () => window.setTimeout(() => setBodyProgress(null), 500),
   });
   const rawMutation = useMutation({ mutationFn: () => api.requestRawMessage(accountId, messageId), onSuccess: setRawSource });
   const messageOperation = useMutation({
@@ -210,12 +224,17 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
         ) : message.plainText ? (
           <Text className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-8 py-5 text-sm leading-[1.75] text-foreground">{message.plainText}</Text>
         ) : (
-          <EmptyState
-            icon={<MailOpen size={24} />}
-            title={t("mail.bodyUnavailable")}
-            description={bodyMutation.isPending ? t("mail.downloadingBody") : t("mail.bodyUnavailableDescription")}
-            action={<Button loading={bodyMutation.isPending} onClick={() => bodyMutation.mutate()}><Download size={14} />{t("mail.downloadBody")}</Button>}
-          />
+          <Stack className="m-auto w-full max-w-md items-center px-8" gap="md">
+            <EmptyState
+              icon={<MailOpen size={24} />}
+              title={t("mail.bodyUnavailable")}
+              description={bodyMutation.isPending && bodyProgress
+                ? t(`mail.bodyProgress.${bodyProgress.stage}`, { progress: bodyProgress.progress })
+                : t("mail.bodyUnavailableDescription")}
+              action={<Button loading={bodyMutation.isPending} onClick={() => bodyMutation.mutate()}><Download size={14} />{t("mail.downloadBody")}</Button>}
+            />
+            {bodyMutation.isPending ? <Progress value={bodyProgress?.progress ?? 0} className="max-w-xs" /> : null}
+          </Stack>
         )}
       </Stack>
 

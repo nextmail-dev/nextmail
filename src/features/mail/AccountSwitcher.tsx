@@ -77,7 +77,7 @@ function AccountIdentity({ account, runtime, collapsed = false }: { account?: Ac
         <Stack className="min-w-0 flex-1 items-start text-left" gap="xs">
           <Text className="w-full truncate text-left text-sm font-semibold leading-none text-foreground">{label}</Text>
           <Text className="w-full truncate text-left text-[length:var(--ui-font-caption)] leading-none">
-            {account.email}{runtime && !["ready", "stopped"].includes(runtime.state) ? ` · ${t(`accounts.runtime.${runtime.state}`)}` : ""}
+            {account.email}{runtime && !["ready", "stopped", "syncing"].includes(runtime.state) ? ` · ${t(`accounts.runtime.${runtime.state}`)}` : ""}
           </Text>
         </Stack>
       )}

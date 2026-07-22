@@ -210,6 +210,14 @@ export interface AccountManagementDetail {
   incomingPort: number;
   security: ConnectionSecurity;
   syncPolicy: SyncPolicy;
+  downloadNonInboxBodies: boolean;
+}
+
+export interface MessageBodyProgress {
+  accountId: string;
+  messageId: string;
+  stage: "preparing" | "downloading" | "processing" | "updating" | "complete";
+  progress: number;
 }
 
 export interface DraftContent {

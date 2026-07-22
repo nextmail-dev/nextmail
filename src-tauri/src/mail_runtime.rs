@@ -439,6 +439,12 @@ impl MailRuntime {
             .read()
             .get_sync_policy(&account.data_slot_id)
             .await?;
+        let download_non_inbox_bodies = self
+            .repository()
+            .await?
+            .read()
+            .get_download_non_inbox_bodies(&account.data_slot_id)
+            .await?;
         Ok(AccountManagementDetail {
             id: account.id,
             email: account.email,
@@ -447,6 +453,7 @@ impl MailRuntime {
             incoming_port: account.incoming.port,
             security: account.incoming.security,
             sync_policy,
+            download_non_inbox_bodies,
         })
     }
 
@@ -462,6 +469,23 @@ impl MailRuntime {
             .await?
             .read()
             .set_sync_policy(&account.data_slot_id, sync_policy)
+            .await?;
+        self.wake_account(account_id);
+        Ok(updated)
+    }
+
+    pub async fn set_download_non_inbox_bodies(
+        self: &Arc<Self>,
+        account_id: &str,
+        enabled: bool,
+    ) -> CommandResult<bool> {
+        self.ensure_account_writable(account_id)?;
+        let account = self.service.account_record(account_id)?;
+        let updated = self
+            .repository()
+            .await?
+            .read()
+            .set_download_non_inbox_bodies(&account.data_slot_id, enabled)
             .await?;
         self.wake_account(account_id);
         Ok(updated)
@@ -690,6 +714,30 @@ impl MailRuntime {
         message_id: &str,
         mailbox_id: Option<&str>,
     ) -> CommandResult<MessageDetail> {
+        self.request_message_body_inner(account_id, message_id, mailbox_id, false)
+            .await
+    }
+
+    pub async fn request_message_body_with_progress(
+        &self,
+        account_id: &str,
+        message_id: &str,
+        mailbox_id: Option<&str>,
+    ) -> CommandResult<MessageDetail> {
+        self.request_message_body_inner(account_id, message_id, mailbox_id, true)
+            .await
+    }
+
+    async fn request_message_body_inner(
+        &self,
+        account_id: &str,
+        message_id: &str,
+        mailbox_id: Option<&str>,
+        emit_progress: bool,
+    ) -> CommandResult<MessageDetail> {
+        if emit_progress {
+            self.emit_message_body_progress(account_id, message_id, "preparing", 5);
+        }
         let account = self.service.account_record(account_id)?;
         let repository = Arc::clone(self.repository().await?);
         if let Some(raw) = repository
@@ -697,6 +745,9 @@ impl MailRuntime {
             .raw_message(&account.data_slot_id, message_id)
             .await?
         {
+            if emit_progress {
+                self.emit_message_body_progress(account_id, message_id, "processing", 55);
+            }
             let body = tokio::task::spawn_blocking(move || {
                 crate::protocols::sanitize_raw_message_body(&raw)
             })
@@ -713,6 +764,9 @@ impl MailRuntime {
                         body.remote_images_blocked,
                     )
                     .await?;
+                if emit_progress {
+                    self.emit_message_body_progress(account_id, message_id, "updating", 90);
+                }
                 let detail = repository
                     .read()
                     .get_message_detail(&account.data_slot_id, message_id, mailbox_id)
@@ -725,12 +779,44 @@ impl MailRuntime {
                         revision: detail.revision,
                     },
                 );
+                if emit_progress {
+                    self.emit_message_body_progress(account_id, message_id, "complete", 100);
+                }
                 return Ok(detail);
             }
         }
+        if emit_progress {
+            self.emit_message_body_progress(account_id, message_id, "downloading", 20);
+        }
         self.fetch_and_store_message(account_id, message_id).await?;
-        self.get_message_detail(account_id, message_id, mailbox_id)
-            .await
+        if emit_progress {
+            self.emit_message_body_progress(account_id, message_id, "updating", 90);
+        }
+        let detail = self
+            .get_message_detail(account_id, message_id, mailbox_id)
+            .await?;
+        if emit_progress {
+            self.emit_message_body_progress(account_id, message_id, "complete", 100);
+        }
+        Ok(detail)
+    }
+
+    fn emit_message_body_progress(
+        &self,
+        account_id: &str,
+        message_id: &str,
+        stage: &'static str,
+        progress: u8,
+    ) {
+        let _ = self.app.emit(
+            "message-body-progress",
+            MessageBodyProgressEvent {
+                account_id: account_id.to_owned(),
+                message_id: message_id.to_owned(),
+                stage,
+                progress,
+            },
+        );
     }
 
     pub async fn request_attachment(
@@ -899,6 +985,12 @@ impl MailRuntime {
             .read()
             .get_sync_policy(&account.data_slot_id)
             .await?;
+        let download_non_inbox_bodies = self
+            .repository()
+            .await?
+            .read()
+            .get_download_non_inbox_bodies(&account.data_slot_id)
+            .await?;
         let password = self
             .service
             .account_password(&account.credential_ref)
@@ -912,6 +1004,7 @@ impl MailRuntime {
             username: account.incoming.username,
             password,
             sync_policy,
+            download_non_inbox_bodies,
         })
     }
 
@@ -1324,6 +1417,15 @@ struct MessageContentChangedEvent {
     account_id: String,
     message_id: String,
     revision: u64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MessageBodyProgressEvent {
+    account_id: String,
+    message_id: String,
+    stage: &'static str,
+    progress: u8,
 }
 
 #[derive(Clone, Serialize)]

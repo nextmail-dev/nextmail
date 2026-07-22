@@ -141,7 +141,7 @@ beforeEach(() => {
     revision: 2,
   }));
   vi.mocked(api.queueRemoteDraft).mockResolvedValue(undefined);
-  vi.mocked(api.discardEmptyDraft).mockResolvedValue(undefined);
+  vi.mocked(api.discardEmptyDraft).mockResolvedValue(false);
   destroyMock.mockResolvedValue(undefined);
   eventListenMock.mockResolvedValue(vi.fn());
   onCloseRequestedMock.mockImplementation((handler) => {
@@ -173,12 +173,13 @@ describe("ComposerApp close lifecycle", () => {
       html: "<p>Changed body</p>",
       plainText: "Changed body",
     });
-    expect(api.queueRemoteDraft).toHaveBeenCalledWith("account-one", "draft-one");
     expect(api.discardEmptyDraft).toHaveBeenCalledWith("account-one", "draft-one");
+    expect(api.queueRemoteDraft).toHaveBeenCalledWith("account-one", "draft-one");
     expect(destroyMock).toHaveBeenCalledOnce();
   });
 
   it("keeps the existing empty-draft close path without an unnecessary save", async () => {
+    vi.mocked(api.discardEmptyDraft).mockResolvedValue(true);
     const view = renderComposer();
     await screen.findByRole("button", { name: "Change body" });
     await waitFor(() => expect(onCloseRequestedMock).toHaveBeenCalledOnce());
@@ -188,8 +189,8 @@ describe("ComposerApp close lifecycle", () => {
 
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(api.saveDraft).not.toHaveBeenCalled();
-    expect(api.queueRemoteDraft).toHaveBeenCalledWith("account-one", "draft-one");
     expect(api.discardEmptyDraft).toHaveBeenCalledWith("account-one", "draft-one");
+    expect(api.queueRemoteDraft).not.toHaveBeenCalled();
     expect(destroyMock).toHaveBeenCalledOnce();
 
     view.unmount();

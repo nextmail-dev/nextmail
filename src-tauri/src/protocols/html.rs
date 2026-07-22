@@ -1,7 +1,12 @@
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use ammonia::Builder;
-use mail_parser::{MessageParser, MimeHeaders};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use mail_parser::{Message, MessageParser, MimeHeaders};
 
 use super::{
     css::{sanitize_style_attribute, sanitize_stylesheet, sanitize_stylesheet_for_composer},
@@ -11,11 +16,14 @@ use super::{
 const MAX_STYLE_ELEMENTS: usize = 32;
 const MAX_TOTAL_STYLESHEET_BYTES: usize = 256 * 1024;
 const MAX_TOTAL_STYLE_RULES: usize = 2_048;
+const MAX_INLINE_READER_IMAGE_BYTES: usize = 25 * 1024 * 1024;
+const MAX_TOTAL_INLINE_READER_IMAGE_BYTES: usize = 100 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SanitizedHtml {
     pub document: String,
     pub remote_images_blocked: bool,
+    pub inline_content_ids: HashSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,7 +51,9 @@ pub struct ComposerInlineImage {
 pub fn sanitize_raw_message_body(raw: &[u8]) -> Option<SanitizedMessageBody> {
     let message = MessageParser::default().parse(raw)?;
     let plain_text = message.body_text(0).map(|value| value.into_owned());
-    let sanitized_html = message.body_html(0).map(|value| sanitize_mail_html(&value));
+    let sanitized_html = message
+        .body_html(0)
+        .map(|value| sanitize_mail_html_with_cid_images(&value, &message));
     if plain_text.is_none() && sanitized_html.is_none() {
         return None;
     }
@@ -111,7 +121,25 @@ pub fn sanitize_raw_message_for_composer(raw: &[u8]) -> Option<SanitizedComposer
 }
 
 pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
-    let fragment = sanitize_mail_html_fragment(input, true, false, false);
+    sanitize_mail_html_with_data_urls(input, HashMap::new())
+}
+
+pub fn sanitize_mail_html_with_cid_images(input: &str, message: &Message<'_>) -> SanitizedHtml {
+    sanitize_mail_html_with_data_urls(input, inline_image_data_urls(message, input))
+}
+
+fn sanitize_mail_html_with_data_urls(
+    input: &str,
+    cid_images: HashMap<String, String>,
+) -> SanitizedHtml {
+    let cid_images = Arc::new(cid_images);
+    let fragment = sanitize_mail_html_fragment_with_cid_images(
+        input,
+        true,
+        false,
+        false,
+        Arc::clone(&cid_images),
+    );
     let normalized = fragment.to_ascii_lowercase();
     let remote_images_blocked = normalized.contains("<img")
         && (normalized.contains("src=\"http://") || normalized.contains("src=\"https://"));
@@ -120,7 +148,57 @@ pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
             "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><style>html{{color-scheme:light}}body{{margin:0}}</style></head><body>{fragment}</body></html>"
         ),
         remote_images_blocked,
+        inline_content_ids: cid_images
+            .iter()
+            .filter_map(|(content_id, data_url)| {
+                fragment.contains(data_url).then_some(content_id.clone())
+            })
+            .collect(),
     }
+}
+
+fn inline_image_data_urls(message: &Message<'_>, input: &str) -> HashMap<String, String> {
+    let normalized_html = input.to_ascii_lowercase();
+    let mut total_bytes = 0usize;
+    let mut images = HashMap::new();
+    for attachment in message.attachments() {
+        let Some(content_id) = attachment.content_id() else {
+            continue;
+        };
+        let content_id = content_id.trim().trim_matches(['<', '>']).to_owned();
+        let size = attachment.len();
+        if content_id.is_empty()
+            || size > MAX_INLINE_READER_IMAGE_BYTES
+            || total_bytes.saturating_add(size) > MAX_TOTAL_INLINE_READER_IMAGE_BYTES
+            || !normalized_html.contains(&format!("cid:{}", content_id.to_ascii_lowercase()))
+        {
+            continue;
+        }
+        let Some(content_type) = attachment.content_type() else {
+            continue;
+        };
+        let content_type = format!(
+            "{}/{}",
+            content_type.ctype(),
+            content_type.subtype().unwrap_or("octet-stream")
+        )
+        .to_ascii_lowercase();
+        if !matches!(
+            content_type.as_str(),
+            "image/gif" | "image/jpeg" | "image/png" | "image/webp"
+        ) {
+            continue;
+        }
+        total_bytes += size;
+        images.insert(
+            content_id.to_ascii_lowercase(),
+            format!(
+                "data:{content_type};base64,{}",
+                STANDARD.encode(attachment.contents())
+            ),
+        );
+    }
+    images
 }
 
 pub fn sanitize_mail_html_for_composer(input: &str) -> String {
@@ -137,8 +215,24 @@ fn sanitize_mail_html_fragment(
     scope_stylesheets: bool,
     preserve_cid_images: bool,
 ) -> String {
+    sanitize_mail_html_fragment_with_cid_images(
+        input,
+        preserve_stylesheets,
+        scope_stylesheets,
+        preserve_cid_images,
+        Arc::new(HashMap::new()),
+    )
+}
+
+fn sanitize_mail_html_fragment_with_cid_images(
+    input: &str,
+    preserve_stylesheets: bool,
+    scope_stylesheets: bool,
+    preserve_cid_images: bool,
+    cid_images: Arc<HashMap<String, String>>,
+) -> String {
     let mut builder = Builder::default();
-    if preserve_cid_images {
+    if preserve_cid_images || !cid_images.is_empty() {
         builder.add_url_schemes(["cid", "data"]);
     }
     builder
@@ -207,6 +301,11 @@ fn sanitize_mail_html_fragment(
             if element == "img" && attribute_lower == "src" {
                 let trimmed = value.trim();
                 let value_lower = trimmed.to_ascii_lowercase();
+                if let Some(content_id) = value_lower.strip_prefix("cid:") {
+                    if let Some(data_url) = cid_images.get(content_id.trim_matches(['<', '>'])) {
+                        return Some(Cow::Owned(data_url.clone()));
+                    }
+                }
                 return if value_lower.starts_with("//") {
                     Some(Cow::Owned(format!("https:{trimmed}")))
                 } else if value_lower.starts_with("http://")
