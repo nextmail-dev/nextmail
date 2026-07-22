@@ -1,40 +1,34 @@
 import {
   Bell,
   BookOpen,
-  CircleUserRound,
   Info,
   Languages,
   Palette,
   PenLine,
-  Plus,
   SlidersHorizontal,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
 import { useAppearancePreferences, useUpdateAppearancePreferences } from "@/app/appearance";
-import type { AccountDraft, AccountSummary, AppearancePreferences, LanguagePreference, ReadingPreferences, ThemePreference } from "@/app/types";
-import { AccountManagementPanel } from "@/features/accounts/AccountManagementDialog";
-import { PasswordAccountForm } from "@/features/accounts/PasswordAccountForm";
+import type { AccountSummary, AppearancePreferences, LanguagePreference, ReadingPreferences, ThemePreference } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Modal } from "@/components/ui/dialog";
-import { AppShell, Inline, Page, Stack } from "@/components/ui/layout";
+import { AppShell, Page, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SelectField } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { ThemeColorPicker, type ThemeColorOption } from "@/components/ui/theme-color-picker";
-import { Heading, LabelText, Text } from "@/components/ui/typography";
+import { Heading, Text } from "@/components/ui/typography";
 import { CompositionDefinitionsSettings } from "./CompositionDefinitionsSettings";
 
 type SettingsCategory =
   | "general"
   | "appearance"
-  | "accounts"
   | "reading"
   | "composer"
   | "notifications"
@@ -44,7 +38,6 @@ type SettingsCategory =
 const categories: Array<{ id: SettingsCategory; icon: typeof Languages }> = [
   { id: "general", icon: Languages },
   { id: "appearance", icon: Palette },
-  { id: "accounts", icon: CircleUserRound },
   { id: "reading", icon: BookOpen },
   { id: "composer", icon: PenLine },
   { id: "notifications", icon: Bell },
@@ -69,7 +62,6 @@ export function SettingsApp() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [category, setCategory] = useState<SettingsCategory>("general");
-  const [selectedAccountId, setSelectedAccountId] = useState("");
   const preferencesQuery = useAppearancePreferences();
   const readingPreferencesQuery = useQuery({ queryKey: ["reading-preferences"], queryFn: api.getReadingPreferences });
   const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.listAccountSummaries });
@@ -79,12 +71,6 @@ export function SettingsApp() {
     mutationFn: api.setReadingPreferences,
     onSuccess: (preferences) => queryClient.setQueryData(["reading-preferences"], preferences),
   });
-
-  useEffect(() => {
-    const accounts = accountsQuery.data ?? [];
-    if (selectedAccountId && accounts.some((account) => account.id === selectedAccountId)) return;
-    setSelectedAccountId(accounts[0]?.id ?? "");
-  }, [accountsQuery.data, selectedAccountId]);
 
   function updatePreferences(preferences: AppearancePreferences) {
     mutation.mutate(preferences);
@@ -152,8 +138,6 @@ export function SettingsApp() {
             readingPreferences={readingPreferencesQuery.data}
             readingError={readingMutation.error}
             accounts={accountsQuery.data ?? []}
-            selectedAccountId={selectedAccountId}
-            onSelectedAccountChange={setSelectedAccountId}
             version={aboutQuery.data?.version ?? "0.1.0"}
             onChange={updatePreferences}
             onReadingChange={updateReadingPreferences}
@@ -170,8 +154,6 @@ function SettingsContent({
   readingPreferences,
   readingError,
   accounts,
-  selectedAccountId,
-  onSelectedAccountChange,
   version,
   onChange,
   onReadingChange,
@@ -181,8 +163,6 @@ function SettingsContent({
   readingPreferences: ReadingPreferences;
   readingError: unknown;
   accounts: AccountSummary[];
-  selectedAccountId: string;
-  onSelectedAccountChange: (accountId: string) => void;
   version: string;
   onChange: (preferences: AppearancePreferences) => void;
   onReadingChange: (preferences: ReadingPreferences) => void;
@@ -228,17 +208,6 @@ function SettingsContent({
           value={preferences.accentColor}
           options={colorOptions}
           onValueChange={(accentColor) => onChange({ ...preferences, accentColor })}
-        />
-      </SettingsSection>
-    );
-  }
-  if (category === "accounts") {
-    return (
-      <SettingsSection category={category}>
-        <AccountsSettings
-          accounts={accounts}
-          selectedAccountId={selectedAccountId}
-          onSelectedAccountChange={onSelectedAccountChange}
         />
       </SettingsSection>
     );
@@ -297,64 +266,6 @@ function SettingsContent({
         description={t("settings.noOptionsDescription")}
       />
     </SettingsSection>
-  );
-}
-
-function AccountsSettings({
-  accounts,
-  selectedAccountId,
-  onSelectedAccountChange,
-}: {
-  accounts: AccountSummary[];
-  selectedAccountId: string;
-  onSelectedAccountChange: (accountId: string) => void;
-}) {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const [addOpen, setAddOpen] = useState(false);
-
-  async function addAccount(draft: AccountDraft) {
-    const account = await api.addPasswordAccount(draft);
-    setAddOpen(false);
-    await queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    await queryClient.invalidateQueries({ queryKey: ["account-runtimes"] });
-    onSelectedAccountChange(account.id);
-  }
-
-  return (
-    <Stack gap="lg">
-      <Inline className="justify-between">
-        <LabelText>{t("accounts.accountList")}</LabelText>
-        <Button size="sm" onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button>
-      </Inline>
-      {accounts.length ? (
-        <Page className="grid min-h-[360px] grid-cols-[210px_minmax(0,1fr)] gap-6">
-          <Stack className="self-start rounded-lg bg-muted/50 p-2" gap="xs">
-            {accounts.map((account) => (
-              <Button
-                key={account.id}
-                variant="ghost"
-                className={account.id === selectedAccountId ? "h-auto justify-start bg-card px-3 py-2.5 shadow-sm hover:bg-card" : "h-auto justify-start px-3 py-2.5"}
-                onClick={() => onSelectedAccountChange(account.id)}
-              >
-                <Stack className="min-w-0 items-start" gap="xs">
-                  <Text className="max-w-full truncate text-sm font-semibold text-foreground">{account.displayName || account.email}</Text>
-                  <Text className="max-w-full truncate text-xs">{account.email}</Text>
-                </Stack>
-              </Button>
-            ))}
-          </Stack>
-          {selectedAccountId ? <AccountManagementPanel accountId={selectedAccountId} onRemoved={() => onSelectedAccountChange("")} /> : null}
-        </Page>
-      ) : (
-        <EmptyState icon={<CircleUserRound size={24} />} title={t("settings.noAccount")} description={t("accounts.noAccountDescription")} action={<Button onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button>} />
-      )}
-      <Modal open={addOpen} onOpenChange={setAddOpen} title={t("accounts.addTitle")} closeLabel={t("common.close")}>
-        <Stack className="mt-5 max-h-[72vh] overflow-auto pr-1">
-          <PasswordAccountForm submitLabel={t("accounts.add")} onSubmit={addAccount} />
-        </Stack>
-      </Modal>
-    </Stack>
   );
 }
 

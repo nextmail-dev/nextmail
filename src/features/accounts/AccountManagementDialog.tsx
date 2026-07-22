@@ -1,29 +1,138 @@
-import { KeyRound, Pencil, Server, ShieldCheck, Trash2 } from "lucide-react";
+import { CircleUserRound, KeyRound, Pencil, Plus, Server, ShieldCheck, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
-import type { AccountDraft, MailboxRole, SyncPolicy } from "@/app/types";
+import type { AccountDraft, AccountSummary, MailboxRole, SyncPolicy } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Modal } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import { PasswordField } from "@/components/ui/input";
-import { Inline, Stack } from "@/components/ui/layout";
+import { Inline, Page, Stack } from "@/components/ui/layout";
 import { SelectField } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { LabelText, Text } from "@/components/ui/typography";
 import { PasswordAccountForm } from "./PasswordAccountForm";
 
-export function AccountManagementDialog({ open, onOpenChange, accountId }: { open: boolean; onOpenChange: (open: boolean) => void; accountId: string }) {
+export function AccountManagementDialog({
+  open,
+  onOpenChange,
+  accounts,
+  selectedAccountId,
+  onSelectedAccountChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  accounts: AccountSummary[];
+  selectedAccountId: string;
+  onSelectedAccountChange: (accountId: string) => void;
+}) {
   const { t } = useTranslation();
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title={t("accounts.title")} closeLabel={t("common.close")}>
-      <AccountManagementPanel accountId={accountId} enabled={open} className="mt-5" />
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t("accounts.title")}
+      closeLabel={t("common.close")}
+      contentClassName="flex max-h-[calc(100vh-40px)] w-[min(980px,calc(100vw-40px))] flex-col"
+    >
+      <AccountsManagement
+        accounts={accounts}
+        selectedAccountId={selectedAccountId}
+        onSelectedAccountChange={onSelectedAccountChange}
+        enabled={open}
+      />
     </Modal>
   );
+}
+
+export function AccountsManagement({
+  accounts,
+  selectedAccountId,
+  onSelectedAccountChange,
+  enabled = true,
+}: {
+  accounts: AccountSummary[];
+  selectedAccountId: string;
+  onSelectedAccountChange: (accountId: string) => void;
+  enabled?: boolean;
+}) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [addOpen, setAddOpen] = useState(false);
+  const activeAccountId = accounts.some((account) => account.id === selectedAccountId)
+    ? selectedAccountId
+    : accounts[0]?.id ?? "";
+
+  async function addAccount(draft: AccountDraft) {
+    const account = await api.addPasswordAccount(draft);
+    setAddOpen(false);
+    await queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    await queryClient.invalidateQueries({ queryKey: ["account-runtimes"] });
+    onSelectedAccountChange(account.id);
+  }
+
+  function selectAfterRemoval() {
+    const nextAccountId = nextAccountIdAfterRemoval(accounts, activeAccountId);
+    if (nextAccountId) onSelectedAccountChange(nextAccountId);
+  }
+
+  return (
+    <Stack className="mt-5 min-h-0 flex-1" gap="lg">
+      <Inline className="justify-between">
+        <LabelText>{t("accounts.accountList")}</LabelText>
+        {accounts.length ? <Button size="sm" onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button> : null}
+      </Inline>
+      {accounts.length ? (
+        <Page className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] gap-6 overflow-hidden">
+          <Stack className="self-start rounded-lg bg-muted/50 p-2" gap="xs">
+            {accounts.map((account) => (
+              <Button
+                key={account.id}
+                variant="ghost"
+                className={account.id === activeAccountId ? "h-auto justify-start bg-card px-3 py-2.5 shadow-sm hover:bg-card" : "h-auto justify-start px-3 py-2.5"}
+                onClick={() => onSelectedAccountChange(account.id)}
+              >
+                <Stack className="min-w-0 items-start" gap="xs">
+                  <Text className="max-w-full truncate text-sm font-semibold text-foreground">{account.displayName || account.email}</Text>
+                  <Text className="max-w-full truncate text-xs">{account.email}</Text>
+                </Stack>
+              </Button>
+            ))}
+          </Stack>
+          {activeAccountId ? (
+            <Stack className="min-h-0 overflow-y-scroll pr-2">
+              <AccountManagementPanel
+                accountId={activeAccountId}
+                enabled={enabled}
+                onRemoved={selectAfterRemoval}
+              />
+            </Stack>
+          ) : null}
+        </Page>
+      ) : (
+        <EmptyState
+          icon={<CircleUserRound size={24} />}
+          title={t("accounts.noAccount")}
+          description={t("accounts.noAccountDescription")}
+          action={<Button onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button>}
+        />
+      )}
+      <Modal open={addOpen} onOpenChange={setAddOpen} title={t("accounts.addTitle")} closeLabel={t("common.close")}>
+        <Stack className="mt-5 max-h-[72vh] overflow-auto pr-1">
+          <PasswordAccountForm submitLabel={t("accounts.add")} onSubmit={addAccount} />
+        </Stack>
+      </Modal>
+    </Stack>
+  );
+}
+
+export function nextAccountIdAfterRemoval(accounts: AccountSummary[], removedAccountId: string) {
+  return accounts.find((account) => account.id !== removedAccountId)?.id ?? "";
 }
 
 export function AccountManagementPanel({

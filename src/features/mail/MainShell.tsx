@@ -12,6 +12,7 @@ import { AppShell, Page, Stack } from "@/components/ui/layout";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Toast } from "@/components/ui/toast";
 import { Text } from "@/components/ui/typography";
+import { AccountManagementDialog } from "@/features/accounts/AccountManagementDialog";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { MailboxPane } from "./MailboxPane";
 import { MessageListPane } from "./MessageListPane";
@@ -42,6 +43,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   });
   const accounts = accountsQuery.data ?? [];
   const [composeError, setComposeError] = useState<string | null>(null);
+  const [accountManagementOpen, setAccountManagementOpen] = useState(false);
   const [sentNotice, setSentNotice] = useState<{ id: string; subject: string } | null>(null);
   const [visibleMessageIds, setVisibleMessageIds] = useState<string[]>([]);
   const {
@@ -129,7 +131,14 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           title={t("accounts.noAccount")}
           description={t("accounts.noAccountDescription")}
           actionLabel={t("accounts.add")}
-          onAdd={() => void api.openSettingsWindow().catch((error) => setComposeError(normalizeCommandError(error).code))}
+          onAdd={() => setAccountManagementOpen(true)}
+        />
+        <AccountManagementDialog
+          open={accountManagementOpen}
+          onOpenChange={setAccountManagementOpen}
+          accounts={accounts}
+          selectedAccountId={selectedAccountId}
+          onSelectedAccountChange={selectAccount}
         />
       </AppShell>
     );
@@ -146,6 +155,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           runtimeSummaries={runtimeQuery.data ?? []}
           selectedAccountId={selectedAccountId}
           onAccountChange={selectAccount}
+          onManageAccounts={() => setAccountManagementOpen(true)}
           collapsed={folderPaneCollapsed}
         />
         <MailboxPane
@@ -235,6 +245,13 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           </Stack>
         </Alert>
       ) : null}
+      <AccountManagementDialog
+        open={accountManagementOpen}
+        onOpenChange={setAccountManagementOpen}
+        accounts={accounts}
+        selectedAccountId={selectedAccountId}
+        onSelectedAccountChange={selectAccount}
+      />
     </AppShell>
   );
 }

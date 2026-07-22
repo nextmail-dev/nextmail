@@ -115,7 +115,7 @@ describe("SettingsApp", () => {
     });
   });
 
-  it("renders the multi-account manager in the Accounts category", async () => {
+  it("does not duplicate account management in the settings categories", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
@@ -123,10 +123,8 @@ describe("SettingsApp", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Accounts" }));
-    expect(await screen.findByText("Email accounts")).toBeInTheDocument();
-    expect(screen.getByText("Alice")).toBeInTheDocument();
-    expect(screen.getByText("Bob")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add account" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Accounts" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Composing" })).toBeInTheDocument();
   });
 });

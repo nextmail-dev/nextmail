@@ -62,6 +62,7 @@
 - `changes/0044-workspace-and-macos-layout-polish.md`：主题高亮、滚动槽、初始向导、分栏和 macOS 交通灯配置修正。
 - `changes/0045-sync-compose-window-and-list-actions.md`：当前文件夹同步反馈、Composer 地址交互、窗口状态、连续选择和邮件列表右键菜单。
 - `changes/0046-default-signature-preferences.md`：第十三阶段第一批单一默认签名、自动插入偏好和旧场景规则迁移。
+- `changes/0047-account-menu-management.md`：第十三阶段第二批常驻账户菜单、主窗口账户管理弹窗和设置重复入口移除。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。

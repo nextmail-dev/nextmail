@@ -1,4 +1,4 @@
-import { ChevronDown, UserRound } from "lucide-react";
+import { ChevronDown, Settings, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { AccountRuntimeSummary, AccountSummary } from "@/app/types";
@@ -7,6 +7,8 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Inline, Stack } from "@/components/ui/layout";
@@ -16,6 +18,7 @@ interface AccountSwitcherProps {
   accounts: AccountSummary[];
   selectedAccountId: string;
   onAccountChange: (accountId: string) => void;
+  onManageAccounts: () => void;
   runtimeSummaries?: AccountRuntimeSummary[];
   collapsed?: boolean;
 }
@@ -24,6 +27,7 @@ export function AccountSwitcher({
   accounts,
   selectedAccountId,
   onAccountChange,
+  onManageAccounts,
   runtimeSummaries = [],
   collapsed = false,
 }: AccountSwitcherProps) {
@@ -33,32 +37,35 @@ export function AccountSwitcher({
 
   return (
     <Inline className={collapsed ? "justify-center px-2 pt-5" : "px-4 pt-5"}>
-      {accounts.length > 1 ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              className={collapsed ? "size-10 p-0" : "h-12 min-w-0 flex-1 justify-start px-1"}
-              aria-label={t("mail.switchAccount")}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            className={collapsed ? "size-10 p-0" : "h-12 min-w-0 flex-1 justify-start px-1"}
+            aria-label={t("mail.accountMenu")}
+          >
+            {identity}
+            {collapsed ? null : <ChevronDown className="ml-auto" size={15} />}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-72" align="start">
+          {accounts.map((account) => (
+            <DropdownMenuCheckboxItem
+              key={account.id}
+              className="h-auto min-h-14 py-2 pr-3"
+              checked={account.id === selected?.id}
+              onCheckedChange={() => onAccountChange(account.id)}
             >
-              {identity}
-              {collapsed ? null : <ChevronDown className="ml-auto" size={15} />}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-72" align="start">
-            {accounts.map((account) => (
-              <DropdownMenuCheckboxItem
-                key={account.id}
-                className="h-auto min-h-14 py-2 pr-3"
-                checked={account.id === selected?.id}
-                onCheckedChange={() => onAccountChange(account.id)}
-              >
-                <AccountIdentity account={account} runtime={runtimeSummaries.find((item) => item.accountId === account.id)} />
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : identity}
+              <AccountIdentity account={account} runtime={runtimeSummaries.find((item) => item.accountId === account.id)} />
+            </DropdownMenuCheckboxItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={onManageAccounts}>
+            <Settings size={15} />
+            {t("mail.accountManagement")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </Inline>
   );
 }
