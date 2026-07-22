@@ -5,6 +5,8 @@ export const mailQueryKeys = {
   messagesForAccount: (accountId: string) => ["messages", accountId] as const,
   messagesForMailbox: (accountId: string, mailboxId: string) =>
     ["messages", accountId, mailboxId] as const,
+  messageSearch: (accountId: string, mailboxId: string, query: string) =>
+    ["messages", accountId, mailboxId, "search", query] as const,
   syncProgress: (accountId: string) => ["sync-progress", accountId] as const,
   drafts: (accountId: string) => ["drafts", accountId] as const,
   pendingOperations: (accountId: string) => ["pending-operations", accountId] as const,

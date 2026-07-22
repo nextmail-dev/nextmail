@@ -390,6 +390,22 @@ impl MailRuntime {
             .await
     }
 
+    pub async fn search_messages(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+        query: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> CommandResult<MessageListPage> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .read()
+            .search_messages(&account.data_slot_id, mailbox_id, query, cursor, limit)
+            .await
+    }
+
     pub async fn get_message_detail(
         &self,
         account_id: &str,

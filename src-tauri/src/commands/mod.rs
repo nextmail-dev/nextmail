@@ -315,6 +315,21 @@ pub async fn list_messages(
 }
 
 #[tauri::command]
+pub async fn search_messages(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+    query: String,
+    cursor: Option<String>,
+    limit: u32,
+) -> CommandResult<MessageListPage> {
+    state
+        .mail
+        .search_messages(&account_id, &mailbox_id, &query, cursor.as_deref(), limit)
+        .await
+}
+
+#[tauri::command]
 pub async fn get_message_detail(
     state: State<'_, AppState>,
     account_id: String,

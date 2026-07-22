@@ -14,6 +14,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, Text } from "@/components/ui/typography";
 import { formatMessageListTimestamp } from "./messageDate";
+import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { mailQueryKeys, messageQueryKeys } from "./mail-query-keys";
 
 interface MessageListPaneProps {
@@ -35,24 +36,23 @@ export function MessageListPane({
   searchQuery,
   onSearchChange,
 }: MessageListPaneProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const normalizedSearch = searchQuery.trim();
+  const debouncedSearch = useDebouncedValue(normalizedSearch, 250);
   const query = useInfiniteQuery({
-    queryKey: mailQueryKeys.messagesForMailbox(accountId, mailboxId),
-    queryFn: ({ pageParam }) => api.listMessages(accountId, mailboxId, pageParam, 50),
+    queryKey: debouncedSearch
+      ? mailQueryKeys.messageSearch(accountId, mailboxId, debouncedSearch)
+      : mailQueryKeys.messagesForMailbox(accountId, mailboxId),
+    queryFn: ({ pageParam }) => debouncedSearch
+      ? api.searchMessages(accountId, mailboxId, debouncedSearch, pageParam, 50)
+      : api.listMessages(accountId, mailboxId, pageParam, 50),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled: Boolean(accountId && mailboxId),
   });
   const allItems = query.data?.pages.flatMap((page) => page.items) ?? [];
-  const normalizedSearch = searchQuery.trim().toLocaleLowerCase(i18n.language);
-  const items = normalizedSearch
-    ? allItems.filter((message) => [
-      message.subject,
-      message.preview,
-      ...message.from.flatMap((address) => [address.name ?? "", address.email]),
-    ].some((value) => value.toLocaleLowerCase(i18n.language).includes(normalizedSearch)))
-    : allItems;
+  const items = allItems;
   const operation = useMutation({
     mutationFn: async ({ message, kind }: { message: MessageListItem; kind: "read" | "flag" }) => {
       if (kind === "read") await api.setMessageRead(accountId, mailboxId, [message.id], true);
@@ -82,6 +82,7 @@ export function MessageListPane({
           value={searchQuery}
           placeholder={t("mail.searchPlaceholder")}
           clearLabel={t("mail.clearSearch")}
+          maxLength={256}
           onValueChange={onSearchChange}
         />
       </Stack>
@@ -115,8 +116,8 @@ export function MessageListPane({
       ) : (
         <EmptyState
           icon={<Inbox size={24} />}
-          title={normalizedSearch ? t("mail.noSearchResults") : t("mail.noMessages")}
-          description={normalizedSearch ? t("mail.noSearchResultsDescription") : t("mail.noMessagesDescription")}
+          title={debouncedSearch ? t("mail.noSearchResults") : t("mail.noMessages")}
+          description={debouncedSearch ? t("mail.noSearchResultsDescription") : t("mail.noMessagesDescription")}
         />
       )}
     </Stack>

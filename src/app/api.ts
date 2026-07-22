@@ -96,6 +96,15 @@ export const api = {
     invoke<MailboxSummary[]>("list_mailboxes", { accountId }),
   listMessages: (accountId: string, mailboxId: string, cursor: string | null, limit = 50) =>
     invoke<MessageListPage>("list_messages", { accountId, mailboxId, cursor, limit }),
+  searchMessages: (
+    accountId: string,
+    mailboxId: string,
+    query: string,
+    cursor: string | null,
+    limit = 50,
+  ) => invoke<MessageListPage>("search_messages", {
+    accountId, mailboxId, query, cursor, limit,
+  }),
   getMessageDetail: (accountId: string, messageId: string, mailboxId: string) =>
     invoke<MessageDetail>("get_message_detail", { accountId, messageId, mailboxId }),
   requestMessageBody: (accountId: string, messageId: string, mailboxId: string) =>

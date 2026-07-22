@@ -339,6 +339,108 @@ impl MailReadRepository {
         })
     }
 
+    pub async fn search_messages(
+        &self,
+        account_slot_id: &str,
+        mailbox_id: &str,
+        query: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> CommandResult<MessageListPage> {
+        let query = query.trim();
+        if query.is_empty() {
+            return self
+                .list_messages(account_slot_id, mailbox_id, cursor, limit)
+                .await;
+        }
+
+        let limit = limit.clamp(1, 100);
+        let (cursor_date, cursor_id) = cursor.and_then(parse_cursor).unzip();
+        let rows = if query.chars().count() < 3 {
+            sqlx::query(
+                "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, \
+                        l.unread, l.flagged, m.has_attachments, m.body_availability, \
+                        EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
+                          AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
+                 FROM message_search JOIN messages m ON m.id = message_search.message_id \
+                 JOIN message_locations l ON l.message_id = m.id \
+                 JOIN mailboxes b ON b.id = l.mailbox_id \
+                 WHERE message_search.account_slot_id = ? AND m.account_slot_id = ? \
+                   AND l.mailbox_id = ? AND b.account_slot_id = ? AND l.local_hidden = 0 \
+                   AND (instr(lower(message_search.subject), lower(?)) > 0 \
+                     OR instr(lower(message_search.addresses), lower(?)) > 0 \
+                     OR instr(lower(message_search.preview), lower(?)) > 0 \
+                     OR instr(lower(message_search.body), lower(?)) > 0 \
+                     OR instr(lower(message_search.attachment_names), lower(?)) > 0) \
+                   AND (? IS NULL OR l.internal_date < ? OR (l.internal_date = ? AND m.id < ?)) \
+                 ORDER BY l.internal_date DESC, m.id DESC LIMIT ?",
+            )
+            .bind(account_slot_id)
+            .bind(account_slot_id)
+            .bind(mailbox_id)
+            .bind(account_slot_id)
+            .bind(query)
+            .bind(query)
+            .bind(query)
+            .bind(query)
+            .bind(query)
+            .bind(cursor_date)
+            .bind(cursor_date)
+            .bind(cursor_date)
+            .bind(cursor_id.as_deref())
+            .bind(i64::from(limit) + 1)
+            .fetch_all(&self.pool)
+            .await
+        } else {
+            let literal_query = format!("\"{}\"", query.replace('"', "\"\""));
+            sqlx::query(
+                "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, \
+                        l.unread, l.flagged, m.has_attachments, m.body_availability, \
+                        EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
+                          AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
+                 FROM message_search JOIN messages m ON m.id = message_search.message_id \
+                 JOIN message_locations l ON l.message_id = m.id \
+                 JOIN mailboxes b ON b.id = l.mailbox_id \
+                 WHERE message_search MATCH ? AND message_search.account_slot_id = ? \
+                   AND m.account_slot_id = ? AND l.mailbox_id = ? AND b.account_slot_id = ? \
+                   AND l.local_hidden = 0 \
+                   AND (? IS NULL OR l.internal_date < ? OR (l.internal_date = ? AND m.id < ?)) \
+                 ORDER BY l.internal_date DESC, m.id DESC LIMIT ?",
+            )
+            .bind(literal_query)
+            .bind(account_slot_id)
+            .bind(account_slot_id)
+            .bind(mailbox_id)
+            .bind(account_slot_id)
+            .bind(cursor_date)
+            .bind(cursor_date)
+            .bind(cursor_date)
+            .bind(cursor_id.as_deref())
+            .bind(i64::from(limit) + 1)
+            .fetch_all(&self.pool)
+            .await
+        }
+        .map_err(|_| CommandError::new("storage.messages_read_failed"))?;
+
+        let has_more = rows.len() > limit as usize;
+        let mut items = rows
+            .into_iter()
+            .take(limit as usize)
+            .map(message_list_item_from_row)
+            .collect::<CommandResult<Vec<_>>>()?;
+        let next_cursor = if has_more {
+            items
+                .last()
+                .map(|item| format!("{}:{}", item.received_at, item.id))
+        } else {
+            None
+        };
+        Ok(MessageListPage {
+            items: std::mem::take(&mut items),
+            next_cursor,
+        })
+    }
+
     pub async fn get_message_detail(
         &self,
         account_slot_id: &str,
@@ -1414,6 +1516,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn local_search_migration_backfills_existing_searchable_content() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE messages(
+                id TEXT PRIMARY KEY,
+                account_slot_id TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                from_json TEXT NOT NULL,
+                to_json TEXT NOT NULL,
+                cc_json TEXT NOT NULL,
+                preview TEXT NOT NULL
+             );
+             CREATE TABLE message_bodies(
+                message_id TEXT PRIMARY KEY,
+                plain_text TEXT
+             );
+             CREATE TABLE attachments(
+                id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL,
+                file_name TEXT NOT NULL
+             );
+             CREATE TABLE schema_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO schema_metadata(key, value) VALUES ('data_format_version', '14');
+             INSERT INTO messages VALUES (
+                'legacy-message', 'slot', 'Legacy subject',
+                '[{\"name\":\"Alice\",\"email\":\"alice@example.com\"}]', '[]', '[]',
+                'Legacy preview'
+             );
+             INSERT INTO message_bodies VALUES ('legacy-message', 'Legacy offline body');
+             INSERT INTO attachments VALUES (
+                'legacy-attachment', 'legacy-message', 'legacy-report.pdf'
+             );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0015_local_message_search.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        for query in [
+            "\"Legacy subject\"",
+            "\"Alice\"",
+            "\"offline body\"",
+            "\"report.pdf\"",
+        ] {
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM message_search WHERE message_search MATCH ?"
+                )
+                .bind(query)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+                1
+            );
+        }
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM schema_metadata WHERE key = 'data_format_version'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "15"
+        );
+    }
+
+    #[tokio::test]
     async fn rebuilt_message_bodies_are_written_atomically_with_account_isolation() {
         let (_directory, repository, mailbox) = repository_with_mailbox(1).await;
         repository
@@ -1462,6 +1641,211 @@ mod tests {
         assert_eq!(detail.safe_html.as_deref(), Some("<p>offline body</p>"));
         assert!(detail.remote_images_blocked);
         assert_eq!(detail.body_availability, ContentAvailability::Available);
+    }
+
+    #[tokio::test]
+    async fn local_search_indexes_message_content_with_mailbox_and_account_isolation() {
+        let (directory, repository, inbox) = repository_with_mailbox(7).await;
+        create_account_slot(directory.path(), "slot-b", 2)
+            .await
+            .unwrap();
+        let archive = repository
+            .sync_sink()
+            .upsert_mailbox(
+                "slot",
+                &RemoteMailbox {
+                    name: "Archive".to_owned(),
+                    display_name: "Archive".to_owned(),
+                    delimiter: Some("/".to_owned()),
+                    role: MailboxRole::Archive,
+                    selectable: true,
+                    uid_validity: 8,
+                    uid_next: 2,
+                    total_count: 1,
+                    unread_count: 0,
+                    highest_modseq: None,
+                },
+            )
+            .await
+            .unwrap();
+        let private_inbox = repository
+            .sync_sink()
+            .upsert_mailbox(
+                "slot-b",
+                &RemoteMailbox {
+                    name: "INBOX".to_owned(),
+                    display_name: "INBOX".to_owned(),
+                    delimiter: Some("/".to_owned()),
+                    role: MailboxRole::Inbox,
+                    selectable: true,
+                    uid_validity: 9,
+                    uid_next: 2,
+                    total_count: 1,
+                    unread_count: 1,
+                    highest_modseq: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        let mut first = remote_message(1, 7, "Quarterly roadmap");
+        first.received_at = 100;
+        first.from = vec![MessageAddress {
+            name: Some("Alice Example".to_owned()),
+            email: "alice@example.com".to_owned(),
+        }];
+        first.to = vec![MessageAddress {
+            name: Some("Bob".to_owned()),
+            email: "bob@example.com".to_owned(),
+        }];
+        first.preview = "Finance update".to_owned();
+        first.plain_text = Some("请核对电子发票和本地正文索引".to_owned());
+        first.attachments = vec![crate::core::RemoteAttachment {
+            part_index: 1,
+            file_name: "financial-report.pdf".to_owned(),
+            content_type: "application/pdf".to_owned(),
+            size: 42,
+            content_id: None,
+        }];
+        repository
+            .sync_sink()
+            .upsert_message("slot", &inbox.id, &first)
+            .await
+            .unwrap();
+
+        let mut second = remote_message(2, 7, "Quarterly follow-up");
+        second.received_at = 200;
+        repository
+            .sync_sink()
+            .upsert_message("slot", &inbox.id, &second)
+            .await
+            .unwrap();
+        repository
+            .sync_sink()
+            .upsert_message("slot", &archive.id, &remote_message(1, 8, "Archive secret"))
+            .await
+            .unwrap();
+        repository
+            .sync_sink()
+            .upsert_message(
+                "slot-b",
+                &private_inbox.id,
+                &remote_message(1, 9, "Private account message"),
+            )
+            .await
+            .unwrap();
+
+        for query in [
+            "Alice Example",
+            "alice@example.com",
+            "电子发票",
+            "发票",
+            "report.pdf",
+        ] {
+            let page = repository
+                .read()
+                .search_messages("slot", &inbox.id, query, None, 20)
+                .await
+                .unwrap();
+            assert_eq!(page.items.len(), 1, "query {query:?} must find the message");
+            assert_eq!(page.items[0].subject, "Quarterly roadmap");
+        }
+
+        let first_page = repository
+            .read()
+            .search_messages("slot", &inbox.id, "Quarterly", None, 1)
+            .await
+            .unwrap();
+        assert_eq!(first_page.items[0].subject, "Quarterly follow-up");
+        let second_page = repository
+            .read()
+            .search_messages(
+                "slot",
+                &inbox.id,
+                "Quarterly",
+                first_page.next_cursor.as_deref(),
+                1,
+            )
+            .await
+            .unwrap();
+        assert_eq!(second_page.items[0].subject, "Quarterly roadmap");
+        assert!(second_page.next_cursor.is_none());
+
+        assert!(repository
+            .read()
+            .search_messages("slot", &inbox.id, "Archive secret", None, 20)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+        assert!(repository
+            .read()
+            .search_messages("slot", &inbox.id, "Alice OR Private", None, 20)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+        assert!(repository
+            .read()
+            .search_messages("slot", &inbox.id, "Alice\"", None, 20)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+        assert!(repository
+            .read()
+            .search_messages("slot", &private_inbox.id, "Private account", None, 20)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+        assert_eq!(
+            repository
+                .read()
+                .search_messages("slot-b", &private_inbox.id, "Private account", None, 20)
+                .await
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
+
+        let first_id = repository
+            .read()
+            .search_messages("slot", &inbox.id, "Alice Example", None, 20)
+            .await
+            .unwrap()
+            .items
+            .remove(0)
+            .id;
+        repository
+            .sync_sink()
+            .replace_message_body(
+                "slot",
+                &first_id,
+                Some("replacement searchable content"),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(repository
+            .read()
+            .search_messages("slot", &inbox.id, "电子发票", None, 20)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+        assert_eq!(
+            repository
+                .read()
+                .search_messages("slot", &inbox.id, "searchable content", None, 20)
+                .await
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
     }
 
     async fn repository_with_mailbox(

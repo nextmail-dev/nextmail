@@ -55,6 +55,7 @@ pub fn run() {
             commands::open_settings_window,
             commands::list_mailboxes,
             commands::list_messages,
+            commands::search_messages,
             commands::get_message_detail,
             commands::get_sync_progress,
             commands::sync_now,
