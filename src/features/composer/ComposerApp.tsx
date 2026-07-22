@@ -378,6 +378,17 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     }
   }
 
+  async function sanitizeRichTextPaste(html: string) {
+    try {
+      const sanitized = await api.sanitizeRichTextPaste(html);
+      setErrorCode(null);
+      return sanitized;
+    } catch (error) {
+      setErrorCode(normalizeCommandError(error).code);
+      throw error;
+    }
+  }
+
   async function sendMessage() {
     if (!subject.trim() && !confirmEmptySubject) {
       setConfirmEmptySubject(true);
@@ -533,6 +544,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           disabled={!editable}
           inlineImages={attachments}
           onAddInlineImage={addInlineImage}
+          onSanitizeHtml={sanitizeRichTextPaste}
           onChange={(value) => { setContent(value); markDirty(); }}
           onCompositionChange={(value) => {
             setTemplateId(value.templateId ?? "none");

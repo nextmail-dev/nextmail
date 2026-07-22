@@ -327,6 +327,27 @@ pub enum SyncPolicy {
     All,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncInterval {
+    Manual,
+    #[default]
+    Minutes1,
+    Minutes5,
+    Minutes10,
+}
+
+impl SyncInterval {
+    pub fn minutes(&self) -> Option<u64> {
+        match self {
+            Self::Manual => None,
+            Self::Minutes1 => Some(1),
+            Self::Minutes5 => Some(5),
+            Self::Minutes10 => Some(10),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MailboxRole {
@@ -553,6 +574,7 @@ pub struct AccountManagementDetail {
     pub incoming_port: u16,
     pub security: ConnectionSecurity,
     pub sync_policy: SyncPolicy,
+    pub sync_interval: SyncInterval,
     pub download_non_inbox_bodies: bool,
 }
 
@@ -806,7 +828,9 @@ pub struct SendJobSummary {
 
 #[cfg(test)]
 mod tests {
-    use super::{LanguagePreference, NotificationFolderSetting, NotificationPreferences};
+    use super::{
+        LanguagePreference, NotificationFolderSetting, NotificationPreferences, SyncInterval,
+    };
 
     #[test]
     fn uses_bcp_47_tags_and_accepts_legacy_lowercase_values() {
@@ -817,6 +841,18 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<LanguagePreference>("\"zh-cn\"").unwrap(),
             LanguagePreference::ZhCn
+        );
+    }
+
+    #[test]
+    fn sync_interval_uses_stable_ipc_values() {
+        assert_eq!(
+            serde_json::to_string(&SyncInterval::Minutes1).unwrap(),
+            "\"minutes1\""
+        );
+        assert_eq!(
+            serde_json::from_str::<SyncInterval>("\"minutes10\"").unwrap(),
+            SyncInterval::Minutes10
         );
     }
 

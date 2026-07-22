@@ -1,16 +1,13 @@
-use std::{
-    collections::{HashMap, HashSet},
-    time::Duration,
-};
+use std::collections::{HashMap, HashSet};
 
-use async_imap::{extensions::idle::IdleResponse, Session};
+use async_imap::Session;
 use futures_util::TryStreamExt;
 use mail_parser::MessageParser;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::core::{
-    CommandError, CommandResult, InboxWatchOutcome, RemoteMessage, RemoteOperation,
-    RemoteOperationKind, RemoteOperationOutcome,
+    CommandError, CommandResult, RemoteMessage, RemoteOperation, RemoteOperationKind,
+    RemoteOperationOutcome,
 };
 
 use super::{
@@ -311,46 +308,6 @@ where
     }
     let _ = session.logout().await;
     Ok(RemoteOperationOutcome { cleanup_pending })
-}
-
-pub(super) async fn wait_for_change_session<T>(
-    mut session: Session<T>,
-    timeout: Duration,
-) -> CommandResult<InboxWatchOutcome>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    let capabilities = session
-        .capabilities()
-        .await
-        .map_err(|_| CommandError::retryable("sync.imap_capability_failed"))?;
-    if !capabilities.has_str("IDLE") {
-        let _ = session.logout().await;
-        return Ok(InboxWatchOutcome::Unsupported);
-    }
-    session
-        .examine("INBOX")
-        .await
-        .map_err(|_| CommandError::retryable("sync.mailbox_open_failed"))?;
-    let mut handle = session.idle();
-    handle
-        .init()
-        .await
-        .map_err(|_| CommandError::retryable("sync.idle_failed"))?;
-    let outcome = {
-        let (wait, _) = handle.wait_with_timeout(timeout);
-        wait.await
-            .map_err(|_| CommandError::retryable("sync.idle_failed"))?
-    };
-    let mut session = handle
-        .done()
-        .await
-        .map_err(|_| CommandError::retryable("sync.idle_failed"))?;
-    let _ = session.logout().await;
-    Ok(match outcome {
-        IdleResponse::NewData(_) => InboxWatchOutcome::Changed,
-        IdleResponse::Timeout | IdleResponse::ManualInterrupt => InboxWatchOutcome::Timeout,
-    })
 }
 
 pub(super) async fn fetch_message_session<T>(

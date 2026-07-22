@@ -613,6 +613,7 @@ function DefinitionEditor({
                 ariaLabel={label}
                 disabled={saving}
                 onChange={setContent}
+                onSanitizeHtml={api.sanitizeRichTextPaste}
               />
             </Page>
           </Stack>

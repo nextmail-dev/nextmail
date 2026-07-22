@@ -143,6 +143,10 @@ pub(super) fn sanitize_stylesheet_for_composer(source: &str) -> String {
     sanitize_stylesheet_with_scope(source, Some("[data-nextmail-original-message]"))
 }
 
+pub(super) fn sanitize_stylesheet_for_scope(source: &str, scope: &'static str) -> String {
+    sanitize_stylesheet_with_scope(source, Some(scope))
+}
+
 fn sanitize_stylesheet_with_scope(source: &str, selector_scope: Option<&'static str>) -> String {
     if source.len() > MAX_STYLESHEET_BYTES {
         return String::new();

@@ -180,13 +180,6 @@ pub struct RemoteOperationOutcome {
     pub cleanup_pending: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum InboxWatchOutcome {
-    Changed,
-    Timeout,
-    Unsupported,
-}
-
 #[derive(Clone, Debug)]
 pub enum SyncNotice {
     Folders {
@@ -260,10 +253,4 @@ pub trait ImapSyncProvider: Send + Sync {
         draft_id: &str,
         raw: &[u8],
     ) -> CommandResult<RemoteOperationOutcome>;
-
-    async fn wait_for_inbox_change(
-        &self,
-        account: &ImapAccountConfig,
-        timeout: std::time::Duration,
-    ) -> CommandResult<InboxWatchOutcome>;
 }

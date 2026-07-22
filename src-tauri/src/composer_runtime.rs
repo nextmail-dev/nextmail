@@ -40,6 +40,7 @@ use crate::{
 
 const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_TOTAL_ATTACHMENT_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_COMPOSER_CONTENT_BYTES: usize = 5_000_000;
 
 pub struct ComposerRuntime {
     app: AppHandle,
@@ -140,7 +141,8 @@ impl ComposerRuntime {
                     .send_jobs()
                     .complete_send_job_and_queue_sent(&job.id, sent_mailbox.as_deref())
                     .await;
-                self.mail.wake_account_by_slot(&job.account_slot_id);
+                self.mail
+                    .request_pending_operations_by_slot(&job.account_slot_id);
             }
             Err(error) if error.retryable && job.attempt_count < 3 => {
                 self.mail
@@ -821,6 +823,13 @@ impl ComposerRuntime {
             .await
     }
 
+    pub fn sanitize_rich_text_paste(&self, html: &str) -> CommandResult<String> {
+        if html.len() > MAX_COMPOSER_CONTENT_BYTES {
+            return Err(CommandError::new("draft.content_too_large"));
+        }
+        Ok(crate::protocols::sanitize_rich_text_paste(html))
+    }
+
     pub async fn add_attachments(
         &self,
         account_id: &str,
@@ -1062,7 +1071,7 @@ impl ComposerRuntime {
                 draft.revision,
             )
             .await?;
-        self.mail.wake_account(account_id);
+        self.mail.request_pending_operations(account_id);
         Ok(())
     }
 
@@ -1319,9 +1328,9 @@ fn validate_recipient_fields(fields: &DraftRecipientFields, required: bool) -> C
 }
 
 fn validate_content(content: &DraftContent) -> CommandResult<()> {
-    if content.editor_json.len() > 5_000_000
-        || content.html.len() > 5_000_000
-        || content.plain_text.len() > 5_000_000
+    if content.editor_json.len() > MAX_COMPOSER_CONTENT_BYTES
+        || content.html.len() > MAX_COMPOSER_CONTENT_BYTES
+        || content.plain_text.len() > MAX_COMPOSER_CONTENT_BYTES
     {
         return Err(CommandError::new("draft.content_too_large"));
     }

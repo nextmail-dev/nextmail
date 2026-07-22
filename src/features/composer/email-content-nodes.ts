@@ -7,6 +7,7 @@ import {
 } from "@tiptap/extension-table";
 
 const ORIGINAL_SCOPE = "[data-nextmail-original-message]";
+const PASTED_SCOPE = "[data-nextmail-pasted-html]";
 
 function safeComposerStylesheet(value: unknown) {
   if (typeof value !== "string" || value.length > 256 * 1024) return "";
@@ -20,9 +21,11 @@ function safeComposerStylesheet(value: unknown) {
     .split(",")
     .some((selector) => {
       const value = selector.trim();
-      if (value === ORIGINAL_SCOPE) return false;
-      if (!value.startsWith(`${ORIGINAL_SCOPE} `)) return true;
-      const relative = value.slice(ORIGINAL_SCOPE.length).trimStart();
+      const scope = [ORIGINAL_SCOPE, PASTED_SCOPE]
+        .find((candidate) => value === candidate || value.startsWith(`${candidate} `));
+      if (!scope) return true;
+      if (value === scope) return false;
+      const relative = value.slice(scope.length).trimStart();
       return ["+", "~"].some((prefix) => relative.startsWith(prefix));
     }))) {
     return "";
@@ -30,12 +33,15 @@ function safeComposerStylesheet(value: unknown) {
   return value;
 }
 
-function preservedAttribute(htmlName: string) {
+function preservedAttribute(
+  htmlName: string,
+  attributeName = htmlName === "style" ? "emailStyle" : htmlName,
+) {
   return {
     default: null,
     parseHTML: (element: HTMLElement) => element.getAttribute(htmlName),
     renderHTML: (attributes: Record<string, unknown>) => {
-      const value = attributes[htmlName === "style" ? "emailStyle" : htmlName];
+      const value = attributes[attributeName];
       return typeof value === "string" ? { [htmlName]: value } : {};
     },
   };
@@ -65,6 +71,8 @@ export const EmailFormattingAttributes = Extension.create({
       ],
       attributes: {
         emailStyle: preservedAttribute("style"),
+        emailClass: preservedAttribute("class", "emailClass"),
+        emailId: preservedAttribute("id", "emailId"),
         align: preservedAttribute("align"),
         dir: preservedAttribute("dir"),
       },
@@ -76,6 +84,17 @@ export const EmailBlock = Node.create({
   name: "emailBlock",
   group: "block",
   content: "block*",
+  addAttributes() {
+    return {
+      pastedHtml: {
+        default: false,
+        parseHTML: (element) => element.hasAttribute("data-nextmail-pasted-html"),
+        renderHTML: (attributes) => attributes.pastedHtml
+          ? { "data-nextmail-pasted-html": "" }
+          : {},
+      },
+    };
+  },
   parseHTML() {
     return [{
       tag: "div:not([data-nextmail-reply]):not([data-nextmail-original-message]):not([data-nextmail-template-id]):not([data-nextmail-signature-id])",
@@ -83,6 +102,24 @@ export const EmailBlock = Node.create({
   },
   renderHTML({ HTMLAttributes }) {
     return ["div", HTMLAttributes, 0];
+  },
+});
+
+export const EmailSpan = Mark.create({
+  name: "emailSpan",
+  addAttributes() {
+    return {
+      emailStyle: preservedAttribute("style"),
+      emailClass: preservedAttribute("class", "emailClass"),
+      emailId: preservedAttribute("id", "emailId"),
+      dir: preservedAttribute("dir"),
+    };
+  },
+  parseHTML() {
+    return [{ tag: "span[style]" }, { tag: "span[class]" }, { tag: "span[id]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["span", HTMLAttributes, 0];
   },
 });
 
@@ -155,7 +192,11 @@ export const NextMailImage = Node.create({
           return source.toLocaleLowerCase().startsWith("cid:") ? source.slice(4) : null;
         },
       },
-      previewSrc: { default: null, rendered: false },
+      previewSrc: {
+        default: null,
+        rendered: false,
+        parseHTML: (element) => element.getAttribute("data-nextmail-preview-src"),
+      },
       alt: { default: null },
       title: { default: null },
       width: { default: null },

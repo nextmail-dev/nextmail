@@ -10,10 +10,10 @@ use std::{
 use crate::core::{
     AccountManagementDetail, AccountRemovalImpact, AccountRuntimeState, AccountRuntimeSummary,
     AttachmentSummary, CommandError, CommandResult, ImapAccountConfig, ImapSyncProvider,
-    InboxWatchOutcome, MailSyncSink, MailboxRole, MailboxSummary, MessageDetail, MessageListPage,
-    NewMailCandidate, NotificationNavigationTarget, PendingOperationKind, PendingOperationSummary,
-    RemoteOperation, RemoteOperationKind, RemoteOperationOutcome, SyncNotice, SyncObserver,
-    SyncPhase, SyncPolicy, SyncProgress,
+    MailSyncSink, MailboxRole, MailboxSummary, MessageDetail, MessageListPage, NewMailCandidate,
+    NotificationNavigationTarget, PendingOperationKind, PendingOperationSummary, RemoteOperation,
+    RemoteOperationKind, RemoteOperationOutcome, SyncInterval, SyncNotice, SyncObserver, SyncPhase,
+    SyncPolicy, SyncProgress,
 };
 use crate::storage::{MailRepository, MailRepositoryProvider, PendingOperationWork};
 use serde::Serialize;
@@ -111,18 +111,24 @@ impl MailRuntime {
         self.stop_account(account_id, AccountRuntimeState::Removing);
     }
 
-    pub fn wake_account(&self, account_id: &str) {
+    pub fn request_pending_operations(&self, account_id: &str) {
         if let Some(supervisor) = self.supervisor(account_id) {
             supervisor
-                .background_sync_requested
+                .pending_operations_requested
                 .store(true, Ordering::Release);
             supervisor.wake.notify_one();
         }
     }
 
-    pub fn wake_account_by_slot(&self, account_slot_id: &str) {
+    pub fn request_pending_operations_by_slot(&self, account_slot_id: &str) {
         if let Ok(account) = self.service.account_record_for_slot(account_slot_id) {
-            self.wake_account(&account.id);
+            self.request_pending_operations(&account.id);
+        }
+    }
+
+    fn notify_sync_schedule_changed(&self, account_id: &str) {
+        if let Some(supervisor) = self.supervisor(account_id) {
+            supervisor.wake.notify_one();
         }
     }
 
@@ -224,8 +230,7 @@ impl MailRuntime {
     }
 
     async fn supervisor_loop(self: &Arc<Self>, supervisor: Arc<AccountSupervisor>) {
-        let mut retry_delay = Duration::from_secs(2);
-        let mut startup_sync_complete = false;
+        let mut startup_sync_attempted = false;
         while !supervisor.stopped.load(Ordering::Acquire) {
             let account_id = supervisor.account_id.clone();
             if self.service.account_record(&account_id).is_err() {
@@ -236,8 +241,7 @@ impl MailRuntime {
                 continue;
             }
             let Ok(repository) = self.repository().await else {
-                tokio::time::sleep(retry_delay).await;
-                retry_delay = (retry_delay * 2).min(Duration::from_secs(300));
+                supervisor.wake.notified().await;
                 continue;
             };
             let _ = self
@@ -247,8 +251,8 @@ impl MailRuntime {
                 })
                 .await;
 
-            if !startup_sync_complete {
-                let sync_result = self
+            if !startup_sync_attempted {
+                let _ = self
                     .run_sync(&account_id, supervisor.generation, true)
                     .await;
                 if supervisor.stopped.load(Ordering::Acquire)
@@ -256,94 +260,42 @@ impl MailRuntime {
                 {
                     break;
                 }
-                if sync_result.is_ok() {
-                    startup_sync_complete = true;
-                    supervisor
-                        .manual_sync_requested
-                        .store(false, Ordering::Release);
-                    supervisor
-                        .background_sync_requested
-                        .store(false, Ordering::Release);
-                    retry_delay = Duration::from_secs(2);
-                    let _ = self
-                        .drain_pending_operations(&account_id, supervisor.generation)
-                        .await;
-                } else {
-                    if self.runtime_state_is(&account_id, AccountRuntimeState::ReauthRequired) {
-                        supervisor.wake.notified().await;
-                        continue;
-                    }
-                    self.update_runtime_state(
-                        &account_id,
-                        AccountRuntimeState::Retrying,
-                        None,
-                        Some(unix_timestamp() + retry_delay.as_secs() as i64),
-                    );
-                    tokio::select! {
-                        _ = supervisor.wake.notified() => {},
-                        _ = tokio::time::sleep(retry_delay) => {},
-                    }
-                    retry_delay = (retry_delay * 2).min(Duration::from_secs(300));
-                    continue;
-                }
+                startup_sync_attempted = true;
+                supervisor
+                    .manual_sync_requested
+                    .store(false, Ordering::Release);
+                supervisor
+                    .pending_operations_requested
+                    .store(false, Ordering::Release);
+                let _ = self
+                    .drain_pending_operations(&account_id, supervisor.generation)
+                    .await;
+                continue;
             }
 
-            let config = match self.imap_config(&account_id).await {
-                Ok(config) => config,
+            let interval = match self.sync_interval(&account_id).await {
+                Ok(interval) => interval,
                 Err(error) => {
-                    self.handle_runtime_error(&account_id, &error, retry_delay);
+                    self.handle_runtime_error(&account_id, &error, Duration::from_secs(0));
                     supervisor.wake.notified().await;
                     continue;
                 }
             };
-            let watch = self
-                .provider
-                .wait_for_inbox_change(&config, Duration::from_secs(25 * 60));
-            let wake = tokio::select! {
-                _ = supervisor.wake.notified() => SupervisorWake::Requested,
-                _ = tokio::time::sleep(Duration::from_secs(5 * 60)) => SupervisorWake::BackgroundSync,
-                result = watch => {
-                    match result {
-                        Ok(InboxWatchOutcome::Unsupported) => {
-                            tokio::select! {
-                                _ = supervisor.wake.notified() => SupervisorWake::Requested,
-                                _ = tokio::time::sleep(Duration::from_secs(60)) => SupervisorWake::BackgroundSync,
-                            }
-                        }
-                        Ok(InboxWatchOutcome::Changed | InboxWatchOutcome::Timeout) => SupervisorWake::BackgroundSync,
-                        Err(_) => {
-                            tokio::select! {
-                                _ = supervisor.wake.notified() => SupervisorWake::Requested,
-                                _ = tokio::time::sleep(retry_delay) => SupervisorWake::Retry,
-                            }
-                        }
-                    }
-                }
-            };
+            let wake = wait_for_supervisor(&supervisor, &interval).await;
 
             if supervisor.stopped.load(Ordering::Acquire) {
                 break;
             }
 
-            if wake == SupervisorWake::Retry {
-                self.update_runtime_state(
-                    &account_id,
-                    AccountRuntimeState::Retrying,
-                    Some("sync.idle_failed".to_owned()),
-                    Some(unix_timestamp() + retry_delay.as_secs() as i64),
-                );
-                retry_delay = (retry_delay * 2).min(Duration::from_secs(300));
-                continue;
-            }
-
             let manual = supervisor
                 .manual_sync_requested
                 .swap(false, Ordering::AcqRel);
-            let background_requested = supervisor
-                .background_sync_requested
+            let pending_operations = supervisor
+                .pending_operations_requested
                 .swap(false, Ordering::AcqRel);
-            if manual || background_requested || wake == SupervisorWake::BackgroundSync {
-                let sync_result = self
+            let should_sync = manual || wake == SupervisorWake::Periodic;
+            if should_sync {
+                let _ = self
                     .run_sync(&account_id, supervisor.generation, manual)
                     .await;
                 if supervisor.stopped.load(Ordering::Acquire)
@@ -351,19 +303,12 @@ impl MailRuntime {
                 {
                     break;
                 }
-                if sync_result.is_ok() {
-                    retry_delay = Duration::from_secs(2);
-                } else {
-                    retry_delay = (retry_delay * 2).min(Duration::from_secs(300));
-                }
             }
 
-            if self
-                .drain_pending_operations(&account_id, supervisor.generation)
-                .await
-                .unwrap_or(false)
-            {
-                retry_delay = Duration::from_secs(2);
+            if pending_operations || should_sync {
+                let _ = self
+                    .drain_pending_operations(&account_id, supervisor.generation)
+                    .await;
             }
         }
         if self.is_current_supervisor(&supervisor.account_id, supervisor.generation) {
@@ -486,6 +431,12 @@ impl MailRuntime {
             .read()
             .get_download_non_inbox_bodies(&account.data_slot_id)
             .await?;
+        let sync_interval = self
+            .repository()
+            .await?
+            .read()
+            .get_sync_interval(&account.data_slot_id)
+            .await?;
         Ok(AccountManagementDetail {
             id: account.id,
             email: account.email,
@@ -494,6 +445,7 @@ impl MailRuntime {
             incoming_port: account.incoming.port,
             security: account.incoming.security,
             sync_policy,
+            sync_interval,
             download_non_inbox_bodies,
         })
     }
@@ -511,7 +463,23 @@ impl MailRuntime {
             .read()
             .set_sync_policy(&account.data_slot_id, sync_policy)
             .await?;
-        self.wake_account(account_id);
+        Ok(updated)
+    }
+
+    pub async fn set_account_sync_interval(
+        self: &Arc<Self>,
+        account_id: &str,
+        sync_interval: SyncInterval,
+    ) -> CommandResult<SyncInterval> {
+        self.ensure_account_writable(account_id)?;
+        let account = self.service.account_record(account_id)?;
+        let updated = self
+            .repository()
+            .await?
+            .read()
+            .set_sync_interval(&account.data_slot_id, sync_interval)
+            .await?;
+        self.notify_sync_schedule_changed(account_id);
         Ok(updated)
     }
 
@@ -528,12 +496,14 @@ impl MailRuntime {
             .read()
             .set_download_non_inbox_bodies(&account.data_slot_id, enabled)
             .await?;
-        self.wake_account(account_id);
         Ok(updated)
     }
 
     pub fn sync_now(&self, account_id: &str) -> CommandResult<()> {
         self.ensure_account_writable(account_id)?;
+        if self.runtime_state_is(account_id, AccountRuntimeState::Syncing) {
+            return Err(CommandError::new("sync.already_running"));
+        }
         let supervisor = self
             .supervisor(account_id)
             .ok_or_else(|| CommandError::new("account.runtime_stopped"))?;
@@ -560,7 +530,7 @@ impl MailRuntime {
             .queue_set_read(&account.data_slot_id, mailbox_id, message_ids, read)
             .await?;
         self.emit_local_change(account_id, mailbox_id, message_ids);
-        self.wake_account(account_id);
+        self.request_pending_operations(account_id);
         Ok(())
     }
 
@@ -579,7 +549,7 @@ impl MailRuntime {
             .queue_set_flagged(&account.data_slot_id, mailbox_id, message_ids, flagged)
             .await?;
         self.emit_local_change(account_id, mailbox_id, message_ids);
-        self.wake_account(account_id);
+        self.request_pending_operations(account_id);
         Ok(())
     }
 
@@ -605,7 +575,7 @@ impl MailRuntime {
             )
             .await?;
         self.emit_local_change(account_id, source_mailbox_id, message_ids);
-        self.wake_account(account_id);
+        self.request_pending_operations(account_id);
         Ok(())
     }
 
@@ -645,7 +615,7 @@ impl MailRuntime {
                 .await?;
         }
         self.emit_local_change(account_id, source_mailbox_id, message_ids);
-        self.wake_account(account_id);
+        self.request_pending_operations(account_id);
         Ok(())
     }
 
@@ -674,7 +644,7 @@ impl MailRuntime {
             )
             .await?;
         self.emit_local_change(account_id, source_mailbox_id, message_ids);
-        self.wake_account(account_id);
+        self.request_pending_operations(account_id);
         Ok(())
     }
 
@@ -719,7 +689,7 @@ impl MailRuntime {
             .operations()
             .retry_pending_operation(&account.data_slot_id, operation_id)
             .await?;
-        self.wake_account(account_id);
+        self.request_pending_operations(account_id);
         Ok(())
     }
 
@@ -1049,6 +1019,15 @@ impl MailRuntime {
         })
     }
 
+    async fn sync_interval(&self, account_id: &str) -> CommandResult<SyncInterval> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .read()
+            .get_sync_interval(&account.data_slot_id)
+            .await
+    }
+
     pub(crate) async fn repository(&self) -> CommandResult<&Arc<MailRepository>> {
         self.repository
             .get_or_try_init(|| async {
@@ -1281,7 +1260,21 @@ impl MailRuntime {
                         retryable: error.retryable,
                     },
                 );
-                self.handle_runtime_error(account_id, &error, Duration::from_secs(2));
+                if is_authentication_error(&error.code) {
+                    self.update_runtime_state(
+                        account_id,
+                        AccountRuntimeState::ReauthRequired,
+                        Some(error.code.clone()),
+                        None,
+                    );
+                } else {
+                    self.update_runtime_state(
+                        account_id,
+                        AccountRuntimeState::Offline,
+                        Some(error.code.clone()),
+                        None,
+                    );
+                }
                 Err(error)
             }
         }
@@ -1442,7 +1435,7 @@ struct AccountSupervisor {
     generation: u64,
     wake: Notify,
     manual_sync_requested: AtomicBool,
-    background_sync_requested: AtomicBool,
+    pending_operations_requested: AtomicBool,
     stopped: AtomicBool,
 }
 
@@ -1453,7 +1446,7 @@ impl AccountSupervisor {
             generation,
             wake: Notify::new(),
             manual_sync_requested: AtomicBool::new(false),
-            background_sync_requested: AtomicBool::new(false),
+            pending_operations_requested: AtomicBool::new(false),
             stopped: AtomicBool::new(false),
         }
     }
@@ -1549,8 +1542,23 @@ impl SyncObserver for RuntimeObserver<'_> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SupervisorWake {
     Requested,
-    BackgroundSync,
-    Retry,
+    Periodic,
+}
+
+async fn wait_for_supervisor(
+    supervisor: &AccountSupervisor,
+    interval: &SyncInterval,
+) -> SupervisorWake {
+    match interval.minutes() {
+        Some(minutes) => tokio::select! {
+            _ = supervisor.wake.notified() => SupervisorWake::Requested,
+            _ = tokio::time::sleep(Duration::from_secs(minutes * 60)) => SupervisorWake::Periodic,
+        },
+        None => {
+            supervisor.wake.notified().await;
+            SupervisorWake::Requested
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -1674,6 +1682,14 @@ mod tests {
         assert!(!is_authentication_error("account.imap_timeout"));
         assert!(!is_authentication_error("account.imap_tls_failed"));
         assert!(!is_authentication_error("send.smtp_temporary_failure"));
+    }
+
+    #[test]
+    fn configured_sync_intervals_have_only_the_requested_schedules() {
+        assert_eq!(SyncInterval::Manual.minutes(), None);
+        assert_eq!(SyncInterval::Minutes1.minutes(), Some(1));
+        assert_eq!(SyncInterval::Minutes5.minutes(), Some(5));
+        assert_eq!(SyncInterval::Minutes10.minutes(), Some(10));
     }
 
     #[test]

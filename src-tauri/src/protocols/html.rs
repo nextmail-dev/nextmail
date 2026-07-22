@@ -9,7 +9,10 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use mail_parser::{Message, MessageParser, MimeHeaders};
 
 use super::{
-    css::{sanitize_style_attribute, sanitize_stylesheet, sanitize_stylesheet_for_composer},
+    css::{
+        sanitize_style_attribute, sanitize_stylesheet, sanitize_stylesheet_for_composer,
+        sanitize_stylesheet_for_scope,
+    },
     validate_mail_link_target,
 };
 
@@ -18,6 +21,7 @@ const MAX_TOTAL_STYLESHEET_BYTES: usize = 256 * 1024;
 const MAX_TOTAL_STYLE_RULES: usize = 2_048;
 const MAX_INLINE_READER_IMAGE_BYTES: usize = 25 * 1024 * 1024;
 const MAX_TOTAL_INLINE_READER_IMAGE_BYTES: usize = 100 * 1024 * 1024;
+const PASTED_HTML_SCOPE: &str = "[data-nextmail-pasted-html]";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SanitizedHtml {
@@ -209,16 +213,27 @@ pub fn sanitize_composer_document(input: &str) -> String {
     sanitize_mail_html_fragment(input, true, false, true)
 }
 
+pub fn sanitize_rich_text_paste(input: &str) -> String {
+    let fragment = sanitize_mail_html_fragment_with_scope(
+        input,
+        true,
+        Some(PASTED_HTML_SCOPE),
+        true,
+        Arc::new(HashMap::new()),
+    );
+    format!("<div data-nextmail-pasted-html=\"\">{fragment}</div>")
+}
+
 fn sanitize_mail_html_fragment(
     input: &str,
     preserve_stylesheets: bool,
     scope_stylesheets: bool,
     preserve_cid_images: bool,
 ) -> String {
-    sanitize_mail_html_fragment_with_cid_images(
+    sanitize_mail_html_fragment_with_scope(
         input,
         preserve_stylesheets,
-        scope_stylesheets,
+        scope_stylesheets.then_some("[data-nextmail-original-message]"),
         preserve_cid_images,
         Arc::new(HashMap::new()),
     )
@@ -228,6 +243,22 @@ fn sanitize_mail_html_fragment_with_cid_images(
     input: &str,
     preserve_stylesheets: bool,
     scope_stylesheets: bool,
+    preserve_cid_images: bool,
+    cid_images: Arc<HashMap<String, String>>,
+) -> String {
+    sanitize_mail_html_fragment_with_scope(
+        input,
+        preserve_stylesheets,
+        scope_stylesheets.then_some("[data-nextmail-original-message]"),
+        preserve_cid_images,
+        cid_images,
+    )
+}
+
+fn sanitize_mail_html_fragment_with_scope(
+    input: &str,
+    preserve_stylesheets: bool,
+    stylesheet_scope: Option<&'static str>,
     preserve_cid_images: bool,
     cid_images: Arc<HashMap<String, String>>,
 ) -> String {
@@ -244,6 +275,7 @@ fn sanitize_mail_html_fragment_with_cid_images(
                 "align",
                 "data-nextmail-body",
                 "data-nextmail-original-message",
+                "data-nextmail-pasted-html",
                 "data-nextmail-reply",
                 "data-nextmail-signature-id",
                 "data-nextmail-template-id",
@@ -330,7 +362,7 @@ fn sanitize_mail_html_fragment_with_cid_images(
     let input = preserve_body_container(input);
     let fragment = builder.clean(input.as_ref()).to_string();
     if preserve_stylesheets {
-        sanitize_style_elements(&fragment, scope_stylesheets)
+        sanitize_style_elements(&fragment, stylesheet_scope)
     } else {
         fragment
     }
@@ -383,7 +415,7 @@ fn is_html_tag_boundary(value: Option<u8>) -> bool {
     value.is_none_or(|value| value.is_ascii_whitespace() || matches!(value, b'>' | b'/'))
 }
 
-fn sanitize_style_elements(fragment: &str, scope_stylesheets: bool) -> String {
+fn sanitize_style_elements(fragment: &str, stylesheet_scope: Option<&'static str>) -> String {
     let mut output = String::with_capacity(fragment.len());
     let mut cursor = 0usize;
     let mut style_count = 0usize;
@@ -400,8 +432,12 @@ fn sanitize_style_elements(fragment: &str, scope_stylesheets: bool) -> String {
         let end = content_start + relative_end;
 
         if style_count < MAX_STYLE_ELEMENTS {
-            let stylesheet = if scope_stylesheets {
-                sanitize_stylesheet_for_composer(&fragment[content_start..end])
+            let stylesheet = if let Some(scope) = stylesheet_scope {
+                if scope == "[data-nextmail-original-message]" {
+                    sanitize_stylesheet_for_composer(&fragment[content_start..end])
+                } else {
+                    sanitize_stylesheet_for_scope(&fragment[content_start..end], scope)
+                }
             } else {
                 sanitize_stylesheet(&fragment[content_start..end])
             };
@@ -410,7 +446,7 @@ fn sanitize_style_elements(fragment: &str, scope_stylesheets: bool) -> String {
                 && total_stylesheet_bytes + stylesheet.len() <= MAX_TOTAL_STYLESHEET_BYTES
                 && total_style_rules + stylesheet_rules <= MAX_TOTAL_STYLE_RULES
             {
-                if scope_stylesheets {
+                if stylesheet_scope.is_some() {
                     output.push_str("<style data-nextmail-compose-style=\"\">");
                 } else {
                     output.push_str("<style>");
@@ -808,6 +844,38 @@ mod tests {
         }
         for forbidden in ["<script", "onerror", "alert(1)", "<style>.campaign"] {
             assert!(!sanitized.contains(forbidden), "retained {forbidden}");
+        }
+    }
+
+    #[test]
+    fn scopes_rich_text_paste_styles_without_losing_safe_formatting() {
+        let sanitized = sanitize_rich_text_paste(
+            r##"<style>.copied { color:#123456; position:fixed; background:url(https://bad.test/a.png) }</style>
+                <script>alert(1)</script>
+                <div class="copied" id="copied-block" style="font-size:18px;position:fixed">
+                  <span style="font-family:Arial;color:#654321">Copied</span>
+                </div>"##,
+        );
+
+        for expected in [
+            "data-nextmail-pasted-html",
+            "[data-nextmail-pasted-html] .copied{color:#123456}",
+            "class=\"copied\"",
+            "id=\"copied-block\"",
+            "font-size:18px",
+            "font-family:Arial",
+            "color:#654321",
+        ] {
+            assert!(
+                sanitized.contains(expected),
+                "missing {expected}: {sanitized}"
+            );
+        }
+        for forbidden in ["<script", "alert(1)", "position:fixed", "bad.test"] {
+            assert!(
+                !sanitized.contains(forbidden),
+                "retained {forbidden}: {sanitized}"
+            );
         }
     }
 

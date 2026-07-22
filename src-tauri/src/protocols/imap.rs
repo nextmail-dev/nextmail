@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 
 mod encoding;
 mod parse;
@@ -13,14 +13,14 @@ use policy::{should_download_body, sync_policy_cutoff};
 use session::conditional_store_query;
 use session::{
     append_message_session, apply_operation_session, fetch_message_session, fetch_remote_messages,
-    replace_draft_session, wait_for_change_session,
+    replace_draft_session,
 };
 
 use super::native_tls_connector;
 use crate::core::{
     CommandError, CommandResult, ConnectionSecurity, ImapAccountConfig, ImapSyncProvider,
-    InboxWatchOutcome, MailSyncSink, MailboxRole, RemoteMailbox, RemoteMessage, RemoteMessageState,
-    RemoteOperation, RemoteOperationOutcome, StoredMailbox, SyncNotice, SyncObserver,
+    MailSyncSink, MailboxRole, RemoteMailbox, RemoteMessage, RemoteMessageState, RemoteOperation,
+    RemoteOperationOutcome, StoredMailbox, SyncNotice, SyncObserver,
 };
 use async_imap::{
     types::{Flag, NameAttribute},
@@ -125,14 +125,6 @@ impl ImapSyncProvider for AsyncImapProvider {
         raw: &[u8],
     ) -> CommandResult<RemoteOperationOutcome> {
         replace_draft_session(connect_session(account).await?, mailbox_name, draft_id, raw).await
-    }
-
-    async fn wait_for_inbox_change(
-        &self,
-        account: &ImapAccountConfig,
-        timeout: Duration,
-    ) -> CommandResult<InboxWatchOutcome> {
-        wait_for_change_session(connect_session(account).await?, timeout).await
     }
 }
 

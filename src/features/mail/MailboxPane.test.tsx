@@ -163,4 +163,23 @@ describe("MailboxPane draft actions", () => {
     expect(onReceive).toHaveBeenCalledOnce();
     expect(onOpenSettings).toHaveBeenCalledOnce();
   });
+
+  it("disables manual receive while any account synchronization is active", () => {
+    const { container } = render(
+      <MailboxPane
+        mailboxes={[]}
+        selectedMailboxId=""
+        onSelect={vi.fn()}
+        onCompose={vi.fn()}
+        drafts={[]}
+        onOpenDraft={vi.fn()}
+        onDeleteDraft={vi.fn()}
+        onReceive={vi.fn()}
+        receiving
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    expect(within(container).getByRole("button", { name: "Receive" })).toBeDisabled();
+  });
 });

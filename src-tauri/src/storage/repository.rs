@@ -8,7 +8,7 @@ use crate::core::{
     AttachmentSummary, CommandError, CommandResult, ContentAvailability, MailSyncSink, MailboxRole,
     MailboxSummary, MessageAddress, MessageDetail, MessageListItem, MessageListPage,
     MessageUpsertOutcome, RemoteMailbox, RemoteMessage, RemoteMessageState, StoredMailbox,
-    StoredMessageLocation, SyncPolicy,
+    StoredMessageLocation, SyncInterval, SyncPolicy,
 };
 use async_trait::async_trait;
 use sqlx::{
@@ -603,6 +603,36 @@ impl MailReadRepository {
         .await
         .map_err(|_| CommandError::new("storage.sync_settings_write_failed"))?;
         Ok(policy)
+    }
+
+    pub async fn get_sync_interval(&self, account_slot_id: &str) -> CommandResult<SyncInterval> {
+        let value = sqlx::query_scalar::<_, i64>(
+            "SELECT sync_interval_minutes FROM account_sync_settings WHERE account_slot_id = ?",
+        )
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("storage.sync_settings_read_failed"))?;
+        Ok(value.map(sync_interval_from_db).unwrap_or_default())
+    }
+
+    pub async fn set_sync_interval(
+        &self,
+        account_slot_id: &str,
+        interval: SyncInterval,
+    ) -> CommandResult<SyncInterval> {
+        sqlx::query(
+            "INSERT INTO account_sync_settings(account_slot_id, sync_interval_minutes, updated_at) \
+             VALUES (?, ?, ?) ON CONFLICT(account_slot_id) DO UPDATE SET \
+             sync_interval_minutes = excluded.sync_interval_minutes, updated_at = excluded.updated_at",
+        )
+        .bind(account_slot_id)
+        .bind(sync_interval_to_db(&interval))
+        .bind(now())
+        .execute(&self.pool)
+        .await
+        .map_err(|_| CommandError::new("storage.sync_settings_write_failed"))?;
+        Ok(interval)
     }
 
     pub async fn get_download_non_inbox_bodies(
@@ -1304,6 +1334,19 @@ fn policy_from_db(value: &str) -> SyncPolicy {
     }
 }
 
+fn sync_interval_to_db(interval: &SyncInterval) -> i64 {
+    interval.minutes().map_or(0, |minutes| minutes as i64)
+}
+
+fn sync_interval_from_db(value: i64) -> SyncInterval {
+    match value {
+        0 => SyncInterval::Manual,
+        5 => SyncInterval::Minutes5,
+        10 => SyncInterval::Minutes10,
+        _ => SyncInterval::Minutes1,
+    }
+}
+
 fn availability_from_db(value: String) -> ContentAvailability {
     match value.as_str() {
         "queued" => ContentAvailability::Queued,
@@ -1913,6 +1956,40 @@ mod tests {
                 .items
                 .len(),
             1
+        );
+    }
+
+    #[tokio::test]
+    async fn account_sync_interval_defaults_to_one_minute_and_round_trips() {
+        let (_directory, repository, _mailbox) = repository_with_mailbox(1).await;
+        let read = repository.read();
+
+        assert_eq!(
+            read.get_sync_interval("slot").await.unwrap(),
+            SyncInterval::Minutes1
+        );
+        for interval in [
+            SyncInterval::Manual,
+            SyncInterval::Minutes1,
+            SyncInterval::Minutes5,
+            SyncInterval::Minutes10,
+        ] {
+            assert_eq!(
+                read.set_sync_interval("slot", interval.clone())
+                    .await
+                    .unwrap(),
+                interval
+            );
+            assert_eq!(read.get_sync_interval("slot").await.unwrap(), interval);
+        }
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM schema_metadata WHERE key = 'data_format_version'"
+            )
+            .fetch_one(&repository.pool)
+            .await
+            .unwrap(),
+            "19"
         );
     }
 

@@ -17,6 +17,7 @@ import {
   Undo2,
   Palette,
   Highlighter,
+  ImagePlus,
 } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -50,6 +51,7 @@ import {
   EmailBlock,
   EmailFont,
   EmailFormattingAttributes,
+  EmailSpan,
   EmailStylesheet,
   EmailTable,
   EmailTableCell,
@@ -73,6 +75,7 @@ const BASE_COMPOSER_EXTENSIONS: Extensions = [
   Underline,
   TextStyleKit,
   EmailFormattingAttributes,
+  EmailSpan,
   EmailStylesheet,
   EmailBlock,
   EmailFont,
@@ -95,6 +98,7 @@ interface RichTextEditorProps {
   onCompositionChange?: (selection: CompositionNodeSelection) => void;
   inlineImages?: DraftAttachmentSummary[];
   onAddInlineImage?: (file: File) => Promise<DraftAttachmentSummary>;
+  onSanitizeHtml?: (html: string) => Promise<string>;
 }
 
 export interface CompositionNodeSelection {
@@ -117,12 +121,21 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     onCompositionChange,
     inlineImages = [],
     onAddInlineImage,
+    onSanitizeHtml,
   },
   ref,
 ) {
   const { t } = useTranslation();
   const inlineImagesRef = useRef(inlineImages);
   inlineImagesRef.current = inlineImages;
+  const addInlineImageRef = useRef(onAddInlineImage);
+  addInlineImageRef.current = onAddInlineImage;
+  const sanitizeHtmlRef = useRef(onSanitizeHtml);
+  sanitizeHtmlRef.current = onSanitizeHtml;
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
+  const editorInstanceRef = useRef<Editor | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const previewMap = useMemo(() => inlineImagePreviews(inlineImages), [inlineImages]);
   const extensions = useMemo<Extensions>(() => [
     ...BASE_COMPOSER_EXTENSIONS,
@@ -142,36 +155,22 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         class: "nextmail-editor-content",
         "aria-label": ariaLabel ?? t("composer.body"),
       },
-      handlePaste: (view, event) => {
-        if (!onAddInlineImage || disabled) return false;
+      handlePaste: (_view, event) => {
         const clipboard = event.clipboardData;
-        const images = Array.from(clipboard?.files ?? [])
-          .filter((file) => file.type.toLocaleLowerCase().startsWith("image/"));
-        if (!images.length) {
-          images.push(...Array.from(clipboard?.items ?? [])
-            .filter((item) => item.kind === "file" && item.type.toLocaleLowerCase().startsWith("image/"))
-            .flatMap((item) => item.getAsFile() ?? []));
-        }
-        if (!images.length) return false;
+        const html = clipboard?.getData("text/html") ?? "";
+        const plainText = clipboard?.getData("text/plain") ?? "";
+        const images = clipboardImageFiles(clipboard);
+        if (disabledRef.current || (!html && !images.length)) return false;
         event.preventDefault();
-        void (async () => {
-          for (const file of images) {
-            let attachment: DraftAttachmentSummary;
-            try {
-              attachment = await onAddInlineImage(file);
-            } catch {
-              return;
-            }
-            if (!attachment.contentId || !attachment.previewDataUrl) continue;
-            const node = view.state.schema.nodes.nextmailImage?.create({
-              src: `cid:${attachment.contentId}`,
-              contentId: attachment.contentId,
-              previewSrc: attachment.previewDataUrl,
-              alt: file.name,
-            });
-            if (node) view.dispatch(view.state.tr.replaceSelectionWith(node));
-          }
-        })();
+        const currentEditor = editorInstanceRef.current;
+        if (currentEditor) void insertClipboardContent(
+          currentEditor,
+          html,
+          plainText,
+          images,
+          addInlineImageRef.current,
+          sanitizeHtmlRef.current,
+        );
         return true;
       },
     },
@@ -182,6 +181,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       onCompositionChange?.(compositionSelection(JSON.parse(content.editorJson) as JSONContent));
     },
   }, [extensions]);
+  editorInstanceRef.current = editor;
 
   useImperativeHandle(ref, () => ({
     replaceTemplate: (definitionId, content) => replaceCompositionNode(
@@ -306,6 +306,31 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         {action(t("composer.numberedList"), editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), <ListOrdered size={16} />)}
         {action(t("composer.quote"), editor.isActive("blockquote"), () => editor.chain().focus().toggleBlockquote().run(), <Quote size={16} />)}
         <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+        {onAddInlineImage ? (
+          <>
+            <input
+              ref={imageInputRef}
+              className="sr-only"
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              aria-label={t("composer.insertImage")}
+              disabled={richDisabled}
+              onChange={(event) => {
+                const files = Array.from(event.currentTarget.files ?? []);
+                event.currentTarget.value = "";
+                if (files.length) void insertCachedImages(editor, files, onAddInlineImage);
+              }}
+            />
+            {action(
+              t("composer.insertImage"),
+              false,
+              () => imageInputRef.current?.click(),
+              <ImagePlus size={16} />,
+            )}
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          </>
+        ) : null}
         {action(t("composer.undo"), false, () => editor.chain().focus().undo().run(), <Undo2 size={16} />)}
         {action(t("composer.redo"), false, () => editor.chain().focus().redo().run(), <Redo2 size={16} />)}
         <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
@@ -391,6 +416,124 @@ function ColorMenu({ label, icon, disabled, background, onSelect }: {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function clipboardImageFiles(clipboard: DataTransfer | null) {
+  const files = Array.from(clipboard?.files ?? [])
+    .filter((file) => file.type.toLocaleLowerCase().startsWith("image/"));
+  if (files.length) return files;
+  return Array.from(clipboard?.items ?? [])
+    .filter((item) => item.kind === "file" && item.type.toLocaleLowerCase().startsWith("image/"))
+    .flatMap((item) => item.getAsFile() ?? []);
+}
+
+async function insertClipboardContent(
+  editor: Editor,
+  html: string,
+  plainText: string,
+  files: File[],
+  addInlineImage?: (file: File) => Promise<DraftAttachmentSummary>,
+  sanitizeHtml?: (html: string) => Promise<string>,
+) {
+  let remainingFiles = files;
+  if (html && sanitizeHtml) {
+    try {
+      const sanitized = await sanitizeHtml(html);
+      const prepared = addInlineImage
+        ? await cacheInlineImagesInHtml(sanitized, files, addInlineImage)
+        : { html: sanitized, remainingFiles: files };
+      remainingFiles = prepared.remainingFiles;
+      editor.chain().focus().insertContent(prepared.html).run();
+    } catch {
+      if (plainText) editor.chain().focus().insertContent(plainText).run();
+    }
+  } else if (plainText) {
+    editor.chain().focus().insertContent(plainText).run();
+  }
+  if (addInlineImage && remainingFiles.length) {
+    await insertCachedImages(editor, remainingFiles, addInlineImage);
+  }
+}
+
+async function cacheInlineImagesInHtml(
+  html: string,
+  files: File[],
+  addInlineImage: (file: File) => Promise<DraftAttachmentSummary>,
+) {
+  const matches = Array.from(html.matchAll(/(\s+src\s*=\s*)(["'])([^"']*)\2/gi));
+  const remainingFiles = [...files];
+  let output = "";
+  let cursor = 0;
+  for (const match of matches) {
+    const start = match.index ?? cursor;
+    output += html.slice(cursor, start);
+    const clipboardFile = remainingFiles.shift();
+    const file = clipboardFile ?? dataImageFile(match[3], start);
+    let replacement = match[0];
+    if (file) {
+      try {
+        const attachment = await addInlineImage(file);
+        if (attachment.contentId && attachment.previewDataUrl) {
+          replacement = `${match[1]}${match[2]}cid:${escapeHtmlAttribute(attachment.contentId)}${match[2]}`
+            + ` data-nextmail-preview-src="${escapeHtmlAttribute(attachment.previewDataUrl)}"`;
+        }
+      } catch {
+        // Keep the sanitized source when one clipboard image cannot be cached.
+      }
+    }
+    output += replacement;
+    cursor = start + match[0].length;
+  }
+  output += html.slice(cursor);
+  return { html: output, remainingFiles };
+}
+
+async function insertCachedImages(
+  editor: Editor,
+  files: File[],
+  addInlineImage: (file: File) => Promise<DraftAttachmentSummary>,
+) {
+  for (const file of files) {
+    let attachment: DraftAttachmentSummary;
+    try {
+      attachment = await addInlineImage(file);
+    } catch {
+      continue;
+    }
+    if (!attachment.contentId || !attachment.previewDataUrl) continue;
+    editor.chain().focus().insertContent({
+      type: "nextmailImage",
+      attrs: {
+        src: `cid:${attachment.contentId}`,
+        contentId: attachment.contentId,
+        previewSrc: attachment.previewDataUrl,
+        alt: file.name,
+      },
+    }).run();
+  }
+}
+
+function dataImageFile(value: string, index: number) {
+  const match = /^data:(image\/(?:png|jpeg|gif|webp));base64,([a-z0-9+/=\s]+)$/i.exec(value.trim());
+  if (!match) return null;
+  try {
+    const binary = window.atob(match[2].replace(/\s/g, ""));
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const extension = match[1].toLocaleLowerCase() === "image/jpeg"
+      ? "jpg"
+      : match[1].slice("image/".length).toLocaleLowerCase();
+    return new File([bytes], `pasted-image-${index}.${extension}`, { type: match[1].toLocaleLowerCase() });
+  } catch {
+    return null;
+  }
+}
+
+function escapeHtmlAttribute(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function parseDocument(value: string): JSONContent {

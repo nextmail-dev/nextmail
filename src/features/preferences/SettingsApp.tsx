@@ -115,7 +115,7 @@ export function SettingsApp() {
                 key={item.id}
                 variant="ghost"
                 className={category === item.id
-                  ? "h-10 w-full justify-start bg-card px-3 text-foreground shadow-[0_5px_18px_rgb(15_23_42/0.05)] hover:bg-card"
+                  ? "h-10 w-full justify-start bg-primary/10 px-3 text-primary hover:bg-primary/15"
                   : "h-10 w-full justify-start px-3"}
                 aria-current={category === item.id ? "page" : undefined}
                 onClick={() => setCategory(item.id)}

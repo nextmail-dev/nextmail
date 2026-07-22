@@ -12,7 +12,7 @@ use crate::{
         MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage, NewMailNotification,
         NotificationPreferences, PendingOperationSummary, ReadingPreferences,
         RenderedMailSignature, RenderedMailTemplate, SendJobSummary, SignaturePreferences,
-        SignaturePreferencesDraft, SyncPolicy, SyncProgress,
+        SignaturePreferencesDraft, SyncInterval, SyncPolicy, SyncProgress,
     },
     error::CommandResult,
     state::AppState,
@@ -573,6 +573,18 @@ pub async fn set_account_sync_policy(
 }
 
 #[tauri::command]
+pub async fn set_account_sync_interval(
+    state: State<'_, AppState>,
+    account_id: String,
+    sync_interval: SyncInterval,
+) -> CommandResult<SyncInterval> {
+    state
+        .mail
+        .set_account_sync_interval(&account_id, sync_interval)
+        .await
+}
+
+#[tauri::command]
 pub async fn set_download_non_inbox_bodies(
     state: State<'_, AppState>,
     account_id: String,
@@ -946,6 +958,11 @@ pub async fn add_draft_inline_image(
             content_base64,
         )
         .await
+}
+
+#[tauri::command]
+pub fn sanitize_rich_text_paste(state: State<'_, AppState>, html: String) -> CommandResult<String> {
+    state.composer.sanitize_rich_text_paste(&html)
 }
 
 #[tauri::command]

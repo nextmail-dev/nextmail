@@ -155,6 +155,7 @@ export interface AppAbout {
 }
 
 export type SyncPolicy = "days30" | "days90" | "days365" | "all";
+export type SyncInterval = "manual" | "minutes1" | "minutes5" | "minutes10";
 export type MailboxRole = "inbox" | "sent" | "drafts" | "trash" | "junk" | "archive" | "other";
 export type ContentAvailability = "missing" | "queued" | "available" | "failed";
 export type SyncPhase = "idle" | "connecting" | "folders" | "summaries" | "bodies" | "complete" | "failed";
@@ -254,6 +255,7 @@ export interface AccountManagementDetail {
   incomingPort: number;
   security: ConnectionSecurity;
   syncPolicy: SyncPolicy;
+  syncInterval: SyncInterval;
   downloadNonInboxBodies: boolean;
 }
 

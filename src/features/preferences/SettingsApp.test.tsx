@@ -25,6 +25,8 @@ vi.mock("@/app/api", () => ({
       incomingPort: 993,
       security: "tls",
       syncPolicy: "days90",
+      syncInterval: "minutes1",
+      downloadNonInboxBodies: false,
     }),
     listMailboxes: vi.fn().mockResolvedValue([]),
     listAccountRuntimeSummaries: vi.fn().mockResolvedValue([
@@ -81,6 +83,7 @@ describe("SettingsApp", () => {
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "General" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "General" })).toHaveClass("bg-primary/10", "text-primary");
     expect(screen.getByText("Language")).toBeInTheDocument();
     expect(document.querySelector(".native-scrollbar-hidden")).toBeInTheDocument();
   });
@@ -109,6 +112,7 @@ describe("SettingsApp", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Appearance" }));
+    expect(screen.getByRole("button", { name: "Appearance" })).toHaveClass("bg-primary/10", "text-primary");
     expect(screen.getByText("Theme color")).toBeInTheDocument();
     expect(screen.getAllByRole("radio")).toHaveLength(10);
     expect(screen.getByRole("radio", { name: "Blue" })).toBeChecked();

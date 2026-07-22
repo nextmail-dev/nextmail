@@ -34,22 +34,54 @@ describe("useMailRuntimeEvents", () => {
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(client, "invalidateQueries");
+    const refetch = vi.spyOn(client, "refetchQueries");
     const onSent = vi.fn();
     const onNavigate = vi.fn();
     const { rerender, unmount } = renderHook(
-      ({ selectedAccountId }) => useMailRuntimeEvents({ selectedAccountId, onSent, onNavigate }),
+      ({ selectedAccountId, selectedMailboxId }) => useMailRuntimeEvents({ selectedAccountId, selectedMailboxId, onSent, onNavigate }),
       {
-        initialProps: { selectedAccountId: "account-one" },
+        initialProps: { selectedAccountId: "account-one", selectedMailboxId: "inbox" },
         wrapper: createWrapper(client),
       },
     );
-    await waitFor(() => expect(handlers.size).toBe(6));
+    await waitFor(() => expect(handlers.size).toBe(7));
 
     act(() => handlers.get("mailbox-changed")?.({
       payload: { accountId: "account-two", mailboxId: "archive" } as never,
     }));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.mailboxes("account-two") });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.messagesForMailbox("account-two", "archive") });
+
+    let finishFirstRefresh: (() => void) | undefined;
+    refetch.mockClear();
+    let explicitRefreshCount = 0;
+    refetch.mockImplementation((filters) => {
+      if (filters?.exact) {
+        explicitRefreshCount += 1;
+        if (explicitRefreshCount === 1) {
+          return new Promise<void>((resolve) => {
+            finishFirstRefresh = resolve;
+          });
+        }
+      }
+      return Promise.resolve();
+    });
+    act(() => {
+      handlers.get("mailbox-changed")?.({
+        payload: { accountId: "account-one", mailboxId: "inbox" } as never,
+      });
+      handlers.get("mailbox-changed")?.({
+        payload: { accountId: "account-one", mailboxId: "inbox" } as never,
+      });
+    });
+    await waitFor(() => expect(refetch.mock.calls.filter(([filters]) => filters?.exact)).toHaveLength(1));
+    expect(refetch).toHaveBeenCalledWith({
+      queryKey: mailQueryKeys.messagesForMailbox("account-one", "inbox"),
+      exact: true,
+      type: "active",
+    });
+    act(() => finishFirstRefresh?.());
+    await waitFor(() => expect(refetch.mock.calls.filter(([filters]) => filters?.exact)).toHaveLength(2));
 
     invalidate.mockClear();
     act(() => handlers.get("message-content-changed")?.({
@@ -72,8 +104,14 @@ describe("useMailRuntimeEvents", () => {
     }));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.syncProgress("account-two") });
 
-    rerender({ selectedAccountId: "account-two" });
-    expect(listenMock).toHaveBeenCalledTimes(6);
+    invalidate.mockClear();
+    act(() => handlers.get("account-runtime-status-changed")?.({
+      payload: { accountId: "account-two" } as never,
+    }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.accountRuntimes });
+
+    rerender({ selectedAccountId: "account-two", selectedMailboxId: "archive" });
+    expect(listenMock).toHaveBeenCalledTimes(7);
     invalidate.mockClear();
     act(() => handlers.get("send-job-changed")?.({
       payload: {

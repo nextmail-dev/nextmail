@@ -17,6 +17,7 @@ import type {
   MailboxSummary,
   MessageDetail,
   MessageListPage,
+  SyncInterval,
   SyncPolicy,
   SyncProgress,
   ComposerBootstrap,
@@ -148,6 +149,8 @@ export const api = {
     invoke<AccountManagementDetail>("get_account_management_detail", { accountId }),
   setAccountSyncPolicy: (accountId: string, syncPolicy: SyncPolicy) =>
     invoke<SyncPolicy>("set_account_sync_policy", { accountId, syncPolicy }),
+  setAccountSyncInterval: (accountId: string, syncInterval: SyncInterval) =>
+    invoke<SyncInterval>("set_account_sync_interval", { accountId, syncInterval }),
   setDownloadNonInboxBodies: (accountId: string, enabled: boolean) =>
     invoke<boolean>("set_download_non_inbox_bodies", { accountId, enabled }),
   requestRawMessage: (accountId: string, messageId: string) =>
@@ -253,6 +256,8 @@ export const api = {
   ) => invoke<DraftAttachmentSummary>("add_draft_inline_image", {
     accountId, draftId, fileName, contentType, contentBase64,
   }),
+  sanitizeRichTextPaste: (html: string) =>
+    invoke<string>("sanitize_rich_text_paste", { html }),
   removeDraftAttachment: (accountId: string, draftId: string, attachmentId: string) =>
     invoke<void>("remove_draft_attachment", { accountId, draftId, attachmentId }),
   discardEmptyDraft: (accountId: string, draftId: string) =>

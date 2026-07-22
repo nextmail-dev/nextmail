@@ -75,6 +75,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   } = usePaneLayout(accounts.length > 0);
   useMailRuntimeEvents({
     selectedAccountId,
+    selectedMailboxId,
     onSent: setSentNotice,
     onNavigate: navigateToMailLocation,
   });
@@ -99,7 +100,9 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   const pendingIssue = pendingOperationsQuery.data?.find((operation) =>
     operation.cleanupPending || operation.status === "failed" || operation.status === "needs_reconcile");
   const selectedMailbox = mailboxesQuery.data?.find((mailbox) => mailbox.id === selectedMailboxId);
-  const receiving = !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
+  const selectedRuntime = runtimeQuery.data?.find((runtime) => runtime.accountId === selectedAccountId);
+  const receiving = selectedRuntime?.state === "syncing"
+    || !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
   const selectAfterRemoval = useCallback((removedMessageId: string) => {
     setSelectedMessageId((current) => current === removedMessageId
       ? nextMessageIdAfterRemoval(visibleMessageIds, removedMessageId)

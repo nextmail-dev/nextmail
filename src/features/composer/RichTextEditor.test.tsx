@@ -158,6 +158,96 @@ describe("RichTextEditor composition nodes", () => {
         .toBe("data:image/png;base64,aW1hZ2U=");
     });
   });
+
+  it("inserts a selected image through the same cached CID path", async () => {
+    const onChange = vi.fn<(content: DraftContent) => void>();
+    const onAddInlineImage = vi.fn(async () => ({
+      id: "inline-selected",
+      fileName: "selected.png",
+      contentType: "image/png",
+      size: 12,
+      contentId: "inline-selected@nextmail.local",
+      isInline: true,
+      previewDataUrl: "data:image/png;base64,aW1hZ2U=",
+    }));
+    const { container } = render(
+      <RichTextEditor
+        initialJson={EMPTY}
+        onChange={onChange}
+        onAddInlineImage={onAddInlineImage}
+      />,
+    );
+    expect(await screen.findByRole("button", { name: "Insert image" })).toBeInTheDocument();
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "selected.png", {
+      type: "image/png",
+    });
+    fireEvent.change(input as HTMLInputElement, { target: { files: [image] } });
+
+    await waitFor(() => expect(onAddInlineImage).toHaveBeenCalledWith(image));
+    await waitFor(() => {
+      const content = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(content?.html).toContain('src="cid:inline-selected@nextmail.local"');
+      expect(content?.editorJson).not.toContain("data:image/png");
+    });
+  });
+
+  it("imports sanitized clipboard HTML with scoped styles and editable structure", async () => {
+    const onChange = vi.fn<(content: DraftContent) => void>();
+    const onAddInlineImage = vi.fn(async () => ({
+      id: "inline-rich-paste",
+      fileName: "copied.png",
+      contentType: "image/png",
+      size: 12,
+      contentId: "inline-rich-paste@nextmail.local",
+      isInline: true,
+      previewDataUrl: "data:image/png;base64,aW1hZ2U=",
+    }));
+    const onSanitizeHtml = vi.fn(async () => [
+      '<div data-nextmail-pasted-html="">',
+      '<style data-nextmail-compose-style="">[data-nextmail-pasted-html] .copied{color:#123456}</style>',
+      '<p class="copied" id="copied-line" style="font-size:18px">',
+      '<span style="font-family:Arial;color:#654321">Styled paste</span><img src="https://example.test/copied.png">',
+      "</p></div>",
+    ].join(""));
+    const { container } = render(
+      <RichTextEditor
+        initialJson={EMPTY}
+        onChange={onChange}
+        onAddInlineImage={onAddInlineImage}
+        onSanitizeHtml={onSanitizeHtml}
+      />,
+    );
+    const editable = await waitFor(() => container.querySelector<HTMLElement>(".ProseMirror") as HTMLElement);
+    const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "copied.png", {
+      type: "image/png",
+    });
+    fireEvent.paste(editable, {
+      clipboardData: {
+        files: [image],
+        items: [],
+        getData: vi.fn((type: string) => type === "text/html"
+          ? '<p class="copied" style="font-size:18px">Styled paste</p>'
+          : "Styled paste"),
+      },
+    });
+
+    await waitFor(() => expect(onSanitizeHtml).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onAddInlineImage).toHaveBeenCalledWith(image));
+    await waitFor(() => {
+      const content = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(content?.html).toContain("data-nextmail-pasted-html");
+      expect(content?.html).toContain("[data-nextmail-pasted-html] .copied");
+      expect(content?.html).toContain('class="copied"');
+      expect(content?.html).toContain('id="copied-line"');
+      expect(content?.html).toContain("font-family: Arial");
+      expect(content?.html).toContain('src="cid:inline-rich-paste@nextmail.local"');
+      expect(content?.html).not.toContain("example.test/copied.png");
+      expect(content?.editorJson).not.toContain("data:image/png");
+      expect(content?.plainText).toContain("Styled paste");
+    });
+  });
 });
 
 function definition(text: string): DraftContent {

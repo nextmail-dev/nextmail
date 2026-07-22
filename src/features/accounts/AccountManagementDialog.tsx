@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
-import type { AccountDraft, AccountSummary, MailboxRole, SyncPolicy } from "@/app/types";
+import type { AccountDraft, AccountSummary, MailboxRole, SyncInterval, SyncPolicy } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/card";
@@ -162,6 +162,10 @@ export function AccountManagementPanel({
     mutationFn: (syncPolicy: SyncPolicy) => api.setAccountSyncPolicy(accountId, syncPolicy),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
   });
+  const intervalMutation = useMutation({
+    mutationFn: (syncInterval: SyncInterval) => api.setAccountSyncInterval(accountId, syncInterval),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
+  });
   const nonInboxBodyMutation = useMutation({
     mutationFn: (enabled: boolean) => api.setDownloadNonInboxBodies(accountId, enabled),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
@@ -242,6 +246,18 @@ export function AccountManagementPanel({
             ]}
             onValueChange={(value) => policyMutation.mutate(value as SyncPolicy)}
             disabled={policyMutation.isPending}
+          />
+          <SelectField
+            label={t("accounts.syncInterval")}
+            value={account.syncInterval}
+            options={[
+              { value: "manual", label: t("accounts.syncIntervalManual") },
+              { value: "minutes1", label: t("accounts.syncIntervalMinutes1") },
+              { value: "minutes5", label: t("accounts.syncIntervalMinutes5") },
+              { value: "minutes10", label: t("accounts.syncIntervalMinutes10") },
+            ]}
+            onValueChange={(value) => intervalMutation.mutate(value as SyncInterval)}
+            disabled={intervalMutation.isPending}
           />
           <Stack gap="xs">
             <Checkbox
