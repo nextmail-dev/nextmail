@@ -186,7 +186,7 @@ impl MailRuntime {
             return;
         }
         self.update_runtime_state(account_id, AccountRuntimeState::Starting, None, None);
-        self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None);
+        self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None, None);
         let runtime = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
             runtime.supervisor_loop(supervisor).await;
@@ -499,7 +499,7 @@ impl MailRuntime {
         supervisor
             .manual_sync_requested
             .store(true, Ordering::Release);
-        self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None);
+        self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None, None);
         supervisor.wake.notify_one();
         Ok(())
     }
@@ -1178,7 +1178,7 @@ impl MailRuntime {
         let repository = Arc::clone(self.repository().await?);
         self.update_runtime_state(account_id, AccountRuntimeState::Syncing, None, None);
         if report_progress {
-            self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None);
+            self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None, None);
         }
         let observer = RuntimeObserver {
             runtime: self,
@@ -1199,7 +1199,7 @@ impl MailRuntime {
         match result {
             Ok(()) => {
                 if report_progress {
-                    self.update_progress(account_id, SyncPhase::Complete, 1, 1, None);
+                    self.update_progress(account_id, SyncPhase::Complete, 1, 1, None, None);
                 }
                 self.update_runtime_state(account_id, AccountRuntimeState::Ready, None, None);
                 Ok(())
@@ -1211,6 +1211,7 @@ impl MailRuntime {
                         SyncPhase::Failed,
                         0,
                         0,
+                        None,
                         Some(error.code.clone()),
                     );
                 }
@@ -1292,6 +1293,7 @@ impl MailRuntime {
         phase: SyncPhase,
         completed: u64,
         total: u64,
+        current_mailbox_name: Option<String>,
         error_code: Option<String>,
     ) {
         let progress = if let Ok(mut values) = self.progress.write() {
@@ -1303,6 +1305,7 @@ impl MailRuntime {
                 phase,
                 completed,
                 total,
+                current_mailbox_name,
                 error_code,
                 revision,
             };
@@ -1353,21 +1356,42 @@ impl SyncObserver for RuntimeObserver<'_> {
             return;
         }
         match notice {
-            SyncNotice::Folders { completed, total } if self.report_progress => self
-                .runtime
-                .update_progress(&self.account_id, SyncPhase::Folders, completed, total, None),
-            SyncNotice::Summaries { completed, total } if self.report_progress => {
-                self.runtime.update_progress(
-                    &self.account_id,
-                    SyncPhase::Summaries,
-                    completed,
-                    total,
-                    None,
-                )
-            }
-            SyncNotice::Bodies { completed, total } if self.report_progress => self
-                .runtime
-                .update_progress(&self.account_id, SyncPhase::Bodies, completed, total, None),
+            SyncNotice::Folders {
+                completed,
+                total,
+                mailbox_name,
+            } if self.report_progress => self.runtime.update_progress(
+                &self.account_id,
+                SyncPhase::Folders,
+                completed,
+                total,
+                mailbox_name,
+                None,
+            ),
+            SyncNotice::Summaries {
+                completed,
+                total,
+                mailbox_name,
+            } if self.report_progress => self.runtime.update_progress(
+                &self.account_id,
+                SyncPhase::Summaries,
+                completed,
+                total,
+                Some(mailbox_name),
+                None,
+            ),
+            SyncNotice::Bodies {
+                completed,
+                total,
+                mailbox_name,
+            } if self.report_progress => self.runtime.update_progress(
+                &self.account_id,
+                SyncPhase::Bodies,
+                completed,
+                total,
+                Some(mailbox_name),
+                None,
+            ),
             SyncNotice::Folders { .. }
             | SyncNotice::Summaries { .. }
             | SyncNotice::Bodies { .. } => {}

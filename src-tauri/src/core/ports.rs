@@ -175,10 +175,25 @@ pub enum InboxWatchOutcome {
 
 #[derive(Clone, Debug)]
 pub enum SyncNotice {
-    Folders { completed: u64, total: u64 },
-    Summaries { completed: u64, total: u64 },
-    Bodies { completed: u64, total: u64 },
-    MailboxChanged { mailbox_id: String, revision: u64 },
+    Folders {
+        completed: u64,
+        total: u64,
+        mailbox_name: Option<String>,
+    },
+    Summaries {
+        completed: u64,
+        total: u64,
+        mailbox_name: String,
+    },
+    Bodies {
+        completed: u64,
+        total: u64,
+        mailbox_name: String,
+    },
+    MailboxChanged {
+        mailbox_id: String,
+        revision: u64,
+    },
 }
 
 pub trait SyncObserver: Send + Sync {

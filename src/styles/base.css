@@ -31,8 +31,19 @@ body {
   font-family: system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  user-select: none;
+  -webkit-user-select: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+.cm-editor,
+.select-text {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 :root[data-platform="windows"] body {

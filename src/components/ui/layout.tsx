@@ -3,6 +3,7 @@ import type {
   HTMLAttributes,
   PropsWithChildren,
 } from "react";
+import { forwardRef } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -31,9 +32,12 @@ export function Stack({ className, gap = "md", ...props }: StackProps) {
   return <div className={cn("flex min-w-0 flex-col", stackGaps[gap], className)} {...props} />;
 }
 
-export function Inline({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex min-w-0 items-center gap-2.5", className)} {...props} />;
-}
+export const Inline = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function Inline(
+  { className, ...props },
+  ref,
+) {
+  return <div ref={ref} className={cn("flex min-w-0 items-center gap-2.5", className)} {...props} />;
+});
 
 export function Form({ className, ...props }: FormHTMLAttributes<HTMLFormElement>) {
   return <form className={cn("w-full", className)} {...props} />;

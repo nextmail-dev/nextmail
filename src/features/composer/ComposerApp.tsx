@@ -23,14 +23,15 @@ import { Modal } from "@/components/ui/dialog";
 import { AppShell, Inline, Page, Stack } from "@/components/ui/layout";
 import { Spinner } from "@/components/ui/spinner";
 import { SelectField } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Text } from "@/components/ui/typography";
 import {
   RichTextEditor,
   type CompositionNodeSelection,
   type RichTextEditorHandle,
 } from "./RichTextEditor";
-import { RecipientField } from "./RecipientField";
-import { addRecipientInput } from "./recipient-utils";
+import { AddressTag, RecipientField } from "./RecipientField";
+import { addRecipientInput, formatAddress } from "./recipient-utils";
 
 interface ComposerAppProps {
   accountId: string;
@@ -122,9 +123,11 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     };
   }, [bcc, bccInput, cc, ccInput, to, toInput]);
 
-  const saveNow = useCallback(async () => {
+  const saveNow = useCallback(async (commitPendingRecipients = false) => {
     if (!dirty || savingRef.current || !editable) return null;
-    const resolvedRecipients = resolveAllRecipients();
+    const resolvedRecipients = commitPendingRecipients
+      ? resolveAllRecipients()
+      : { to, cc, bcc };
     if (!resolvedRecipients) {
       setSaveState("failed");
       return null;
@@ -160,17 +163,17 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         setSaveRetry((value) => value + 1);
       }
     }
-  }, [content, dirty, draft.id, editable, resolveAllRecipients, sender.id, subject]);
+  }, [bcc, cc, content, dirty, draft.id, editable, resolveAllRecipients, sender.id, subject, to]);
   const saveNowRef = useRef(saveNow);
   saveNowRef.current = saveNow;
   const closeStateRef = useRef({ dirty, editable, sendJob, submitting });
   closeStateRef.current = { dirty, editable, sendJob, submitting };
 
   useEffect(() => {
-    if (!dirty || !editable) return;
-    const timeout = window.setTimeout(() => void saveNow(), 800);
+    if (!dirty || !editable || toInput.trim() || ccInput.trim() || bccInput.trim()) return;
+    const timeout = window.setTimeout(() => void saveNow(false), 800);
     return () => window.clearTimeout(timeout);
-  }, [dirty, editable, saveNow, saveRetry]);
+  }, [bccInput, ccInput, dirty, editable, saveNow, saveRetry, toInput]);
 
   useEffect(() => {
     if (!editable || dirty || revision === draft.revision) return;
@@ -196,7 +199,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       }
       if (closeState.sendJob || closeState.submitting) return;
       if (closeState.dirty && closeState.editable) {
-        const saved = await saveNowRef.current();
+        const saved = await saveNowRef.current(true);
         if (!saved) return;
       }
       try {
@@ -282,6 +285,15 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
 
   function removeRecipient(kind: RecipientKind, index: number) {
     setRecipientAddresses(kind, recipientValue(kind).addresses.filter((_, itemIndex) => itemIndex !== index));
+    markDirty();
+  }
+
+  function editLastRecipient(kind: RecipientKind, address: MessageAddress, index: number) {
+    setRecipientAddresses(kind, recipientValue(kind).addresses.filter((_, itemIndex) => itemIndex !== index));
+    if (kind === "to") setToInput(formatAddress(address));
+    else if (kind === "cc") setCcInput(formatAddress(address));
+    else setBccInput(formatAddress(address));
+    setRecipientErrors((errors) => ({ ...errors, [kind]: null }));
     markDirty();
   }
 
@@ -373,7 +385,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     }
     setConfirmEmptySubject(false);
     setSubmitting(true);
-    const saved = await saveNow();
+    const saved = await saveNow(true);
     if (dirty && !saved) {
       setSubmitting(false);
       return;
@@ -411,10 +423,11 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       </Inline>
 
       <Page className="flex min-h-0 flex-1 flex-col">
-        <Inline className="min-h-11 bg-card px-4">
-          <Text className="w-16 shrink-0 text-xs font-semibold">{t("composer.from")}</Text>
-          <Text className="text-sm text-foreground">{sender.displayName || sender.email} &lt;{sender.email}&gt;</Text>
+        <Inline className="min-h-11 gap-0 bg-card">
+          <Text className="w-20 shrink-0 px-4 text-xs font-semibold">{t("composer.from")}</Text>
+          <AddressTag address={{ name: sender.displayName || null, email: sender.email }} />
         </Inline>
+        <Separator className="ml-20" />
         <RecipientField
           label={t("composer.to")}
           addresses={to}
@@ -425,12 +438,14 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           onInputChange={(value) => setRecipientInput("to", value)}
           onCommit={() => commitRecipient("to")}
           onRemove={(index) => removeRecipient("to", index)}
+          onEditLast={(address, index) => editLastRecipient("to", address, index)}
           trailing={
             <Button type="button" variant="ghost" size="sm" className="mr-2" onClick={() => setShowCopies((value) => !value)}>
               {t("composer.ccBcc")}<ChevronDown size={14} />
             </Button>
           }
         />
+        <Separator className="ml-20" />
         {showCopies ? (
           <>
             <RecipientField
@@ -442,7 +457,9 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
               onInputChange={(value) => setRecipientInput("cc", value)}
               onCommit={() => commitRecipient("cc")}
               onRemove={(index) => removeRecipient("cc", index)}
+              onEditLast={(address, index) => editLastRecipient("cc", address, index)}
             />
+            <Separator className="ml-20" />
             <RecipientField
               label={t("composer.bcc")}
               addresses={bcc}
@@ -452,11 +469,13 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
               onInputChange={(value) => setRecipientInput("bcc", value)}
               onCommit={() => commitRecipient("bcc")}
               onRemove={(index) => removeRecipient("bcc", index)}
+              onEditLast={(address, index) => editLastRecipient("bcc", address, index)}
             />
+            <Separator className="ml-20" />
           </>
         ) : null}
         <CompactField label={t("composer.subject")} value={subject} disabled={!editable} onChange={(event) => { setSubject(event.currentTarget.value); markDirty(); }} />
-
+        <Separator />
         <Inline className="min-h-12 shrink-0 flex-wrap bg-card px-4 py-2">
           <SelectField
             compact
@@ -487,6 +506,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
             onValueChange={(value) => void selectSignature(value)}
           />
         </Inline>
+        <Separator />
 
         {errorCode ? (
           <Alert className="m-3 mb-0" tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert>

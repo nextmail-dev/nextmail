@@ -43,7 +43,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
   mailboxId: string;
   messageId: string;
   mailboxes: MailboxSummary[];
-  onMessageRemoved: () => void;
+  onMessageRemoved: (messageId: string) => void;
 }) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -107,7 +107,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.mailboxes(accountId) });
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(accountId) });
       void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(accountId) });
-      if (["move", "archive", "delete"].includes(kind)) onMessageRemoved();
+      if (["move", "archive", "delete"].includes(kind)) onMessageRemoved(messageId);
     },
   });
   const editDraftMutation = useMutation({ mutationFn: () => api.openRemoteDraft(accountId, messageId) });
@@ -153,10 +153,10 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
           <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary/12 text-sm font-bold text-primary">{senderInitial}</span>
           <Stack className="min-w-0 flex-1" gap="xs">
             <Inline className="flex-wrap gap-x-3 gap-y-1">
-              <LabelText className="text-[15px]">{senderLabel}</LabelText>
-              <Text className="text-xs">{sender?.email !== senderLabel ? sender?.email : null}</Text>
+              <LabelText className="select-text text-[15px]">{senderLabel}</LabelText>
+              <Text className="select-text text-xs">{sender?.email !== senderLabel ? sender?.email : null}</Text>
             </Inline>
-            <Text className="text-xs">{t("mail.toRecipients", { recipients: formatAddresses(message.to) })}</Text>
+            <Text className="select-text text-xs">{t("mail.toRecipients", { recipients: formatAddresses(message.to) })}</Text>
           </Stack>
           <Stack className="shrink-0 items-end" gap="sm">
             <Text className="text-[length:var(--ui-font-caption)]">{date}</Text>
@@ -201,7 +201,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
             </Inline>
           </Stack>
         </Inline>
-        <Heading level={1} className="max-w-none text-[28px] leading-tight lg:text-[30px]">{message.subject || t("mail.noSubject")}</Heading>
+        <Heading level={1} className="select-text max-w-none text-[28px] leading-tight lg:text-[30px]">{message.subject || t("mail.noSubject")}</Heading>
         {message.pendingOperation ? (
           <Inline className="text-muted-foreground"><CloudUpload size={14} /><Text className="text-xs">{t("mail.pendingSync")}</Text></Inline>
         ) : null}
@@ -222,7 +222,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
         {message.safeHtml ? (
           <SafeMailFrame document={message.safeHtml} title={message.subject || t("mail.messageBody")} allowRemoteImages={allowRemoteImages} />
         ) : message.plainText ? (
-          <Text className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-8 py-5 text-sm leading-[1.75] text-foreground">{message.plainText}</Text>
+          <Text className="select-text min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-8 py-5 text-sm leading-[1.75] text-foreground">{message.plainText}</Text>
         ) : (
           <Stack className="m-auto w-full max-w-md items-center px-8" gap="md">
             <EmptyState
@@ -256,7 +256,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
         </Stack>
       ) : null}
       <Modal open={rawSource !== null} onOpenChange={(open) => { if (!open) setRawSource(null); }} title={t("mail.sourceTitle")} closeLabel={t("common.close")}>
-        <Text className="mt-4 max-h-[65vh] overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs text-foreground">{rawSource ?? ""}</Text>
+        <Text className="select-text mt-4 max-h-[65vh] overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs text-foreground">{rawSource ?? ""}</Text>
       </Modal>
     </Stack>
   );

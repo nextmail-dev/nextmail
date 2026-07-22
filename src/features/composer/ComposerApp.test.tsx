@@ -153,6 +153,20 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ComposerApp close lifecycle", () => {
+  it("keeps a recipient editable until a delimiter or blur commits it", async () => {
+    renderComposer();
+    const recipient = await screen.findByRole("textbox", { name: "To" });
+
+    fireEvent.change(recipient, { target: { value: "alice@example.com" } });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 900));
+    });
+
+    expect(screen.getByRole("textbox", { name: "To" })).toHaveValue("alice@example.com");
+    expect(screen.queryByRole("button", { name: "To: alice@example.com" })).not.toBeInTheDocument();
+    expect(api.saveDraft).not.toHaveBeenCalled();
+  });
+
   it("subscribes once across body changes and saves the latest dirty draft on close", async () => {
     renderComposer();
     const changeBody = await screen.findByRole("button", { name: "Change body" });

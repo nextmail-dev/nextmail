@@ -458,15 +458,21 @@ impl ComposerRuntime {
         let builder = WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::App(url.into()))
             .title(title)
             .inner_size(860.0, 700.0)
-            .min_inner_size(680.0, 560.0);
+            .min_inner_size(680.0, 560.0)
+            .center()
+            .visible(false);
         #[cfg(target_os = "windows")]
         let builder = builder.decorations(false);
         #[cfg(target_os = "macos")]
         let builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true);
-        builder
+        let window = builder
             .build()
+            .map_err(|_| CommandError::new("composer.window_create_failed"))?;
+        window
+            .show()
+            .and_then(|_| window.set_focus())
             .map_err(|_| CommandError::new("composer.window_create_failed"))?;
         Ok(())
     }

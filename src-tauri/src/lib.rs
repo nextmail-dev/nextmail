@@ -14,6 +14,7 @@ use std::{io, sync::Arc};
 
 use crate::core::ExternalLinkOpener;
 use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,6 +22,18 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+                .map_label(|label| {
+                    if label.starts_with("composer-") {
+                        "composer"
+                    } else {
+                        label
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             let state = state::AppState::from_handle(app.handle())?;
             app.manage(state);
@@ -118,12 +131,16 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
         .find(|config| config.label == "main")
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "main window config is missing"))?;
     let external_link_opener = Arc::clone(&app.state::<state::AppState>().external_link_opener);
-    tauri::WebviewWindowBuilder::from_config(app, config)?
+    let window = tauri::WebviewWindowBuilder::from_config(app, config)?
+        .center()
+        .visible(false)
         .on_new_window(move |url, _features| {
             let _ = open_external_mail_target(external_link_opener.as_ref(), url.as_str());
             tauri::webview::NewWindowResponse::Deny
         })
         .build()?;
+    window.show()?;
+    window.set_focus()?;
     Ok(())
 }
 

@@ -382,6 +382,7 @@
     "idle": "Waiting to sync",
     "connecting": "Connecting to the mail server",
     "folders": "Synchronizing folders",
+    "currentFolder": "Synchronizing folder {{folder}}",
     "summaries": "Synchronizing message summaries",
     "bodies": "Synchronizing message bodies",
     "complete": "Sync complete",

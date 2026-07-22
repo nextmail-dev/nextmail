@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/app/api";
@@ -13,6 +13,12 @@ vi.mock("@/app/api", () => ({
     searchMessages: vi.fn(),
     setMessageRead: vi.fn(),
     setMessageFlagged: vi.fn(),
+    openMessageActionComposer: vi.fn(),
+    openRemoteDraft: vi.fn(),
+    moveMessages: vi.fn(),
+    copyMessages: vi.fn(),
+    archiveMessages: vi.fn(),
+    deleteMessages: vi.fn(),
   },
   normalizeCommandError: vi.fn(() => ({
     code: "common.unexpected_error",
@@ -60,8 +66,11 @@ describe("MessageListPane", () => {
         <MessageListPane
           accountId="account-one"
           mailboxId="inbox"
+          mailboxes={[]}
           selectedMessageId=""
           onSelect={vi.fn()}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessageRemoved={vi.fn()}
           searchQuery=""
           onSearchChange={vi.fn()}
         />
@@ -76,8 +85,11 @@ describe("MessageListPane", () => {
         <MessageListPane
           accountId="account-one"
           mailboxId="inbox"
+          mailboxes={[]}
           selectedMessageId=""
           onSelect={vi.fn()}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessageRemoved={vi.fn()}
           searchQuery="annual-report.pdf"
           onSearchChange={vi.fn()}
         />
@@ -88,5 +100,31 @@ describe("MessageListPane", () => {
       "account-one", "inbox", "annual-report.pdf", null, 50,
     ));
     expect(await screen.findByText("Server-side result")).toBeInTheDocument();
+  });
+
+  it("clears the current selection when the selected row is clicked again", async () => {
+    vi.mocked(api.listMessages).mockResolvedValue({ items: [serverResult], nextCursor: null });
+    const onSelect = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane
+          accountId="account-one"
+          mailboxId="inbox"
+          mailboxes={[]}
+          selectedMessageId="message-one"
+          onSelect={onSelect}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessageRemoved={vi.fn()}
+          searchQuery=""
+          onSearchChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Alice.*Server-side result/i }));
+    expect(onSelect).toHaveBeenCalledWith("");
   });
 });

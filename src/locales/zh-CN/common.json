@@ -382,6 +382,7 @@
     "idle": "等待同步",
     "connecting": "正在连接邮件服务器",
     "folders": "正在同步文件夹",
+    "currentFolder": "正在同步文件夹 {{folder}}",
     "summaries": "正在同步邮件摘要",
     "bodies": "正在同步邮件正文",
     "complete": "同步完成",

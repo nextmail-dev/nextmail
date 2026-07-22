@@ -45,6 +45,10 @@ export function parseAddresses(value: string): MessageAddress[] {
 
 export function formatAddresses(values: MessageAddress[]) {
   return values
-    .map((value) => (value.name ? `${value.name} <${value.email}>` : value.email))
+    .map(formatAddress)
     .join(", ");
+}
+
+export function formatAddress(value: MessageAddress) {
+  return value.name ? `${value.name} <${value.email}>` : value.email;
 }

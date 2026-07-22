@@ -61,6 +61,28 @@ beforeAll(async () => {
 afterEach(cleanup);
 
 describe("MessageViewer", () => {
+  it("keeps the message subject and addressing selectable", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageViewer
+          accountId="account-one"
+          mailboxId="inbox"
+          messageId="message-one"
+          mailboxes={[]}
+          onMessageRemoved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Attachment" })).toHaveClass("select-text");
+    expect(screen.getByText("Alice")).toHaveClass("select-text");
+    expect(screen.getByText("alice@example.com")).toHaveClass("select-text");
+    expect(screen.getByText(/user@example\.com/)).toHaveClass("select-text");
+  });
+
   it("invalidates the exact detail query after an attachment download", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

@@ -299,6 +299,7 @@ pub struct SyncProgress {
     pub phase: SyncPhase,
     pub completed: u64,
     pub total: u64,
+    pub current_mailbox_name: Option<String>,
     pub error_code: Option<String>,
     pub revision: u64,
 }
@@ -310,6 +311,7 @@ impl SyncProgress {
             phase: SyncPhase::Idle,
             completed: 0,
             total: 0,
+            current_mailbox_name: None,
             error_code: None,
             revision: 0,
         }

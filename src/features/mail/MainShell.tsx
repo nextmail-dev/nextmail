@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleUserRound, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -16,6 +16,7 @@ import { AccountSwitcher } from "./AccountSwitcher";
 import { MailboxPane } from "./MailboxPane";
 import { MessageListPane } from "./MessageListPane";
 import { MessageViewer } from "./MessageViewer";
+import { nextMessageIdAfterRemoval } from "./message-selection";
 import { useMailboxSelection } from "./hooks/useMailboxSelection";
 import { useMailRuntimeEvents } from "./hooks/useMailRuntimeEvents";
 import { usePaneLayout } from "./hooks/usePaneLayout";
@@ -42,6 +43,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   const accounts = accountsQuery.data ?? [];
   const [composeError, setComposeError] = useState<string | null>(null);
   const [sentNotice, setSentNotice] = useState<{ id: string; subject: string } | null>(null);
+  const [visibleMessageIds, setVisibleMessageIds] = useState<string[]>([]);
   const {
     mailboxesQuery,
     searchQuery,
@@ -91,6 +93,11 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     operation.cleanupPending || operation.status === "failed" || operation.status === "needs_reconcile");
   const selectedMailbox = mailboxesQuery.data?.find((mailbox) => mailbox.id === selectedMailboxId);
   const receiving = !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
+  const selectAfterRemoval = useCallback((removedMessageId: string) => {
+    setSelectedMessageId((current) => current === removedMessageId
+      ? nextMessageIdAfterRemoval(visibleMessageIds, removedMessageId)
+      : current);
+  }, [setSelectedMessageId, visibleMessageIds]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -188,8 +195,11 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
             accountId={selectedAccountId}
             mailboxId={selectedMailboxId}
             mailbox={selectedMailbox}
+            mailboxes={mailboxesQuery.data ?? []}
             selectedMessageId={selectedMessageId}
             onSelect={setSelectedMessageId}
+            onVisibleMessageIdsChange={setVisibleMessageIds}
+            onMessageRemoved={selectAfterRemoval}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
           />
@@ -201,7 +211,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
             mailboxId={selectedMailboxId}
             messageId={selectedMessageId}
             mailboxes={mailboxesQuery.data ?? []}
-            onMessageRemoved={() => setSelectedMessageId("")}
+            onMessageRemoved={selectAfterRemoval}
           />
         </Page>
       </Page>

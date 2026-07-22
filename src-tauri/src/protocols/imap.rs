@@ -6,7 +6,7 @@ mod policy;
 mod session;
 
 pub use encoding::decode_modified_utf7;
-use encoding::mailbox_role;
+use encoding::{mailbox_leaf_display_name, mailbox_role};
 use parse::{message_flag_state, parse_message_in_background, MessageParseInput};
 use policy::{should_download_body, sync_policy_cutoff};
 #[cfg(test)]
@@ -49,12 +49,14 @@ struct FetchedMessageSummary {
 struct FolderSyncContext<'a> {
     uid_validity: u32,
     mailbox: &'a StoredMailbox,
+    mailbox_name: &'a str,
     download_all_bodies: bool,
 }
 
 struct FolderDescriptor {
     name: String,
     display_name: String,
+    progress_name: String,
     delimiter: Option<String>,
     role: MailboxRole,
     selectable: bool,
@@ -208,12 +210,16 @@ where
     let folder_total = folders.len() as u64;
 
     for (folder_index, folder) in folders.into_iter().enumerate() {
+        let name = folder.name().to_owned();
+        let display_name = decode_modified_utf7(&name);
+        let delimiter = folder.delimiter().map(str::to_owned);
+        let progress_name =
+            mailbox_leaf_display_name(&display_name, delimiter.as_deref()).to_owned();
         observer.notify(SyncNotice::Folders {
             completed: folder_index as u64,
             total: folder_total,
+            mailbox_name: Some(progress_name.clone()),
         });
-        let name = folder.name().to_owned();
-        let display_name = decode_modified_utf7(&name);
         sync_folder(
             &mut session,
             account,
@@ -223,9 +229,10 @@ where
             FolderDescriptor {
                 role: mailbox_role(&display_name, folder.attributes()),
                 selectable: !folder.attributes().contains(&NameAttribute::NoSelect),
-                delimiter: folder.delimiter().map(str::to_owned),
+                delimiter,
                 name,
                 display_name,
+                progress_name,
             },
         )
         .await?;
@@ -233,6 +240,7 @@ where
     observer.notify(SyncNotice::Folders {
         completed: folder_total,
         total: folder_total,
+        mailbox_name: None,
     });
     let _ = session.logout().await;
     Ok(())
@@ -288,6 +296,7 @@ where
     let highest_modseq = selected.highest_modseq;
     let download_all_bodies =
         account.download_non_inbox_bodies && folder.role != crate::core::MailboxRole::Inbox;
+    let mailbox_name = folder.progress_name;
     let mailbox = sink
         .upsert_mailbox(
             &account.account_slot_id,
@@ -310,6 +319,7 @@ where
     let context = FolderSyncContext {
         uid_validity,
         mailbox: &mailbox,
+        mailbox_name: &mailbox_name,
         download_all_bodies,
     };
 
@@ -382,7 +392,11 @@ where
                 .await?;
             highest_uid = highest_uid.max(summary.uid);
             completed += 1;
-            observer.notify(SyncNotice::Summaries { completed, total });
+            observer.notify(SyncNotice::Summaries {
+                completed,
+                total,
+                mailbox_name: context.mailbox_name.to_owned(),
+            });
             notify_mailbox(observer, context.mailbox.id.clone());
         }
     }
@@ -463,7 +477,11 @@ where
             sink.upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
                 .await?;
             completed += 1;
-            observer.notify(SyncNotice::Bodies { completed, total });
+            observer.notify(SyncNotice::Bodies {
+                completed,
+                total,
+                mailbox_name: context.mailbox_name.to_owned(),
+            });
             notify_mailbox(observer, context.mailbox.id.clone());
         }
     }

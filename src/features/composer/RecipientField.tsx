@@ -16,6 +16,7 @@ interface RecipientFieldProps {
   onInputChange: (value: string) => void;
   onCommit: () => void;
   onRemove: (index: number) => void;
+  onEditLast: (address: MessageAddress, index: number) => void;
 }
 
 export function RecipientField({
@@ -29,6 +30,7 @@ export function RecipientField({
   onInputChange,
   onCommit,
   onRemove,
+  onEditLast,
 }: RecipientFieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
@@ -40,26 +42,12 @@ export function RecipientField({
       <div className="min-w-0 flex-1 py-1.5">
         <div className="flex min-h-8 flex-wrap items-center gap-1.5">
           {addresses.map((address, index) => (
-            <span
+            <AddressTag
               key={`${address.email.toLocaleLowerCase()}-${index}`}
-              className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md bg-primary/10 py-1 pr-1 pl-2 text-xs text-primary"
-              title={address.name ? `${address.name} <${address.email}>` : address.email}
-            >
-              <span className="truncate">{address.name || address.email}</span>
-              {address.name ? <span className="truncate text-primary/70">&lt;{address.email}&gt;</span> : null}
-              {!disabled ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-5 shrink-0 text-primary hover:bg-primary/15 hover:text-primary"
-                  aria-label={`${label}: ${address.email}`}
-                  onClick={() => onRemove(index)}
-                >
-                  <X size={12} />
-                </Button>
-              ) : null}
-            </span>
+              address={address}
+              removeLabel={`${label}: ${address.email}`}
+              onRemove={disabled ? undefined : () => onRemove(index)}
+            />
           ))}
           <input
             id={id}
@@ -81,7 +69,9 @@ export function RecipientField({
                 event.preventDefault();
                 onCommit();
               } else if (event.key === "Backspace" && !input && addresses.length) {
-                onRemove(addresses.length - 1);
+                event.preventDefault();
+                const index = addresses.length - 1;
+                onEditLast(addresses[index], index);
               }
             }}
           />
@@ -90,5 +80,37 @@ export function RecipientField({
       </div>
       {trailing}
     </div>
+  );
+}
+
+export function AddressTag({
+  address,
+  removeLabel,
+  onRemove,
+}: {
+  address: MessageAddress;
+  removeLabel?: string;
+  onRemove?: () => void;
+}) {
+  return (
+    <span
+      className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md bg-primary/10 py-1 pr-1 pl-2 text-xs text-primary"
+      title={address.name ? `${address.name} <${address.email}>` : address.email}
+    >
+      <span className="truncate">{address.name || address.email}</span>
+      {address.name ? <span className="truncate text-primary/70">&lt;{address.email}&gt;</span> : null}
+      {onRemove ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-5 shrink-0 text-primary hover:bg-primary/15 hover:text-primary"
+          aria-label={removeLabel}
+          onClick={onRemove}
+        >
+          <X size={12} />
+        </Button>
+      ) : null}
+    </span>
   );
 }

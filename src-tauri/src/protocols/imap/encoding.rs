@@ -27,6 +27,21 @@ pub(super) fn mailbox_role(name: &str, attributes: &[NameAttribute<'_>]) -> Mail
     }
 }
 
+pub(super) fn mailbox_leaf_display_name<'a>(
+    display_name: &'a str,
+    delimiter: Option<&str>,
+) -> &'a str {
+    let Some(delimiter) = delimiter.filter(|delimiter| !delimiter.is_empty()) else {
+        return display_name;
+    };
+
+    display_name
+        .rsplit_once(delimiter)
+        .map(|(_, leaf)| leaf)
+        .filter(|leaf| !leaf.is_empty())
+        .unwrap_or(display_name)
+}
+
 pub fn decode_modified_utf7(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut cursor = 0;
@@ -78,6 +93,19 @@ mod tests {
         assert_eq!(decode_modified_utf7("A&-B"), "A&B");
         assert_eq!(decode_modified_utf7("&U,BTFw-"), "台北");
         assert_eq!(decode_modified_utf7("&ZeVnLIqe-"), "日本語");
+        assert_eq!(
+            mailbox_leaf_display_name("Projects/2026", Some("/")),
+            "2026"
+        );
+        assert_eq!(mailbox_leaf_display_name("Archive.2025", Some(".")), "2025");
+        assert_eq!(
+            mailbox_leaf_display_name("Projects/2026", None),
+            "Projects/2026"
+        );
+        assert_eq!(
+            mailbox_leaf_display_name("Projects/", Some("/")),
+            "Projects/"
+        );
         assert_eq!(mailbox_role("Drafts", &[]), MailboxRole::Drafts);
         assert_eq!(mailbox_role("Sent Items", &[]), MailboxRole::Sent);
     }

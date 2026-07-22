@@ -121,6 +121,7 @@ export interface SyncProgress {
   phase: SyncPhase;
   completed: number;
   total: number;
+  currentMailboxName: string | null;
   errorCode: string | null;
   revision: number;
 }

@@ -168,7 +168,11 @@ export function MailboxPane({
       </Inline>
       {activeSync && !collapsed ? (
         <Stack className="rounded-lg bg-card/70 p-3" gap="sm">
-          <Text className="text-xs">{t(`sync.${progress.phase}`)}</Text>
+          <Text className="text-xs">
+            {progress.currentMailboxName
+              ? t("sync.currentFolder", { folder: progress.currentMailboxName })
+              : t(`sync.${progress.phase}`)}
+          </Text>
           <Progress value={percentage} />
         </Stack>
       ) : null}

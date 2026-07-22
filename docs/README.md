@@ -59,6 +59,7 @@
 - `changes/0042-receive-body-and-inline-cid.md`：非收件箱正文偏好、逐封可见性、手动正文进度与 CID 内联阅读。
 - `changes/0043-recipient-tags-and-action-draft-lifecycle.md`：收件人标签校验与未编辑回复/转发草稿条件删除。
 - `changes/0044-workspace-and-macos-layout-polish.md`：主题高亮、滚动槽、初始向导、分栏和 macOS 交通灯配置修正。
+- `changes/0045-sync-compose-window-and-list-actions.md`：当前文件夹同步反馈、Composer 地址交互、窗口状态、连续选择和邮件列表右键菜单。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
