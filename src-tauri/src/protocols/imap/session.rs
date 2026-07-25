@@ -25,13 +25,13 @@ where
     let capabilities = session
         .capabilities()
         .await
-        .map_err(|_| CommandError::retryable("operation.capability_failed"))?;
+        .map_err(map_operation_err("operation.capability_failed"))?;
     let selected = if capabilities.has_str("CONDSTORE") {
         session.select_condstore(&operation.source_mailbox).await
     } else {
         session.select(&operation.source_mailbox).await
     }
-    .map_err(|_| CommandError::retryable("operation.mailbox_open_failed"))?;
+    .map_err(map_operation_err("operation.mailbox_open_failed"))?;
     if selected.uid_validity.unwrap_or_default() != operation.uid_validity {
         return Err(CommandError::new("sync.uid_validity_changed"));
     }
@@ -39,7 +39,7 @@ where
     let source_contains_uid = session
         .uid_search(format!("UID {uid}"))
         .await
-        .map_err(|_| CommandError::retryable("operation.message_check_failed"))?
+        .map_err(map_operation_err("operation.message_check_failed"))?
         .contains(&operation.uid);
     if !source_contains_uid {
         let _ = session.logout().await;
@@ -56,27 +56,11 @@ where
     match operation.kind {
         RemoteOperationKind::SetRead(value) => {
             let action = if value { "+FLAGS" } else { "-FLAGS" };
-            store_flag_delta(
-                &mut session,
-                &uid,
-                operation.base_modseq,
-                capabilities.has_str("CONDSTORE"),
-                action,
-                "\\Seen",
-            )
-            .await?;
+            store_flag_delta(&mut session, &uid, action, "\\Seen").await?;
         }
         RemoteOperationKind::SetFlagged(value) => {
             let action = if value { "+FLAGS" } else { "-FLAGS" };
-            store_flag_delta(
-                &mut session,
-                &uid,
-                operation.base_modseq,
-                capabilities.has_str("CONDSTORE"),
-                action,
-                "\\Flagged",
-            )
-            .await?;
+            store_flag_delta(&mut session, &uid, action, "\\Flagged").await?;
         }
         RemoteOperationKind::Copy => {
             let destination = operation
@@ -86,7 +70,7 @@ where
             session
                 .uid_copy(&uid, destination)
                 .await
-                .map_err(|_| CommandError::retryable("operation.copy_failed"))?;
+                .map_err(map_operation_err("operation.copy_failed"))?;
         }
         RemoteOperationKind::Move => {
             let destination = operation
@@ -97,21 +81,21 @@ where
                 session
                     .uid_mv(&uid, destination)
                     .await
-                    .map_err(|_| CommandError::retryable("operation.move_failed"))?;
+                    .map_err(map_operation_err("operation.move_failed"))?;
             } else {
                 session
                     .uid_copy(&uid, destination)
                     .await
-                    .map_err(|_| CommandError::retryable("operation.copy_failed"))?;
+                    .map_err(map_operation_err("operation.copy_failed"))?;
                 mark_deleted(&mut session, &uid).await?;
                 if capabilities.has_str("UIDPLUS") {
                     session
                         .uid_expunge(&uid)
                         .await
-                        .map_err(|_| CommandError::retryable("operation.expunge_failed"))?
+                        .map_err(map_operation_err("operation.expunge_failed"))?
                         .try_collect::<Vec<_>>()
                         .await
-                        .map_err(|_| CommandError::retryable("operation.expunge_failed"))?;
+                        .map_err(map_operation_err("operation.expunge_failed"))?;
                 } else {
                     cleanup_pending = true;
                 }
@@ -123,10 +107,10 @@ where
                 session
                     .uid_expunge(&uid)
                     .await
-                    .map_err(|_| CommandError::retryable("operation.expunge_failed"))?
+                    .map_err(map_operation_err("operation.expunge_failed"))?
                     .try_collect::<Vec<_>>()
                     .await
-                    .map_err(|_| CommandError::retryable("operation.expunge_failed"))?;
+                    .map_err(map_operation_err("operation.expunge_failed"))?;
             } else {
                 cleanup_pending = true;
             }
@@ -139,62 +123,41 @@ where
 async fn store_flag_delta<T>(
     session: &mut Session<T>,
     uid: &str,
-    base_modseq: Option<u64>,
-    condstore: bool,
     action: &str,
     flag: &str,
 ) -> CommandResult<()>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    let query = conditional_store_query(base_modseq.filter(|_| condstore), action, flag);
-    let updates = session
-        .uid_store(uid, query)
+    // .SILENT STORE for set_read/set_flagged. +FLAGS/-FLAGS only touch the named
+    // flag (no lost-update risk for others), and we treat command success as
+    // "applied" rather than inspecting the FETCH response. The previous non-
+    // SILENT form checked `update.uid.is_some()`, but some servers don't echo a
+    // FETCH for +FLAGS: the STORE succeeds (the message is marked read server-
+    // side) yet the app saw an empty response and reported operation.store_failed,
+    // retrying forever. Existence was already confirmed by the UID SEARCH above,
+    // so command success is sufficient. (This also drops the CONDSTORE
+    // UNCHANGEDSINCE conditional, which was both malformed in token order and a
+    // silent no-op on conflict.)
+    session
+        .uid_store(uid, format!("{action}.SILENT ({flag})"))
         .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?
+        .map_err(map_operation_err("operation.store_failed"))?
         .try_collect::<Vec<_>>()
         .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
-    if updates.iter().any(|update| update.uid.is_some()) {
-        return Ok(());
-    }
-    if !condstore {
-        return Err(CommandError::retryable("operation.store_failed"));
-    }
-    let latest = session
-        .uid_fetch(uid, "(UID FLAGS MODSEQ)")
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
-    let latest_modseq = latest
-        .iter()
-        .find_map(|message| message.modseq)
-        .ok_or_else(|| CommandError::new("operation.message_missing"))?;
-    let retry_query = conditional_store_query(Some(latest_modseq), action, flag);
-    let retry_updates = session
-        .uid_store(uid, retry_query)
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
-    if retry_updates.iter().any(|update| update.uid.is_some()) {
-        Ok(())
-    } else {
-        Err(CommandError::retryable("operation.flag_conflict"))
-    }
+        .map_err(map_operation_err("operation.store_failed"))?;
+    Ok(())
 }
 
-pub(super) fn conditional_store_query(
-    base_modseq: Option<u64>,
-    action: &str,
-    flag: &str,
-) -> String {
-    match base_modseq {
-        Some(modseq) => format!("(UNCHANGEDSINCE {modseq}) {action} ({flag})"),
-        None => format!("{action} ({flag})"),
+// Mirrors `map_imap_err`: preserves the underlying imap error in the log
+// instead of discarding it via `.map_err(|_| ...)`. Operation failures used to
+// surface only a generic code (e.g. "operation.store_failed") with no cause, so
+// a rejected STORE read as a generic "unable to update status" with nothing in
+// the log to diagnose it.
+fn map_operation_err<E: std::fmt::Debug>(code: &'static str) -> impl FnOnce(E) -> CommandError {
+    move |error| {
+        tracing::warn!(%code, ?error, "imap operation failed");
+        CommandError::retryable(code)
     }
 }
 
@@ -205,10 +168,10 @@ where
     session
         .uid_store(uid, "+FLAGS.SILENT (\\Deleted)")
         .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?
+        .map_err(map_operation_err("operation.store_failed"))?
         .try_collect::<Vec<_>>()
         .await
-        .map_err(|_| CommandError::retryable("operation.store_failed"))?;
+        .map_err(map_operation_err("operation.store_failed"))?;
     Ok(())
 }
 
@@ -234,11 +197,11 @@ where
         session
             .select(mailbox_name)
             .await
-            .map_err(|_| CommandError::retryable("operation.mailbox_open_failed"))?;
+            .map_err(map_operation_err("operation.mailbox_open_failed"))?;
         let existing = session
             .uid_search(format!("HEADER Message-ID \"{message_id}\""))
             .await
-            .map_err(|_| CommandError::retryable("operation.sent_search_failed"))?;
+            .map_err(map_operation_err("operation.sent_search_failed"))?;
         if !existing.is_empty() {
             let _ = session.logout().await;
             return Ok(());
@@ -247,7 +210,7 @@ where
     session
         .append(mailbox_name, Some(flags), None, raw)
         .await
-        .map_err(|_| CommandError::retryable("operation.append_failed"))?;
+        .map_err(map_operation_err("operation.append_failed"))?;
     let _ = session.logout().await;
     Ok(())
 }
@@ -270,22 +233,22 @@ where
     let capabilities = session
         .capabilities()
         .await
-        .map_err(|_| CommandError::retryable("operation.capability_failed"))?;
+        .map_err(map_operation_err("operation.capability_failed"))?;
     session
         .select(mailbox_name)
         .await
-        .map_err(|_| CommandError::retryable("operation.mailbox_open_failed"))?;
+        .map_err(map_operation_err("operation.mailbox_open_failed"))?;
     let mut old_uids = session
         .uid_search(format!("HEADER X-NextMail-Draft-ID \"{draft_id}\""))
         .await
-        .map_err(|_| CommandError::retryable("operation.draft_search_failed"))?
+        .map_err(map_operation_err("operation.draft_search_failed"))?
         .into_iter()
         .collect::<Vec<_>>();
     old_uids.sort_unstable();
     session
         .append(mailbox_name, Some("(\\Draft)"), None, raw)
         .await
-        .map_err(|_| CommandError::retryable("operation.append_failed"))?;
+        .map_err(map_operation_err("operation.append_failed"))?;
     let mut cleanup_pending = false;
     if !old_uids.is_empty() {
         let uid_set = old_uids
@@ -298,10 +261,10 @@ where
             session
                 .uid_expunge(&uid_set)
                 .await
-                .map_err(|_| CommandError::retryable("operation.expunge_failed"))?
+                .map_err(map_operation_err("operation.expunge_failed"))?
                 .try_collect::<Vec<_>>()
                 .await
-                .map_err(|_| CommandError::retryable("operation.expunge_failed"))?;
+                .map_err(map_operation_err("operation.expunge_failed"))?;
         } else {
             cleanup_pending = true;
         }
@@ -322,7 +285,7 @@ where
     let selected = session
         .examine(mailbox_name)
         .await
-        .map_err(|_| CommandError::retryable("sync.mailbox_open_failed"))?;
+        .map_err(map_operation_err("sync.mailbox_open_failed"))?;
     let uid_validity = selected.uid_validity.unwrap_or_default();
     if uid_validity == 0 || uid_validity != expected_uid_validity {
         return Err(CommandError::new("sync.uid_validity_changed"));
@@ -364,10 +327,10 @@ where
             "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[])",
         )
         .await
-        .map_err(|_| CommandError::retryable("sync.message_body_fetch_failed"))?
+        .map_err(map_operation_err("sync.message_body_fetch_failed"))?
         .try_collect::<Vec<_>>()
         .await
-        .map_err(|_| CommandError::retryable("sync.message_body_fetch_failed"))?;
+        .map_err(map_operation_err("sync.message_body_fetch_failed"))?;
     let mut parsed_by_uid = HashMap::with_capacity(messages.len());
     for fetched in messages {
         let Some(uid) = fetched.uid.filter(|uid| requested.contains(uid)) else {

@@ -44,7 +44,7 @@ describe("useMailRuntimeEvents", () => {
         wrapper: createWrapper(client),
       },
     );
-    await waitFor(() => expect(handlers.size).toBe(7));
+    await waitFor(() => expect(handlers.size).toBe(8));
 
     act(() => handlers.get("mailbox-changed")?.({
       payload: { accountId: "account-two", mailboxId: "archive" } as never,
@@ -83,6 +83,43 @@ describe("useMailRuntimeEvents", () => {
     act(() => finishFirstRefresh?.());
     await waitFor(() => expect(refetch.mock.calls.filter(([filters]) => filters?.exact)).toHaveLength(2));
 
+    // message-arrived: incrementally inserts the item into the selected
+    // mailbox cache, and invalidates the cache for other mailboxes.
+    const setQueryData = vi.spyOn(client, "setQueryData");
+    const messagesKey = mailQueryKeys.messagesForMailbox("account-one", "inbox");
+    client.setQueryData(messagesKey, { pages: [{ items: [], nextCursor: null }], pageParams: [null] });
+    setQueryData.mockClear();
+    invalidate.mockClear();
+    const arrivedItem = {
+      id: "message-arrived",
+      mailboxId: "inbox",
+      subject: "Hello",
+      from: [{ name: "Sender", email: "sender@example.com" }],
+      receivedAt: 1000,
+      preview: "preview",
+      unread: true,
+      flagged: false,
+      hasAttachments: false,
+      bodyAvailability: "missing",
+      pendingOperation: false,
+    };
+    act(() => handlers.get("message-arrived")?.({
+      payload: { accountId: "account-one", mailboxId: "inbox", item: arrivedItem } as never,
+    }));
+    // message-arrived for the selected mailbox is buffered and flushed on a
+    // short timer to coalesce rapid arrivals into a single cache update.
+    await waitFor(() => expect(setQueryData).toHaveBeenCalledWith(messagesKey, expect.any(Function)));
+    await waitFor(() => expect(
+      (client.getQueryData(messagesKey) as { pages: { items: unknown[] }[] } | undefined)
+        ?.pages[0].items,
+    ).toEqual([arrivedItem]));
+    act(() => handlers.get("message-arrived")?.({
+      payload: { accountId: "account-two", mailboxId: "archive", item: arrivedItem } as never,
+    }));
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: mailQueryKeys.messagesForMailbox("account-two", "archive"),
+    });
+
     invalidate.mockClear();
     act(() => handlers.get("message-content-changed")?.({
       payload: { accountId: "account-two", messageId: "message-one" } as never,
@@ -111,7 +148,7 @@ describe("useMailRuntimeEvents", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.accountRuntimes });
 
     rerender({ selectedAccountId: "account-two", selectedMailboxId: "archive" });
-    expect(listenMock).toHaveBeenCalledTimes(7);
+    expect(listenMock).toHaveBeenCalledTimes(8);
     invalidate.mockClear();
     act(() => handlers.get("send-job-changed")?.({
       payload: {

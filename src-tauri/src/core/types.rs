@@ -319,16 +319,6 @@ pub struct DataDirectoryMarker {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum SyncPolicy {
-    Days30,
-    #[default]
-    Days90,
-    Days365,
-    All,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum SyncInterval {
     Manual,
     #[default]
@@ -573,9 +563,7 @@ pub struct AccountManagementDetail {
     pub incoming_host: String,
     pub incoming_port: u16,
     pub security: ConnectionSecurity,
-    pub sync_policy: SyncPolicy,
     pub sync_interval: SyncInterval,
-    pub download_non_inbox_bodies: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

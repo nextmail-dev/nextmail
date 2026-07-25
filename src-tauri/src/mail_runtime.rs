@@ -10,10 +10,10 @@ use std::{
 use crate::core::{
     AccountManagementDetail, AccountRemovalImpact, AccountRuntimeState, AccountRuntimeSummary,
     AttachmentSummary, CommandError, CommandResult, ImapAccountConfig, ImapSyncProvider,
-    MailSyncSink, MailboxRole, MailboxSummary, MessageDetail, MessageListPage, NewMailCandidate,
-    NotificationNavigationTarget, PendingOperationKind, PendingOperationSummary, RemoteOperation,
-    RemoteOperationKind, RemoteOperationOutcome, SyncInterval, SyncNotice, SyncObserver, SyncPhase,
-    SyncPolicy, SyncProgress,
+    MailSyncSink, MailboxRole, MailboxSummary, MessageDetail, MessageListItem, MessageListPage,
+    NewMailCandidate, NotificationNavigationTarget, PendingOperationKind, PendingOperationSummary,
+    RemoteOperation, RemoteOperationKind, RemoteOperationOutcome, SyncInterval, SyncNotice,
+    SyncObserver, SyncPhase, SyncProgress,
 };
 use crate::storage::{MailRepository, MailRepositoryProvider, PendingOperationWork};
 use serde::Serialize;
@@ -419,18 +419,6 @@ impl MailRuntime {
         account_id: &str,
     ) -> CommandResult<AccountManagementDetail> {
         let account = self.service.account_record(account_id)?;
-        let sync_policy = self
-            .repository()
-            .await?
-            .read()
-            .get_sync_policy(&account.data_slot_id)
-            .await?;
-        let download_non_inbox_bodies = self
-            .repository()
-            .await?
-            .read()
-            .get_download_non_inbox_bodies(&account.data_slot_id)
-            .await?;
         let sync_interval = self
             .repository()
             .await?
@@ -444,26 +432,8 @@ impl MailRuntime {
             incoming_host: account.incoming.host,
             incoming_port: account.incoming.port,
             security: account.incoming.security,
-            sync_policy,
             sync_interval,
-            download_non_inbox_bodies,
         })
-    }
-
-    pub async fn set_account_sync_policy(
-        self: &Arc<Self>,
-        account_id: &str,
-        sync_policy: SyncPolicy,
-    ) -> CommandResult<SyncPolicy> {
-        self.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        let updated = self
-            .repository()
-            .await?
-            .read()
-            .set_sync_policy(&account.data_slot_id, sync_policy)
-            .await?;
-        Ok(updated)
     }
 
     pub async fn set_account_sync_interval(
@@ -480,22 +450,6 @@ impl MailRuntime {
             .set_sync_interval(&account.data_slot_id, sync_interval)
             .await?;
         self.notify_sync_schedule_changed(account_id);
-        Ok(updated)
-    }
-
-    pub async fn set_download_non_inbox_bodies(
-        self: &Arc<Self>,
-        account_id: &str,
-        enabled: bool,
-    ) -> CommandResult<bool> {
-        self.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        let updated = self
-            .repository()
-            .await?
-            .read()
-            .set_download_non_inbox_bodies(&account.data_slot_id, enabled)
-            .await?;
         Ok(updated)
     }
 
@@ -990,18 +944,6 @@ impl MailRuntime {
 
     async fn imap_config(&self, account_id: &str) -> CommandResult<ImapAccountConfig> {
         let account = self.service.account_record(account_id)?;
-        let sync_policy = self
-            .repository()
-            .await?
-            .read()
-            .get_sync_policy(&account.data_slot_id)
-            .await?;
-        let download_non_inbox_bodies = self
-            .repository()
-            .await?
-            .read()
-            .get_download_non_inbox_bodies(&account.data_slot_id)
-            .await?;
         let password = self
             .service
             .account_password(&account.credential_ref)
@@ -1014,8 +956,6 @@ impl MailRuntime {
             security: account.incoming.security,
             username: account.incoming.username,
             password,
-            sync_policy,
-            download_non_inbox_bodies,
         })
     }
 
@@ -1074,6 +1014,15 @@ impl MailRuntime {
                         .await?;
                 }
                 Err(error) => {
+                    tracing::warn!(
+                        kind = ?work.kind,
+                        uid = ?work.uid,
+                        mailbox = ?work.source_mailbox_name,
+                        attempt = work.attempt_count,
+                        code = %error.code,
+                        retryable = error.retryable,
+                        "pending operation failed"
+                    );
                     repository
                         .operations()
                         .fail_pending_operation(&work, &error.code, error.retryable)
@@ -1200,6 +1149,7 @@ impl MailRuntime {
             .read()
             .notification_baseline_ready(&account.data_slot_id)
             .await?;
+        tracing::info!(%account_id, report_progress, "sync started");
         self.update_runtime_state(account_id, AccountRuntimeState::Syncing, None, None);
         if report_progress {
             self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None, None);
@@ -1239,9 +1189,11 @@ impl MailRuntime {
                     self.update_progress(account_id, SyncPhase::Complete, 1, 1, None, None);
                 }
                 self.update_runtime_state(account_id, AccountRuntimeState::Ready, None, None);
+                tracing::info!(%account_id, "sync completed");
                 Ok(())
             }
             Err(error) => {
+                tracing::error!(%account_id, code = %error.code, retryable = error.retryable, "sync failed");
                 if report_progress {
                     self.update_progress(
                         account_id,
@@ -1513,6 +1465,16 @@ impl SyncObserver for RuntimeObserver<'_> {
                     },
                 );
             }
+            SyncNotice::MessageArrived { mailbox_id, item } => {
+                let _ = self.runtime.app.emit(
+                    "message-arrived",
+                    MessageArrivedEvent {
+                        account_id: self.account_id.clone(),
+                        mailbox_id,
+                        item,
+                    },
+                );
+            }
             SyncNotice::NewMessageCandidate {
                 mailbox_id,
                 message_id,
@@ -1567,6 +1529,14 @@ struct MailboxChangedEvent {
     account_id: String,
     mailbox_id: String,
     revision: u64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MessageArrivedEvent {
+    account_id: String,
+    mailbox_id: String,
+    item: MessageListItem,
 }
 
 #[derive(Clone, Serialize)]

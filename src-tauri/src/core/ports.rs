@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use super::{
     AccountsFile, AppearancePreferences, BootstrapConfig, CommandResult, ConnectionSecurity,
-    MailboxRole, MessageAddress, NotificationPreferences, ReadingPreferences, SyncPolicy,
+    MailboxRole, MessageAddress, MessageListItem, NotificationPreferences, ReadingPreferences,
 };
 
 pub trait AccountsConfigStore: Send + Sync {
@@ -43,8 +43,6 @@ pub struct ImapAccountConfig {
     pub security: ConnectionSecurity,
     pub username: String,
     pub password: String,
-    pub sync_policy: SyncPolicy,
-    pub download_non_inbox_bodies: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -141,6 +139,11 @@ pub trait MailSyncSink: Send + Sync {
 
     async fn complete_mailbox(&self, mailbox_id: &str, last_uid: u32) -> CommandResult<()>;
 
+    /// UIDs already stored for `(mailbox_id, uid_validity)`. Used to resume a
+    /// partially-completed sync: only UIDs missing from this set are fetched,
+    /// so a failed run picks up where it stopped instead of restarting from 1.
+    async fn stored_uids(&self, mailbox_id: &str, uid_validity: u32) -> CommandResult<Vec<u32>>;
+
     async fn pending_body_locations(
         &self,
         mailbox_id: &str,
@@ -200,6 +203,10 @@ pub enum SyncNotice {
     MailboxChanged {
         mailbox_id: String,
         revision: u64,
+    },
+    MessageArrived {
+        mailbox_id: String,
+        item: MessageListItem,
     },
     NewMessageCandidate {
         mailbox_id: String,

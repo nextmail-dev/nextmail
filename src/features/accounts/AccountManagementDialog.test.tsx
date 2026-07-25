@@ -15,9 +15,7 @@ vi.mock("@/app/api", () => ({
     listAccountRuntimeSummaries: vi.fn(),
     listMailboxes: vi.fn(),
     getAccountRemovalImpact: vi.fn(),
-    setAccountSyncPolicy: vi.fn(),
     setAccountSyncInterval: vi.fn(),
-    setDownloadNonInboxBodies: vi.fn(),
   },
   normalizeCommandError: vi.fn(() => ({ code: "common.unexpected_error", params: {}, retryable: false })),
 }));
@@ -39,9 +37,7 @@ beforeEach(() => {
     incomingHost: "imap.example.com",
     incomingPort: 993,
     security: "tls",
-    syncPolicy: "days90",
     syncInterval: "minutes1",
-    downloadNonInboxBodies: false,
   });
   vi.mocked(api.getSyncProgress).mockResolvedValue({
     accountId: "account-one",

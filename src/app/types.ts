@@ -154,7 +154,6 @@ export interface AppAbout {
   version: string;
 }
 
-export type SyncPolicy = "days30" | "days90" | "days365" | "all";
 export type SyncInterval = "manual" | "minutes1" | "minutes5" | "minutes10";
 export type MailboxRole = "inbox" | "sent" | "drafts" | "trash" | "junk" | "archive" | "other";
 export type ContentAvailability = "missing" | "queued" | "available" | "failed";
@@ -254,9 +253,7 @@ export interface AccountManagementDetail {
   incomingHost: string;
   incomingPort: number;
   security: ConnectionSecurity;
-  syncPolicy: SyncPolicy;
   syncInterval: SyncInterval;
-  downloadNonInboxBodies: boolean;
 }
 
 export interface MessageBodyProgress {

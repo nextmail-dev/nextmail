@@ -12,7 +12,7 @@ use crate::{
         MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage, NewMailNotification,
         NotificationPreferences, PendingOperationSummary, ReadingPreferences,
         RenderedMailSignature, RenderedMailTemplate, SendJobSummary, SignaturePreferences,
-        SignaturePreferencesDraft, SyncInterval, SyncPolicy, SyncProgress,
+        SignaturePreferencesDraft, SyncInterval, SyncProgress,
     },
     error::CommandResult,
     state::AppState,
@@ -325,6 +325,15 @@ pub fn quit_app(app: AppHandle) {
 }
 
 #[tauri::command]
+pub fn log_frontend_event(level: String, message: String, location: Option<String>) {
+    match level.as_str() {
+        "error" => tracing::error!(%message, location, "frontend error"),
+        "warn" => tracing::warn!(%message, location, "frontend warning"),
+        _ => tracing::info!(%message, location, "frontend event"),
+    }
+}
+
+#[tauri::command]
 pub async fn open_settings_window(app: AppHandle) -> CommandResult<()> {
     // Window creation must not run inside the synchronous WebView IPC callback on Windows.
     // Yielding here keeps this path aligned with the working composer-window lifecycle.
@@ -561,18 +570,6 @@ pub async fn get_account_management_detail(
 }
 
 #[tauri::command]
-pub async fn set_account_sync_policy(
-    state: State<'_, AppState>,
-    account_id: String,
-    sync_policy: SyncPolicy,
-) -> CommandResult<SyncPolicy> {
-    state
-        .mail
-        .set_account_sync_policy(&account_id, sync_policy)
-        .await
-}
-
-#[tauri::command]
 pub async fn set_account_sync_interval(
     state: State<'_, AppState>,
     account_id: String,
@@ -581,18 +578,6 @@ pub async fn set_account_sync_interval(
     state
         .mail
         .set_account_sync_interval(&account_id, sync_interval)
-        .await
-}
-
-#[tauri::command]
-pub async fn set_download_non_inbox_bodies(
-    state: State<'_, AppState>,
-    account_id: String,
-    enabled: bool,
-) -> CommandResult<bool> {
-    state
-        .mail
-        .set_download_non_inbox_bodies(&account_id, enabled)
         .await
 }
 

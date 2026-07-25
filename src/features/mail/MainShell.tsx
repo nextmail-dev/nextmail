@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleUserRound, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -45,7 +45,12 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   const [composeError, setComposeError] = useState<string | null>(null);
   const [accountManagementOpen, setAccountManagementOpen] = useState(false);
   const [sentNotice, setSentNotice] = useState<{ id: string; subject: string } | null>(null);
-  const [visibleMessageIds, setVisibleMessageIds] = useState<string[]>([]);
+  // Kept in a ref (not state): it only feeds selectAfterRemoval, so updating it
+  // must not re-render MainShell (and the heavy MessageViewer) on every arrival.
+  const visibleMessageIdsRef = useRef<string[]>([]);
+  const handleVisibleMessageIdsChange = useCallback((ids: string[]) => {
+    visibleMessageIdsRef.current = ids;
+  }, []);
   const {
     mailboxesQuery,
     navigateToMailLocation,
@@ -105,9 +110,9 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     || !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
   const selectAfterRemoval = useCallback((removedMessageId: string) => {
     setSelectedMessageId((current) => current === removedMessageId
-      ? nextMessageIdAfterRemoval(visibleMessageIds, removedMessageId)
+      ? nextMessageIdAfterRemoval(visibleMessageIdsRef.current, removedMessageId)
       : current);
-  }, [setSelectedMessageId, visibleMessageIds]);
+  }, [setSelectedMessageId]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -216,7 +221,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
             mailboxes={mailboxesQuery.data ?? []}
             selectedMessageId={selectedMessageId}
             onSelect={setSelectedMessageId}
-            onVisibleMessageIdsChange={setVisibleMessageIds}
+            onVisibleMessageIdsChange={handleVisibleMessageIdsChange}
             onMessageRemoved={selectAfterRemoval}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}

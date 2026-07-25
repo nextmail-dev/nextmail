@@ -172,11 +172,11 @@ export function MailboxPane({
             {progress.currentMailboxName
               ? t("sync.currentFolder", { folder: progress.currentMailboxName })
               : t(`sync.${progress.phase}`)}
+            {progress.total > 0 ? ` · ${progress.completed}/${progress.total}` : null}
           </Text>
           <Progress value={percentage} />
         </Stack>
       ) : null}
-      {progress?.phase === "failed" && !collapsed ? <Alert tone="warning" title={t("sync.failed")}>{t("sync.failedDescription")}</Alert> : null}
       {normalizedError && !collapsed ? (
         <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
       ) : null}

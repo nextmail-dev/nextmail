@@ -4,11 +4,10 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
-import type { AccountDraft, AccountSummary, MailboxRole, SyncInterval, SyncPolicy } from "@/app/types";
+import type { AccountDraft, AccountSummary, MailboxRole, SyncInterval } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Modal } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PasswordField } from "@/components/ui/input";
@@ -158,16 +157,8 @@ export function AccountManagementPanel({
   const runtimeQuery = useQuery({ queryKey: ["account-runtimes"], queryFn: api.listAccountRuntimeSummaries, enabled });
   const mailboxesQuery = useQuery({ queryKey: ["mailboxes", accountId], queryFn: () => api.listMailboxes(accountId), enabled: enabled && Boolean(accountId) });
   const impactQuery = useQuery({ queryKey: ["account-removal-impact", accountId], queryFn: () => api.getAccountRemovalImpact(accountId), enabled: enabled && removeOpen && Boolean(accountId) });
-  const policyMutation = useMutation({
-    mutationFn: (syncPolicy: SyncPolicy) => api.setAccountSyncPolicy(accountId, syncPolicy),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
-  });
   const intervalMutation = useMutation({
     mutationFn: (syncInterval: SyncInterval) => api.setAccountSyncInterval(accountId, syncInterval),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
-  });
-  const nonInboxBodyMutation = useMutation({
-    mutationFn: (enabled: boolean) => api.setDownloadNonInboxBodies(accountId, enabled),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
   });
   const roleMutation = useMutation({
@@ -193,7 +184,7 @@ export function AccountManagementPanel({
   });
   const account = detailQuery.data;
   const runtime = runtimeQuery.data?.find((item) => item.accountId === accountId);
-  const operationError = detailQuery.error ?? mailboxesQuery.error ?? policyMutation.error ?? nonInboxBodyMutation.error ?? roleMutation.error ?? reauthMutation.error ?? removeMutation.error;
+  const operationError = detailQuery.error ?? mailboxesQuery.error ?? roleMutation.error ?? reauthMutation.error ?? removeMutation.error;
   const normalizedError = operationError ? normalizeCommandError(operationError) : null;
 
   async function updateAccount(draft: AccountDraft) {
@@ -236,18 +227,6 @@ export function AccountManagementPanel({
             <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setRemoveOpen(true)}><Trash2 size={15} />{t("accounts.remove")}</Button>
           </Inline>
           <SelectField
-            label={t("accounts.syncPolicy")}
-            value={account.syncPolicy}
-            options={[
-              { value: "days30", label: t("accounts.days30") },
-              { value: "days90", label: t("accounts.days90") },
-              { value: "days365", label: t("accounts.days365") },
-              { value: "all", label: t("accounts.all") },
-            ]}
-            onValueChange={(value) => policyMutation.mutate(value as SyncPolicy)}
-            disabled={policyMutation.isPending}
-          />
-          <SelectField
             label={t("accounts.syncInterval")}
             value={account.syncInterval}
             options={[
@@ -259,14 +238,6 @@ export function AccountManagementPanel({
             onValueChange={(value) => intervalMutation.mutate(value as SyncInterval)}
             disabled={intervalMutation.isPending}
           />
-          <Stack gap="xs">
-            <Checkbox
-              checked={account.downloadNonInboxBodies}
-              onCheckedChange={(enabled) => nonInboxBodyMutation.mutate(enabled)}
-              label={t("accounts.downloadNonInboxBodies")}
-            />
-            <Text className="pl-7 text-xs">{t("accounts.downloadNonInboxBodiesDescription")}</Text>
-          </Stack>
           <Stack gap="sm">
             <LabelText>{t("accounts.folderMappings")}</LabelText>
             {(["sent", "drafts", "trash", "archive"] as MailboxRole[]).map((role) => (

@@ -5,6 +5,7 @@ mod composer_runtime;
 pub mod core;
 mod domain;
 mod error;
+mod logging;
 mod mail_runtime;
 mod notification_runtime;
 pub mod protocols;
@@ -37,6 +38,7 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            logging::init(app.handle());
             let state = state::AppState::from_handle(app.handle())?;
             app.manage(state);
             create_main_window(app)?;
@@ -72,6 +74,7 @@ pub fn run() {
             commands::set_last_selected_account,
             commands::get_app_about,
             commands::quit_app,
+            commands::log_frontend_event,
             commands::open_settings_window,
             commands::list_mailboxes,
             commands::list_messages,
@@ -89,9 +92,7 @@ pub fn run() {
             commands::list_pending_operation_status,
             commands::retry_pending_operation,
             commands::get_account_management_detail,
-            commands::set_account_sync_policy,
             commands::set_account_sync_interval,
-            commands::set_download_non_inbox_bodies,
             commands::request_raw_message,
             commands::request_message_body,
             commands::request_attachment,

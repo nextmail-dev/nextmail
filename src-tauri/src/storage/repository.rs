@@ -1,14 +1,14 @@
 use std::{
     path::Path,
     str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use crate::core::{
     AttachmentSummary, CommandError, CommandResult, ContentAvailability, MailSyncSink, MailboxRole,
     MailboxSummary, MessageAddress, MessageDetail, MessageListItem, MessageListPage,
     MessageUpsertOutcome, RemoteMailbox, RemoteMessage, RemoteMessageState, StoredMailbox,
-    StoredMessageLocation, SyncInterval, SyncPolicy,
+    StoredMessageLocation, SyncInterval,
 };
 use async_trait::async_trait;
 use sqlx::{
@@ -205,7 +205,7 @@ impl SyncSinkRepository {
             .pool
             .begin()
             .await
-            .map_err(|_| CommandError::new("storage.message_body_write_failed"))?;
+            .map_err(map_storage_err("storage.message_body_write_failed"))?;
         let result = sqlx::query(
             "UPDATE messages SET body_availability = 'available', remote_images_blocked = ?, \
              revision = revision + 1 WHERE id = ? AND account_slot_id = ?",
@@ -215,7 +215,7 @@ impl SyncSinkRepository {
         .bind(account_slot_id)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("storage.message_body_write_failed"))?;
+        .map_err(map_storage_err("storage.message_body_write_failed"))?;
         if result.rows_affected() != 1 {
             return Err(CommandError::new("message.not_found"));
         }
@@ -231,11 +231,11 @@ impl SyncSinkRepository {
         .bind(now())
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("storage.message_body_write_failed"))?;
+        .map_err(map_storage_err("storage.message_body_write_failed"))?;
         transaction
             .commit()
             .await
-            .map_err(|_| CommandError::new("storage.message_body_write_failed"))
+            .map_err(map_storage_err("storage.message_body_write_failed"))
     }
 }
 
@@ -247,7 +247,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.notification_baseline_read_failed"))?
+        .map_err(map_storage_err("storage.notification_baseline_read_failed"))?
         .ok_or_else(|| CommandError::new("account.not_found"))?;
         Ok(ready != 0)
     }
@@ -274,7 +274,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.mailboxes_read_failed"))?;
+        .map_err(map_storage_err("storage.mailboxes_read_failed"))?;
 
         rows.into_iter()
             .map(|row| {
@@ -331,7 +331,7 @@ impl MailReadRepository {
         .bind(i64::from(limit) + 1)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.messages_read_failed"))?;
+        .map_err(map_storage_err("storage.messages_read_failed"))?;
 
         let has_more = rows.len() > limit as usize;
         let mut items = rows
@@ -433,7 +433,7 @@ impl MailReadRepository {
             .fetch_all(&self.pool)
             .await
         }
-        .map_err(|_| CommandError::new("storage.messages_read_failed"))?;
+        .map_err(map_storage_err("storage.messages_read_failed"))?;
 
         let has_more = rows.len() > limit as usize;
         let mut items = rows
@@ -484,7 +484,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.message_read_failed"))?
+        .map_err(map_storage_err("storage.message_read_failed"))?
         .ok_or_else(|| CommandError::new("message.not_found"))
     }
 
@@ -509,7 +509,7 @@ impl MailReadRepository {
         .bind(mailbox_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.message_location_read_failed"))?
+        .map_err(map_storage_err("storage.message_location_read_failed"))?
         .ok_or_else(|| CommandError::new("message.remote_location_missing"))
     }
 
@@ -518,7 +518,7 @@ impl MailReadRepository {
             .bind(message_id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|_| CommandError::new("storage.message_read_failed"))
+            .map_err(map_storage_err("storage.message_read_failed"))
     }
 
     async fn attachment_summaries(
@@ -532,7 +532,7 @@ impl MailReadRepository {
         .bind(message_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.attachments_read_failed"))?;
+        .map_err(map_storage_err("storage.attachments_read_failed"))?;
 
         Ok(rows
             .into_iter()
@@ -563,7 +563,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.message_location_read_failed"))?
+        .map_err(map_storage_err("storage.message_location_read_failed"))?
         .ok_or_else(|| CommandError::new("message.remote_location_missing"))?;
         Ok(RemoteMessageContext {
             mailbox_id: row.try_get("mailbox_id").map_err(storage_read_error)?,
@@ -575,36 +575,6 @@ impl MailReadRepository {
         })
     }
 
-    pub async fn get_sync_policy(&self, account_slot_id: &str) -> CommandResult<SyncPolicy> {
-        let value = sqlx::query_scalar::<_, String>(
-            "SELECT sync_policy FROM account_sync_settings WHERE account_slot_id = ?",
-        )
-        .bind(account_slot_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| CommandError::new("storage.sync_settings_read_failed"))?;
-        Ok(value.as_deref().map(policy_from_db).unwrap_or_default())
-    }
-
-    pub async fn set_sync_policy(
-        &self,
-        account_slot_id: &str,
-        policy: SyncPolicy,
-    ) -> CommandResult<SyncPolicy> {
-        sqlx::query(
-            "INSERT INTO account_sync_settings(account_slot_id, sync_policy, updated_at) \
-             VALUES (?, ?, ?) ON CONFLICT(account_slot_id) DO UPDATE SET \
-             sync_policy = excluded.sync_policy, updated_at = excluded.updated_at",
-        )
-        .bind(account_slot_id)
-        .bind(policy_to_db(&policy))
-        .bind(now())
-        .execute(&self.pool)
-        .await
-        .map_err(|_| CommandError::new("storage.sync_settings_write_failed"))?;
-        Ok(policy)
-    }
-
     pub async fn get_sync_interval(&self, account_slot_id: &str) -> CommandResult<SyncInterval> {
         let value = sqlx::query_scalar::<_, i64>(
             "SELECT sync_interval_minutes FROM account_sync_settings WHERE account_slot_id = ?",
@@ -612,7 +582,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.sync_settings_read_failed"))?;
+        .map_err(map_storage_err("storage.sync_settings_read_failed"))?;
         Ok(value.map(sync_interval_from_db).unwrap_or_default())
     }
 
@@ -631,41 +601,8 @@ impl MailReadRepository {
         .bind(now())
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.sync_settings_write_failed"))?;
+        .map_err(map_storage_err("storage.sync_settings_write_failed"))?;
         Ok(interval)
-    }
-
-    pub async fn get_download_non_inbox_bodies(
-        &self,
-        account_slot_id: &str,
-    ) -> CommandResult<bool> {
-        let value = sqlx::query_scalar::<_, i64>(
-            "SELECT download_non_inbox_bodies FROM account_sync_settings WHERE account_slot_id = ?",
-        )
-        .bind(account_slot_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|_| CommandError::new("storage.sync_settings_read_failed"))?;
-        Ok(value.is_some_and(|value| value != 0))
-    }
-
-    pub async fn set_download_non_inbox_bodies(
-        &self,
-        account_slot_id: &str,
-        enabled: bool,
-    ) -> CommandResult<bool> {
-        sqlx::query(
-            "INSERT INTO account_sync_settings(account_slot_id, download_non_inbox_bodies, updated_at) \
-             VALUES (?, ?, ?) ON CONFLICT(account_slot_id) DO UPDATE SET \
-             download_non_inbox_bodies = excluded.download_non_inbox_bodies, updated_at = excluded.updated_at",
-        )
-        .bind(account_slot_id)
-        .bind(i64::from(enabled))
-        .bind(now())
-        .execute(&self.pool)
-        .await
-        .map_err(|_| CommandError::new("storage.sync_settings_write_failed"))?;
-        Ok(enabled)
     }
 
     pub async fn raw_message(
@@ -680,7 +617,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.message_read_failed"))?
+        .map_err(map_storage_err("storage.message_read_failed"))?
         .flatten();
         match hash {
             Some(value) => self.content.read_raw(&value).await.map(Some),
@@ -702,7 +639,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.attachment_read_failed"))?
+        .map_err(map_storage_err("storage.attachment_read_failed"))?
         .ok_or_else(|| CommandError::new("attachment.not_found"))?;
         Ok((
             row.try_get("message_id").map_err(storage_read_error)?,
@@ -724,7 +661,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.attachment_read_failed"))?
+        .map_err(map_storage_err("storage.attachment_read_failed"))?
         .ok_or_else(|| CommandError::new("attachment.not_found"))?;
         Ok(AttachmentSummary {
             id: row.try_get("id").map_err(storage_read_error)?,
@@ -750,7 +687,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.attachment_read_failed"))?
+        .map_err(map_storage_err("storage.attachment_read_failed"))?
         .ok_or_else(|| CommandError::new("attachment.not_found"))?;
         let file_name = row
             .try_get::<String, _>("file_name")
@@ -784,7 +721,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.attachment_write_failed"))?;
+        .map_err(map_storage_err("storage.attachment_write_failed"))?;
         let row = sqlx::query(
             "SELECT a.id, a.file_name, a.content_type, a.size, a.availability FROM attachments a \
              JOIN messages m ON m.id = a.message_id WHERE a.id = ? AND m.account_slot_id = ?",
@@ -793,7 +730,7 @@ impl MailReadRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.attachment_read_failed"))?
+        .map_err(map_storage_err("storage.attachment_read_failed"))?
         .ok_or_else(|| CommandError::new("attachment.not_found"))?;
         Ok(AttachmentSummary {
             id: row.try_get("id").map_err(storage_read_error)?,
@@ -819,7 +756,7 @@ impl MailSyncSink for SyncSinkRepository {
             .bind(&mailbox.name)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|_| CommandError::new("storage.mailbox_write_failed"))?;
+            .map_err(map_storage_err("storage.mailbox_write_failed"))?;
         let (id, last_uid, reset_locations, notification_baseline_required) = if let Some(row) =
             existing
         {
@@ -846,7 +783,7 @@ impl MailSyncSink for SyncSinkRepository {
                 .bind(&id)
                 .execute(&self.pool)
                 .await
-                .map_err(|_| CommandError::new("storage.mailbox_reset_failed"))?;
+                .map_err(map_storage_err("storage.mailbox_reset_failed"))?;
         }
         sqlx::query(
             "INSERT INTO mailboxes(id, account_slot_id, remote_name, display_name, delimiter, role, selectable, \
@@ -873,7 +810,7 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(i64::from(mailbox.unread_count))
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.mailbox_write_failed"))?;
+        .map_err(map_storage_err("storage.mailbox_write_failed"))?;
         Ok(StoredMailbox {
             id,
             last_uid,
@@ -904,7 +841,7 @@ impl MailSyncSink for SyncSinkRepository {
             .pool
             .begin()
             .await
-            .map_err(|_| CommandError::new("storage.message_write_failed"))?;
+            .map_err(map_storage_err("storage.message_write_failed"))?;
         let existing_location = sqlx::query_scalar::<_, String>(
             "SELECT message_id FROM message_locations WHERE mailbox_id = ? AND uid_validity = ? AND uid = ?",
         )
@@ -913,7 +850,7 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(i64::from(message.uid))
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("storage.message_write_failed"))?;
+        .map_err(map_storage_err("storage.message_write_failed"))?;
 
         let is_new_location = existing_location.is_none();
         let message_id = if let Some(id) = existing_location {
@@ -929,7 +866,7 @@ impl MailSyncSink for SyncSinkRepository {
             .bind(message.received_at)
             .fetch_optional(&mut *transaction)
             .await
-            .map_err(|_| CommandError::new("storage.message_write_failed"))?
+            .map_err(map_storage_err("storage.message_write_failed"))?
             .unwrap_or_else(|| Uuid::new_v4().to_string())
         } else {
             Uuid::new_v4().to_string()
@@ -968,13 +905,21 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(i64::from(message.remote_images_blocked))
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("storage.message_write_failed"))?;
+        .map_err(map_storage_err("storage.message_write_failed"))?;
 
         sqlx::query(
             "INSERT INTO message_locations(id, message_id, mailbox_id, uid, uid_validity, flags_json, \
                     unread, flagged, internal_date, modseq) VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?, ?) \
              ON CONFLICT(mailbox_id, uid_validity, uid) DO UPDATE SET \
-             unread = excluded.unread, flagged = excluded.flagged, internal_date = excluded.internal_date, \
+             unread = CASE WHEN EXISTS (SELECT 1 FROM pending_operations o WHERE \
+               o.message_id = message_locations.message_id AND o.source_mailbox_id = message_locations.mailbox_id \
+               AND o.kind IN ('set_read','set_flagged') AND o.status IN ('queued','running','retry_wait')) \
+               THEN message_locations.unread ELSE excluded.unread END, \
+             flagged = CASE WHEN EXISTS (SELECT 1 FROM pending_operations o WHERE \
+               o.message_id = message_locations.message_id AND o.source_mailbox_id = message_locations.mailbox_id \
+               AND o.kind IN ('set_read','set_flagged') AND o.status IN ('queued','running','retry_wait')) \
+               THEN message_locations.flagged ELSE excluded.flagged END, \
+             internal_date = excluded.internal_date, \
              modseq = excluded.modseq",
         )
         .bind(Uuid::new_v4().to_string())
@@ -988,7 +933,7 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(message.modseq.map(|value| value as i64))
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("storage.message_location_write_failed"))?;
+        .map_err(map_storage_err("storage.message_location_write_failed"))?;
 
         if body_available {
             sqlx::query(
@@ -1002,7 +947,7 @@ impl MailSyncSink for SyncSinkRepository {
             .bind(now())
             .execute(&mut *transaction)
             .await
-            .map_err(|_| CommandError::new("storage.message_body_write_failed"))?;
+            .map_err(map_storage_err("storage.message_body_write_failed"))?;
         }
 
         for attachments in message.attachments.chunks(ATTACHMENT_INSERT_BATCH_SIZE) {
@@ -1027,13 +972,13 @@ impl MailSyncSink for SyncSinkRepository {
                 .build()
                 .execute(&mut *transaction)
                 .await
-                .map_err(|_| CommandError::new("storage.attachment_write_failed"))?;
+                .map_err(map_storage_err("storage.attachment_write_failed"))?;
         }
 
         transaction
             .commit()
             .await
-            .map_err(|_| CommandError::new("storage.message_write_failed"))?;
+            .map_err(map_storage_err("storage.message_write_failed"))?;
         Ok(MessageUpsertOutcome {
             message_id,
             is_new_location,
@@ -1047,7 +992,9 @@ impl MailSyncSink for SyncSinkRepository {
                 .bind(account_slot_id)
                 .execute(&self.pool)
                 .await
-                .map_err(|_| CommandError::new("storage.notification_baseline_write_failed"))?;
+                .map_err(map_storage_err(
+                    "storage.notification_baseline_write_failed",
+                ))?;
         if result.rows_affected() != 1 {
             return Err(CommandError::new("account.not_found"));
         }
@@ -1063,8 +1010,20 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(mailbox_id)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.mailbox_write_failed"))?;
+        .map_err(map_storage_err("storage.mailbox_write_failed"))?;
         Ok(())
+    }
+
+    async fn stored_uids(&self, mailbox_id: &str, uid_validity: u32) -> CommandResult<Vec<u32>> {
+        let uids = sqlx::query_scalar::<_, i64>(
+            "SELECT uid FROM message_locations WHERE mailbox_id = ? AND uid_validity = ?",
+        )
+        .bind(mailbox_id)
+        .bind(i64::from(uid_validity))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_storage_err("storage.stored_uids_read_failed"))?;
+        Ok(uids.into_iter().map(|uid| uid as u32).collect())
     }
 
     async fn pending_body_locations(
@@ -1084,7 +1043,7 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(received_after)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.pending_bodies_read_failed"))?;
+        .map_err(map_storage_err("storage.pending_bodies_read_failed"))?;
         rows.into_iter()
             .map(|row| {
                 Ok(StoredMessageLocation {
@@ -1108,7 +1067,7 @@ impl MailSyncSink for SyncSinkRepository {
             .pool
             .begin()
             .await
-            .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+            .map_err(map_storage_err("storage.mailbox_reconcile_failed"))?;
         for state in states {
             sqlx::query(
                 "UPDATE message_locations SET unread = ?, flagged = ?, modseq = ? \
@@ -1125,7 +1084,7 @@ impl MailSyncSink for SyncSinkRepository {
             .bind(i64::from(state.uid))
             .execute(&mut *transaction)
             .await
-            .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+            .map_err(map_storage_err("storage.mailbox_reconcile_failed"))?;
         }
         sqlx::query(
             "CREATE TEMP TABLE IF NOT EXISTS nextmail_reconcile_remote_uids(\
@@ -1133,11 +1092,11 @@ impl MailSyncSink for SyncSinkRepository {
         )
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+        .map_err(map_storage_err("storage.mailbox_reconcile_failed"))?;
         sqlx::query("DELETE FROM nextmail_reconcile_remote_uids")
             .execute(&mut *transaction)
             .await
-            .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+            .map_err(map_storage_err("storage.mailbox_reconcile_failed"))?;
         for state_batch in states.chunks(RECONCILE_UID_INSERT_BATCH_SIZE) {
             let mut query = QueryBuilder::<Sqlite>::new(
                 "INSERT OR IGNORE INTO nextmail_reconcile_remote_uids(uid) ",
@@ -1149,7 +1108,7 @@ impl MailSyncSink for SyncSinkRepository {
                 .build()
                 .execute(&mut *transaction)
                 .await
-                .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+                .map_err(map_storage_err("storage.mailbox_reconcile_failed"))?;
         }
         sqlx::query(
             "DELETE FROM message_locations WHERE mailbox_id = ? AND uid_validity = ? \
@@ -1163,7 +1122,7 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(i64::from(uid_validity))
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+        .map_err(map_storage_err("storage.mailbox_reconcile_failed"))?;
         sqlx::query(
             "UPDATE mailboxes SET highest_modseq = ?, total_count = (SELECT COUNT(*) FROM message_locations \
              WHERE mailbox_id = ? AND local_hidden = 0), unread_count = (SELECT COUNT(*) FROM message_locations \
@@ -1177,11 +1136,11 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(mailbox_id)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+        .map_err(map_storage_err("storage.mailbox_reconcile_failed"))?;
         transaction
             .commit()
             .await
-            .map_err(|_| CommandError::new("storage.mailbox_reconcile_failed"))?;
+            .map_err(map_storage_err("storage.mailbox_reconcile_failed"))?;
         Ok(())
     }
 }
@@ -1240,6 +1199,13 @@ async fn open_pool(data_dir: &Path, create: bool) -> CommandResult<SqlitePool> {
         .create_if_missing(create)
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
+        // SQLite serializes all writers through a single lock even in WAL mode.
+        // The sync runtime fans out up to 3 worker sessions that each upsert in
+        // their own transaction; without an explicit busy timeout a worker that
+        // loses the write lock fails instantly with SQLITE_BUSY instead of
+        // waiting for the in-progress write to finish. 15s is far beyond the
+        // per-message upsert cost, so this turns contention into brief waits.
+        .busy_timeout(Duration::from_secs(15))
         .disable_statement_logging();
     SqlitePoolOptions::new()
         .max_connections(4)
@@ -1280,11 +1246,11 @@ fn message_list_item_from_row(row: sqlx::sqlite::SqliteRow) -> CommandResult<Mes
 }
 
 fn encode_json<T: serde::Serialize>(value: &T) -> CommandResult<String> {
-    serde_json::to_string(value).map_err(|_| CommandError::new("storage.json_encode_failed"))
+    serde_json::to_string(value).map_err(map_storage_err("storage.json_encode_failed"))
 }
 
 fn decode_addresses(value: String) -> CommandResult<Vec<MessageAddress>> {
-    serde_json::from_str(&value).map_err(|_| CommandError::new("storage.json_decode_failed"))
+    serde_json::from_str(&value).map_err(map_storage_err("storage.json_decode_failed"))
 }
 
 fn parse_cursor(value: &str) -> Option<(i64, String)> {
@@ -1313,24 +1279,6 @@ fn role_from_db(value: String) -> MailboxRole {
         "junk" => MailboxRole::Junk,
         "archive" => MailboxRole::Archive,
         _ => MailboxRole::Other,
-    }
-}
-
-fn policy_to_db(policy: &SyncPolicy) -> &'static str {
-    match policy {
-        SyncPolicy::Days30 => "days30",
-        SyncPolicy::Days90 => "days90",
-        SyncPolicy::Days365 => "days365",
-        SyncPolicy::All => "all",
-    }
-}
-
-fn policy_from_db(value: &str) -> SyncPolicy {
-    match value {
-        "days30" => SyncPolicy::Days30,
-        "days365" => SyncPolicy::Days365,
-        "all" => SyncPolicy::All,
-        _ => SyncPolicy::Days90,
     }
 }
 
@@ -1363,8 +1311,20 @@ pub(crate) fn now() -> i64 {
         .as_secs() as i64
 }
 
-fn storage_read_error(_: sqlx::Error) -> CommandError {
+fn storage_read_error(error: sqlx::Error) -> CommandError {
+    tracing::warn!(?error, "storage read failed");
     CommandError::new("storage.read_failed")
+}
+
+// Mirrors `map_imap_err`: preserves the underlying storage error in the log
+// instead of discarding it via `.map_err(|_| ...)`. Without this every storage
+// write failure surfaces only a generic code (e.g. "storage.message_write_failed")
+// and the real cause - SQLITE_BUSY, disk I/O, a trigger fault - is lost.
+fn map_storage_err<E: std::fmt::Debug>(code: &'static str) -> impl FnOnce(E) -> CommandError {
+    move |error| {
+        tracing::warn!(%code, ?error, "storage operation failed");
+        CommandError::new(code)
+    }
 }
 
 #[cfg(test)]
@@ -2342,6 +2302,104 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(attachment_count, 2);
+    }
+
+    #[tokio::test]
+    async fn stored_uids_returns_every_stored_uid_for_the_mailbox_validity() {
+        let (_directory, repository, mailbox) = repository_with_mailbox(7).await;
+        repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &remote_message(1, 7, "First"))
+            .await
+            .unwrap();
+        repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &remote_message(3, 7, "Third"))
+            .await
+            .unwrap();
+        repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &remote_message(5, 7, "Fifth"))
+            .await
+            .unwrap();
+
+        let mut uids = repository
+            .sync_sink()
+            .stored_uids(&mailbox.id, 7)
+            .await
+            .unwrap();
+        uids.sort_unstable();
+        assert_eq!(uids, vec![1, 3, 5]);
+
+        // Locations are uid_validity-scoped: a different validity yields nothing,
+        // which is what makes the resumable-sync diff correct after a reset.
+        assert!(repository
+            .sync_sink()
+            .stored_uids(&mailbox.id, 99)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn upsert_message_preserves_pending_read_flag_against_stale_server_state() {
+        let (_directory, repository, mailbox) = repository_with_mailbox(7).await;
+        let outcome = repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &remote_message(1, 7, "Unread"))
+            .await
+            .unwrap();
+        assert!(outcome.is_new_location);
+
+        // Opening the message locally marks it read and queues a pending set_read.
+        repository
+            .operations()
+            .queue_set_read(
+                "slot",
+                &mailbox.id,
+                std::slice::from_ref(&outcome.message_id),
+                true,
+            )
+            .await
+            .unwrap();
+
+        // A later body fetch re-upserts the message carrying the server's stale
+        // (still-unread) flags. This must not clobber the pending read.
+        repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &remote_message(1, 7, "Unread"))
+            .await
+            .unwrap();
+        let item = repository
+            .read()
+            .list_messages("slot", &mailbox.id, None, 50)
+            .await
+            .unwrap()
+            .items
+            .remove(0);
+        assert!(!item.unread, "pending set_read must survive a stale upsert");
+
+        // With no pending op in flight, upsert flags apply normally again.
+        sqlx::query("DELETE FROM pending_operations")
+            .execute(&repository.pool)
+            .await
+            .unwrap();
+        repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &remote_message(1, 7, "Unread"))
+            .await
+            .unwrap();
+        let item = repository
+            .read()
+            .list_messages("slot", &mailbox.id, None, 50)
+            .await
+            .unwrap()
+            .items
+            .remove(0);
+        assert!(
+            item.unread,
+            "without a pending op the upsert flag is applied"
+        );
     }
 
     #[tokio::test]

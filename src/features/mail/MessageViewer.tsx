@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -92,6 +92,16 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
     onSuccess: (detail) => queryClient.setQueryData(messageQueryKeys.detail(accountId, mailboxId, messageId), detail),
     onSettled: () => window.setTimeout(() => setBodyProgress(null), 500),
   });
+  // Auto-fetch the body when a message without one is opened, so the user sees
+  // a loading state instead of a manual "download body" button. The ref guards
+  // against re-triggering (e.g. on error) for the same message.
+  const bodyRequestedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!query.data || query.data.bodyAvailability === "available" || bodyMutation.isPending) return;
+    if (bodyRequestedRef.current === messageId) return;
+    bodyRequestedRef.current = messageId;
+    bodyMutation.mutate();
+  }, [messageId, query.data?.bodyAvailability, bodyMutation.isPending]);
   const rawMutation = useMutation({ mutationFn: () => api.requestRawMessage(accountId, messageId), onSuccess: setRawSource });
   const messageOperation = useMutation({
     mutationFn: async (operation: { kind: "read" | "flag" | "move" | "copy" | "archive" | "delete"; destination?: string }) => {
@@ -227,11 +237,15 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
           <Stack className="m-auto w-full max-w-md items-center px-8" gap="md">
             <EmptyState
               icon={<MailOpen size={24} />}
-              title={t("mail.bodyUnavailable")}
+              title={bodyMutation.isError ? t("errors.title") : t("mail.bodyUnavailable")}
               description={bodyMutation.isPending && bodyProgress
                 ? t(`mail.bodyProgress.${bodyProgress.stage}`, { progress: bodyProgress.progress })
-                : t("mail.bodyUnavailableDescription")}
-              action={<Button loading={bodyMutation.isPending} onClick={() => bodyMutation.mutate()}><Download size={14} />{t("mail.downloadBody")}</Button>}
+                : bodyMutation.isError
+                  ? t(`errors.${normalizeCommandError(bodyMutation.error).code}`, { defaultValue: t("common.unexpectedError") })
+                  : t("mail.bodyUnavailableDescription")}
+              action={bodyMutation.isError
+                ? <Button loading={bodyMutation.isPending} onClick={() => bodyMutation.mutate()}><Download size={14} />{t("mail.downloadBody")}</Button>
+                : undefined}
             />
             {bodyMutation.isPending ? <Progress value={bodyProgress?.progress ?? 0} className="max-w-xs" /> : null}
           </Stack>

@@ -1,40 +1,51 @@
-use std::collections::HashMap;
-
 mod encoding;
 mod parse;
-mod policy;
 mod session;
+mod timeout;
+
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 pub use encoding::decode_modified_utf7;
 use encoding::{mailbox_leaf_display_name, mailbox_role};
 use parse::{message_flag_state, parse_message_in_background, MessageParseInput};
-use policy::{should_download_body, sync_policy_cutoff};
-#[cfg(test)]
-use session::conditional_store_query;
 use session::{
-    append_message_session, apply_operation_session, fetch_message_session, fetch_remote_messages,
-    replace_draft_session,
+    append_message_session, apply_operation_session, fetch_message_session, replace_draft_session,
 };
+use timeout::TimeoutStream;
 
 use super::native_tls_connector;
 use crate::core::{
-    CommandError, CommandResult, ConnectionSecurity, ImapAccountConfig, ImapSyncProvider,
-    MailSyncSink, MailboxRole, RemoteMailbox, RemoteMessage, RemoteMessageState, RemoteOperation,
-    RemoteOperationOutcome, StoredMailbox, SyncNotice, SyncObserver,
+    CommandError, CommandResult, ConnectionSecurity, ContentAvailability, ImapAccountConfig,
+    ImapSyncProvider, MailSyncSink, MailboxRole, MessageListItem, RemoteMailbox, RemoteMessage,
+    RemoteMessageState, RemoteOperation, RemoteOperationOutcome, StoredMailbox, SyncNotice,
+    SyncObserver,
 };
 use async_imap::{
     types::{Flag, NameAttribute},
     Session,
 };
 use async_trait::async_trait;
+use futures_util::future::{join_all, try_join_all};
 use futures_util::TryStreamExt;
 use rustls::pki_types::ServerName;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
+    sync::Mutex,
 };
 
-const FETCH_BATCH_SIZE: usize = 100;
+const FETCH_BATCH_SIZE: usize = 1;
+// Per-read/write budget for IMAP I/O. Resets on each chunk of progress, so a
+// large body that is actively streaming never trips it; only a stalled
+// connection fails after this many seconds of silence.
+const IMAP_IO_TIMEOUT: Duration = Duration::from_secs(60);
+const IMAP_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+// Concurrent IMAP sessions used to fetch within a single folder. Each worker
+// owns its own connection and a disjoint slice of UIDs. Kept small to stay
+// within typical per-account connection limits and the 4-connection SQLite pool.
+const SYNC_WORKER_COUNT: usize = 3;
 
 struct FetchedMessageSummary {
     uid: u32,
@@ -50,7 +61,6 @@ struct FolderSyncContext<'a> {
     uid_validity: u32,
     mailbox: &'a StoredMailbox,
     mailbox_name: &'a str,
-    download_all_bodies: bool,
     default_notification_enabled: bool,
 }
 
@@ -80,7 +90,11 @@ impl ImapSyncProvider for AsyncImapProvider {
         sink: &(dyn MailSyncSink + Send + Sync),
         observer: &(dyn SyncObserver + Send + Sync),
     ) -> CommandResult<()> {
-        sync_session(connect_session(account).await?, account, sink, observer).await
+        // Open a small pool of sessions up front so they can be reused across
+        // every folder (amortizing login) and dispatched concurrently within a
+        // folder for parallel header/body fetches.
+        let pool = try_join_all((0..SYNC_WORKER_COUNT).map(|_| connect_session(account))).await?;
+        sync_session(pool, account, sink, observer).await
     }
 
     async fn fetch_message(
@@ -131,20 +145,30 @@ impl ImapSyncProvider for AsyncImapProvider {
 async fn connect_session(
     account: &ImapAccountConfig,
 ) -> CommandResult<Session<BoxedImapTransport>> {
-    let stream = TcpStream::connect((account.host.as_str(), account.port))
-        .await
-        .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?;
+    let stream = tokio::time::timeout(
+        IMAP_CONNECT_TIMEOUT,
+        TcpStream::connect((account.host.as_str(), account.port)),
+    )
+    .await
+    .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?
+    .map_err(map_imap_err("sync.imap_connection_failed", true))?;
     let transport: BoxedImapTransport = match account.security {
-        ConnectionSecurity::None => Box::new(stream),
-        ConnectionSecurity::Tls => Box::new(connect_tls(&account.host, stream).await?),
+        ConnectionSecurity::None => Box::new(TimeoutStream::new(stream, IMAP_IO_TIMEOUT)),
+        ConnectionSecurity::Tls => Box::new(TimeoutStream::new(
+            connect_tls(&account.host, stream).await?,
+            IMAP_IO_TIMEOUT,
+        )),
         ConnectionSecurity::StartTls => {
             let mut client = async_imap::Client::new(stream);
             read_greeting(&mut client).await?;
             client
                 .run_command_and_check_ok("STARTTLS", None)
                 .await
-                .map_err(|_| CommandError::new("sync.imap_starttls_failed"))?;
-            Box::new(connect_tls(&account.host, client.into_inner()).await?)
+                .map_err(map_imap_err("sync.imap_starttls_failed", false))?;
+            Box::new(TimeoutStream::new(
+                connect_tls(&account.host, client.into_inner()).await?,
+                IMAP_IO_TIMEOUT,
+            ))
         }
     };
     let mut client = async_imap::Client::new(transport);
@@ -161,7 +185,7 @@ where
     client
         .read_response()
         .await
-        .map_err(|_| CommandError::new("sync.imap_greeting_failed"))?
+        .map_err(map_imap_err("sync.imap_greeting_failed", false))?
         .ok_or_else(|| CommandError::new("sync.imap_greeting_failed"))?;
     Ok(())
 }
@@ -176,11 +200,11 @@ where
     client
         .login(&account.username, &account.password)
         .await
-        .map_err(|_| CommandError::new("sync.imap_authentication_failed"))
+        .map_err(map_imap_err("sync.imap_authentication_failed", false))
 }
 
 async fn sync_session<T>(
-    mut session: Session<T>,
+    mut pool: Vec<Session<T>>,
     account: &ImapAccountConfig,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
@@ -188,17 +212,17 @@ async fn sync_session<T>(
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    let folders = session
+    let folders = pool[0]
         .list(Some(""), Some("*"))
         .await
-        .map_err(|_| CommandError::retryable("sync.folder_list_failed"))?
+        .map_err(map_imap_err("sync.folder_list_failed", true))?
         .try_collect::<Vec<_>>()
         .await
-        .map_err(|_| CommandError::retryable("sync.folder_list_failed"))?;
-    let capabilities = session
+        .map_err(map_imap_err("sync.folder_list_failed", true))?;
+    let capabilities = pool[0]
         .capabilities()
         .await
-        .map_err(|_| CommandError::retryable("sync.imap_capability_failed"))?;
+        .map_err(map_imap_err("sync.imap_capability_failed", true))?;
     let condstore = capabilities.has_str("CONDSTORE");
     let folder_total = folders.len() as u64;
 
@@ -214,7 +238,7 @@ where
             mailbox_name: Some(progress_name.clone()),
         });
         sync_folder(
-            &mut session,
+            &mut pool,
             account,
             sink,
             observer,
@@ -235,12 +259,14 @@ where
         total: folder_total,
         mailbox_name: None,
     });
-    let _ = session.logout().await;
+    for mut session in pool {
+        let _ = session.logout().await;
+    }
     Ok(())
 }
 
 async fn sync_folder<T>(
-    session: &mut Session<T>,
+    sessions: &mut [Session<T>],
     account: &ImapAccountConfig,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
@@ -272,23 +298,30 @@ where
         return Ok(());
     }
 
-    let selected = if condstore {
-        session.select_condstore(&folder.name).await
-    } else {
-        session.examine(&folder.name).await
+    // Enter the mailbox on every worker session so each can fetch from it.
+    // Session 0 also supplies the selected metadata used below.
+    let mut selected = None;
+    for (index, session) in sessions.iter_mut().enumerate() {
+        let mailbox = if condstore {
+            session.select_condstore(&folder.name).await
+        } else {
+            session.examine(&folder.name).await
+        }
+        .map_err(map_imap_err("sync.mailbox_open_failed", true))?;
+        if index == 0 {
+            selected = Some(mailbox);
+        }
     }
-    .map_err(|_| CommandError::retryable("sync.mailbox_open_failed"))?;
+    let selected = selected.expect("at least one worker session");
     let uid_validity = selected.uid_validity.unwrap_or_default();
     if uid_validity == 0 {
         return Err(CommandError::new("sync.uid_not_supported"));
     }
-    let unseen = session
+    let unseen = sessions[0]
         .uid_search("UNSEEN")
         .await
-        .map_err(|_| CommandError::retryable("sync.mailbox_search_failed"))?;
+        .map_err(map_imap_err("sync.mailbox_search_failed", true))?;
     let highest_modseq = selected.highest_modseq;
-    let download_all_bodies =
-        account.download_non_inbox_bodies && folder.role != crate::core::MailboxRole::Inbox;
     let default_notification_enabled = folder.role == MailboxRole::Inbox;
     let mailbox_name = folder.progress_name;
     let mailbox = sink
@@ -314,15 +347,62 @@ where
         uid_validity,
         mailbox: &mailbox,
         mailbox_name: &mailbox_name,
-        download_all_bodies,
         default_notification_enabled,
     };
 
-    let highest_uid =
-        fetch_summaries(session, account, sink, observer, condstore, &context).await?;
-    backfill_bodies(session, account, sink, observer, &context).await?;
+    // Resumable sync: fetch only UIDs we don't already have a stored location
+    // for. The previous `uid > last_uid` high-water mark only advanced on
+    // full-folder completion (complete_mailbox), so any mid-folder failure left
+    // last_uid at 0 and the next run refetched everything from 1. Diffing
+    // against stored UIDs lets a failed run resume where it stopped. It is also
+    // correct under contiguous chunking: a mid-chunk worker failure leaves a
+    // gap that the next run simply fills in, rather than skipping it forever.
+    let remote_uids = sessions[0]
+        .uid_search("ALL")
+        .await
+        .map_err(map_imap_err("sync.mailbox_search_failed", true))?;
+    let stored: HashSet<u32> = sink
+        .stored_uids(&context.mailbox.id, uid_validity)
+        .await?
+        .into_iter()
+        .collect();
+    let mut uids: Vec<u32> = remote_uids
+        .into_iter()
+        .filter(|uid| !stored.contains(uid))
+        .collect();
+    uids.sort_unstable();
+    let total = uids.len() as u64;
+    let completed = AtomicU64::new(0);
+    let chunks = split_uids(&uids, sessions.len());
+    // SQLite serializes all writers through a single lock even in WAL mode.
+    // Three worker sessions each opening a write transaction contend on that
+    // lock and surface "database is locked"; this mutex serializes only the
+    // upsert (the DB write) while workers keep fetching headers in parallel
+    // over their own IMAP connections - the network-bound part stays
+    // concurrent, the write-bound part does not.
+    let write_lock = Mutex::new(());
+    let results = join_all(sessions.iter_mut().enumerate().map(|(i, session)| {
+        fetch_summaries_worker(
+            session,
+            &chunks[i],
+            account,
+            sink,
+            observer,
+            &context,
+            condstore,
+            &completed,
+            total,
+            &write_lock,
+        )
+    }))
+    .await;
+    let mut highest_uid = context.mailbox.last_uid;
+    for result in results {
+        highest_uid = highest_uid.max(result?);
+    }
+
     reconcile_flags(
-        session,
+        &mut sessions[0],
         sink,
         condstore,
         uid_validity,
@@ -335,41 +415,42 @@ where
     Ok(())
 }
 
-async fn fetch_summaries<T>(
+fn split_uids(uids: &[u32], n: usize) -> Vec<Vec<u32>> {
+    let n = n.max(1);
+    let chunk_size = uids.len().div_ceil(n).max(1);
+    let mut chunks: Vec<Vec<u32>> = Vec::with_capacity(n);
+    let mut iter = uids.chunks(chunk_size);
+    for _ in 0..n {
+        chunks.push(iter.next().unwrap_or(&[]).to_vec());
+    }
+    chunks
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn fetch_summaries_worker<T>(
     session: &mut Session<T>,
+    uids: &[u32],
     account: &ImapAccountConfig,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
-    condstore: bool,
     context: &FolderSyncContext<'_>,
+    condstore: bool,
+    completed: &AtomicU64,
+    total: u64,
+    write_lock: &Mutex<()>,
 ) -> CommandResult<u32>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    let mut uids = session
-        .uid_search("ALL")
-        .await
-        .map_err(|_| CommandError::retryable("sync.mailbox_search_failed"))?
-        .into_iter()
-        .filter(|uid| *uid > context.mailbox.last_uid)
-        .collect::<Vec<_>>();
-    uids.sort_unstable();
-    let total = uids.len() as u64;
-    let mut completed = 0_u64;
     let mut highest_uid = context.mailbox.last_uid;
-
     for batch in uids.chunks(FETCH_BATCH_SIZE) {
         let summaries = fetch_summary_batch(session, batch, condstore).await?;
-        let body_uids = summaries
-            .iter()
-            .filter(|summary| {
-                context.download_all_bodies
-                    || should_download_body(account.sync_policy.clone(), summary.received_at)
-            })
-            .map(|summary| summary.uid)
-            .collect::<Vec<_>>();
-        let mut raw_by_uid = fetch_raw_batch(session, &body_uids).await?;
 
+        // Header-only: store the summary now (subject/sender/date/flags) so the
+        // list appears immediately; the body — and with it the preview — is
+        // fetched on demand when the message is opened. This keeps each summary
+        // fetch to a single header round-trip and minimizes data transferred
+        // during sync.
         for summary in summaries {
             let mut message = parse_message_in_background(MessageParseInput {
                 uid: summary.uid,
@@ -379,35 +460,48 @@ where
                 unread: summary.unread,
                 flagged: summary.flagged,
                 header: summary.header,
-                raw: raw_by_uid.remove(&summary.uid),
+                raw: None,
             })
             .await?;
             message.modseq = summary.modseq;
-            let outcome = sink
-                .upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
-                .await?;
-            if outcome.is_new_location
-                && message.unread
-                && !context.mailbox.notification_baseline_required
-            {
-                let sender = message.from.first();
-                observer.notify(SyncNotice::NewMessageCandidate {
+            // Serialize the DB write across workers (see sync_folder). The guard
+            // is held only for the upsert; parsing and observer notifies stay
+            // outside the lock so a slow write never blocks another worker's
+            // fetch or notification.
+            let outcome = {
+                let _write_guard = write_lock.lock().await;
+                sink.upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
+                    .await?
+            };
+            if outcome.is_new_location {
+                observer.notify(SyncNotice::MessageArrived {
                     mailbox_id: context.mailbox.id.clone(),
-                    message_id: outcome.message_id,
-                    sender_name: sender.and_then(|address| address.name.clone()),
-                    sender_email: sender.map_or_else(String::new, |address| address.email.clone()),
-                    subject: message.subject.clone(),
-                    default_enabled: context.default_notification_enabled,
+                    item: message_list_item_from_remote(
+                        context.mailbox.id.clone(),
+                        &message,
+                        outcome.message_id.clone(),
+                    ),
                 });
+                if message.unread && !context.mailbox.notification_baseline_required {
+                    let sender = message.from.first();
+                    observer.notify(SyncNotice::NewMessageCandidate {
+                        mailbox_id: context.mailbox.id.clone(),
+                        message_id: outcome.message_id,
+                        sender_name: sender.and_then(|address| address.name.clone()),
+                        sender_email: sender
+                            .map_or_else(String::new, |address| address.email.clone()),
+                        subject: message.subject.clone(),
+                        default_enabled: context.default_notification_enabled,
+                    });
+                }
             }
             highest_uid = highest_uid.max(summary.uid);
-            completed += 1;
+            let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
             observer.notify(SyncNotice::Summaries {
-                completed,
+                completed: done,
                 total,
                 mailbox_name: context.mailbox_name.to_owned(),
             });
-            notify_mailbox(observer, context.mailbox.id.clone());
         }
     }
     Ok(highest_uid)
@@ -429,10 +523,10 @@ where
     Ok(session
         .uid_fetch(format_uid_set(uids), query)
         .await
-        .map_err(|_| CommandError::retryable("sync.message_fetch_failed"))?
+        .map_err(map_imap_err("sync.message_fetch_failed", true))?
         .try_collect::<Vec<_>>()
         .await
-        .map_err(|_| CommandError::retryable("sync.message_fetch_failed"))?
+        .map_err(map_imap_err("sync.message_fetch_failed", true))?
         .into_iter()
         .filter_map(|summary| {
             let uid = summary.uid?;
@@ -454,51 +548,6 @@ where
         .collect())
 }
 
-async fn backfill_bodies<T>(
-    session: &mut Session<T>,
-    account: &ImapAccountConfig,
-    sink: &(dyn MailSyncSink + Send + Sync),
-    observer: &(dyn SyncObserver + Send + Sync),
-    context: &FolderSyncContext<'_>,
-) -> CommandResult<()>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    let received_after = if context.download_all_bodies {
-        None
-    } else {
-        sync_policy_cutoff(account.sync_policy.clone())
-    };
-    let pending = sink
-        .pending_body_locations(&context.mailbox.id, received_after)
-        .await?
-        .into_iter()
-        .filter(|location| location.uid_validity == context.uid_validity)
-        .collect::<Vec<_>>();
-    let total = pending.len() as u64;
-    let mut completed = 0_u64;
-
-    for batch in pending.chunks(FETCH_BATCH_SIZE) {
-        let uids = batch
-            .iter()
-            .map(|location| location.uid)
-            .collect::<Vec<_>>();
-        for message in fetch_remote_messages(session, &uids, context.uid_validity).await? {
-            let _ = sink
-                .upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
-                .await?;
-            completed += 1;
-            observer.notify(SyncNotice::Bodies {
-                completed,
-                total,
-                mailbox_name: context.mailbox_name.to_owned(),
-            });
-            notify_mailbox(observer, context.mailbox.id.clone());
-        }
-    }
-    Ok(())
-}
-
 async fn reconcile_flags<T>(
     session: &mut Session<T>,
     sink: &(dyn MailSyncSink + Send + Sync),
@@ -518,10 +567,10 @@ where
     let states = session
         .uid_fetch("1:*", query)
         .await
-        .map_err(|_| CommandError::retryable("sync.flags_fetch_failed"))?
+        .map_err(map_imap_err("sync.flags_fetch_failed", true))?
         .try_collect::<Vec<_>>()
         .await
-        .map_err(|_| CommandError::retryable("sync.flags_fetch_failed"))?
+        .map_err(map_imap_err("sync.flags_fetch_failed", true))?
         .into_iter()
         .filter_map(|item| {
             let uid = item.uid?;
@@ -545,27 +594,28 @@ fn notify_mailbox(observer: &(dyn SyncObserver + Send + Sync), mailbox_id: Strin
     });
 }
 
-async fn fetch_raw_batch<T>(
-    session: &mut Session<T>,
-    uids: &[u32],
-) -> CommandResult<HashMap<u32, Vec<u8>>>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    if uids.is_empty() {
-        return Ok(HashMap::new());
+fn message_list_item_from_remote(
+    mailbox_id: String,
+    message: &RemoteMessage,
+    message_id: String,
+) -> MessageListItem {
+    MessageListItem {
+        id: message_id,
+        mailbox_id,
+        subject: message.subject.clone(),
+        from: message.from.clone(),
+        received_at: message.received_at,
+        preview: message.preview.clone(),
+        unread: message.unread,
+        flagged: message.flagged,
+        has_attachments: !message.attachments.is_empty(),
+        body_availability: if message.plain_text.is_some() || message.safe_html.is_some() {
+            ContentAvailability::Available
+        } else {
+            ContentAvailability::Missing
+        },
+        pending_operation: false,
     }
-    let messages = session
-        .uid_fetch(format_uid_set(uids), "(UID BODY.PEEK[])")
-        .await
-        .map_err(|_| CommandError::retryable("sync.message_body_fetch_failed"))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|_| CommandError::retryable("sync.message_body_fetch_failed"))?;
-    Ok(messages
-        .into_iter()
-        .filter_map(|message| Some((message.uid?, message.body()?.to_vec())))
-        .collect())
 }
 
 pub(super) fn format_uid_set(uids: &[u32]) -> String {
@@ -575,16 +625,33 @@ pub(super) fn format_uid_set(uids: &[u32]) -> String {
         .join(",")
 }
 
+// Wraps a swallowed IMAP/storage error into a `CommandError` while preserving
+// the underlying cause in the log. Without this the original io/imap error is
+// discarded by `.map_err(|_| ...)` and "同步失败" carries no diagnostics.
+fn map_imap_err<E: std::fmt::Debug>(
+    code: &'static str,
+    retryable: bool,
+) -> impl FnOnce(E) -> CommandError {
+    move |error| {
+        tracing::warn!(%code, ?error, "imap operation failed");
+        if retryable {
+            CommandError::retryable(code)
+        } else {
+            CommandError::new(code)
+        }
+    }
+}
+
 async fn connect_tls(
     host: &str,
     stream: TcpStream,
 ) -> CommandResult<tokio_rustls::client::TlsStream<TcpStream>> {
     let server_name = ServerName::try_from(host.to_owned())
-        .map_err(|_| CommandError::new("sync.server_name_invalid"))?;
+        .map_err(map_imap_err("sync.server_name_invalid", false))?;
     native_tls_connector("sync.system_certificates_unavailable")?
         .connect(server_name, stream)
         .await
-        .map_err(|_| CommandError::retryable("sync.imap_tls_failed"))
+        .map_err(map_imap_err("sync.imap_tls_failed", true))
 }
 
 #[cfg(test)]
@@ -594,21 +661,27 @@ mod tests {
     use mail_parser::MessageParser;
 
     #[test]
-    fn conditional_store_preserves_delta_semantics() {
-        assert_eq!(
-            conditional_store_query(Some(42), "+FLAGS.SILENT", "\\Seen"),
-            "(UNCHANGEDSINCE 42) +FLAGS.SILENT (\\Seen)"
-        );
-        assert_eq!(
-            conditional_store_query(None, "-FLAGS.SILENT", "\\Flagged"),
-            "-FLAGS.SILENT (\\Flagged)"
-        );
-    }
-
-    #[test]
     fn formats_a_batch_as_one_uid_set() {
         assert_eq!(format_uid_set(&[3, 7, 9]), "3,7,9");
         assert_eq!(format_uid_set(&[]), "");
+    }
+
+    #[test]
+    fn split_uids_partitions_disjointly_and_covers_all_workers() {
+        // Contiguous, disjoint, every UID present exactly once.
+        let chunks = split_uids(&(1..=10).collect::<Vec<_>>(), 3);
+        assert_eq!(chunks.len(), 3);
+        let mut all: Vec<u32> = chunks.iter().flatten().copied().collect();
+        all.sort_unstable();
+        assert_eq!(all, (1..=10).collect::<Vec<_>>());
+        // Fewer messages than workers -> some chunks empty, count still matches.
+        let sparse = split_uids(&[7u32], 3);
+        assert_eq!(sparse.len(), 3);
+        assert_eq!(sparse.iter().flatten().copied().sum::<u32>(), 7);
+        // No messages at all -> no panic, n empty chunks (workers no-op).
+        let empty = split_uids(&[], 3);
+        assert_eq!(empty.len(), 3);
+        assert!(empty.iter().all(Vec::is_empty));
     }
 
     #[test]

@@ -18,7 +18,6 @@ import type {
   MessageDetail,
   MessageListPage,
   SyncInterval,
-  SyncPolicy,
   SyncProgress,
   ComposerBootstrap,
   DraftAttachmentSummary,
@@ -126,6 +125,8 @@ export const api = {
     invoke<MessageDetail>("request_message_body", { accountId, messageId, mailboxId }),
   getSyncProgress: (accountId: string) =>
     invoke<SyncProgress>("get_sync_progress", { accountId }),
+  logFrontendEvent: (level: string, message: string, location: string | null) =>
+    invoke<void>("log_frontend_event", { level, message, location }),
   syncNow: (accountId: string) => invoke<void>("sync_now", { accountId }),
   setMessageRead: (accountId: string, mailboxId: string, messageIds: string[], read: boolean) =>
     invoke<void>("set_message_read", { accountId, mailboxId, messageIds, read }),
@@ -147,12 +148,8 @@ export const api = {
     invoke<void>("retry_pending_operation", { accountId, operationId }),
   getAccountManagementDetail: (accountId: string) =>
     invoke<AccountManagementDetail>("get_account_management_detail", { accountId }),
-  setAccountSyncPolicy: (accountId: string, syncPolicy: SyncPolicy) =>
-    invoke<SyncPolicy>("set_account_sync_policy", { accountId, syncPolicy }),
   setAccountSyncInterval: (accountId: string, syncInterval: SyncInterval) =>
     invoke<SyncInterval>("set_account_sync_interval", { accountId, syncInterval }),
-  setDownloadNonInboxBodies: (accountId: string, enabled: boolean) =>
-    invoke<boolean>("set_download_non_inbox_bodies", { accountId, enabled }),
   requestRawMessage: (accountId: string, messageId: string) =>
     invoke<string>("request_raw_message", { accountId, messageId }),
   requestAttachment: (accountId: string, attachmentId: string) =>
