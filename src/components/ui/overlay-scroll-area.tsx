@@ -11,17 +11,17 @@ import {
 import { cn } from "@/lib/utils";
 
 interface OverlayScrollAreaProps {
+  autoHide?: boolean;
   children: ReactNode;
   className?: string;
   contentClassName?: string;
+  intrinsic?: boolean;
   style?: CSSProperties;
   trackClassName?: string;
   viewportClassName?: string;
-  alwaysVisible?: boolean;
 }
 
 interface ScrollbarMetrics {
-  active: boolean;
   scrollable: boolean;
   thumbHeight: number;
   thumbOffset: number;
@@ -37,26 +37,25 @@ const TRACK_INSET = 4;
 const MIN_THUMB_HEIGHT = 32;
 
 export function OverlayScrollArea({
+  autoHide = false,
   children,
   className,
   contentClassName,
+  intrinsic = false,
   style,
   trackClassName,
   viewportClassName,
-  alwaysVisible = false,
 }: OverlayScrollAreaProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const hideTimerRef = useRef<number | null>(null);
   const dragRef = useRef<ScrollbarDrag | null>(null);
   const [scrollbar, setScrollbar] = useState<ScrollbarMetrics>({
-    active: false,
     scrollable: false,
     thumbHeight: 0,
     thumbOffset: 0,
   });
 
-  const measure = useCallback((active?: boolean) => {
+  const measure = useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
     const trackHeight = Math.max(0, viewport.clientHeight - TRACK_INSET * 2);
@@ -68,12 +67,11 @@ export function OverlayScrollArea({
     const thumbOffset = scrollable && viewport.scrollHeight > viewport.clientHeight
       ? availableOffset * viewport.scrollTop / (viewport.scrollHeight - viewport.clientHeight)
       : 0;
-    setScrollbar((current) => ({
-      active: active ?? current.active,
+    setScrollbar({
       scrollable,
       thumbHeight,
       thumbOffset,
-    }));
+    });
   }, []);
 
   useLayoutEffect(() => {
@@ -93,17 +91,8 @@ export function OverlayScrollArea({
     measure();
   }, [children, measure]);
 
-  useLayoutEffect(() => () => {
-    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
-  }, []);
-
   function handleScroll() {
-    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
-    measure(true);
-    hideTimerRef.current = window.setTimeout(() => {
-      setScrollbar((current) => ({ ...current, active: false }));
-      hideTimerRef.current = null;
-    }, 700);
+    measure();
   }
 
   function handleThumbPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -111,13 +100,11 @@ export function OverlayScrollArea({
     if (!viewport) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
     dragRef.current = {
       pointerId: event.pointerId,
       startClientY: event.clientY,
       startScrollTop: viewport.scrollTop,
     };
-    setScrollbar((current) => ({ ...current, active: true }));
   }
 
   function handleThumbPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
@@ -137,18 +124,21 @@ export function OverlayScrollArea({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = window.setTimeout(() => {
-      setScrollbar((current) => ({ ...current, active: false }));
-      hideTimerRef.current = null;
-    }, 700);
   }
 
   return (
-    <div className={cn("relative min-h-0", className)} style={style}>
+    <div
+      className={cn("group/scroll-area relative min-h-0 overflow-hidden", className)}
+      data-scrollbar-auto-hide={autoHide ? "true" : "false"}
+      style={style}
+    >
       <div
         ref={viewportRef}
-        className={cn("native-scrollbar-hidden absolute inset-0 overflow-y-auto", viewportClassName)}
+        className={cn(
+          "native-scrollbar-hidden overflow-y-auto",
+          intrinsic ? "relative max-h-[inherit]" : "absolute inset-0",
+          viewportClassName,
+        )}
         onScroll={handleScroll}
       >
         <div ref={contentRef} className={cn("flex min-h-full flex-col", contentClassName)}>
@@ -156,13 +146,20 @@ export function OverlayScrollArea({
         </div>
       </div>
       {scrollbar.scrollable ? (
-        <div className={cn("pointer-events-none absolute inset-y-1 right-1 z-10 w-1.5", trackClassName)}>
+        <div
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none absolute inset-y-1 right-1 z-10 w-2.5 transition-opacity",
+            autoHide && "opacity-0 group-hover/scroll-area:opacity-100 group-focus-within/scroll-area:opacity-100",
+            trackClassName,
+          )}
+        >
           <div
             className={cn(
-              "absolute right-0 w-1 cursor-ns-resize touch-none rounded-full bg-muted-foreground/55 transition-opacity duration-150",
-              scrollbar.active || alwaysVisible
-                ? "pointer-events-auto opacity-100"
-                : "pointer-events-none opacity-0",
+              "group/thumb absolute right-0 flex w-full cursor-ns-resize touch-none justify-end",
+              autoHide
+                ? "pointer-events-none group-hover/scroll-area:pointer-events-auto group-focus-within/scroll-area:pointer-events-auto"
+                : "pointer-events-auto",
             )}
             style={{
               height: `${scrollbar.thumbHeight}px`,
@@ -172,7 +169,9 @@ export function OverlayScrollArea({
             onPointerMove={handleThumbPointerMove}
             onPointerUp={handleThumbPointerUp}
             onPointerCancel={handleThumbPointerUp}
-          />
+          >
+            <span className="pointer-events-none h-full w-1 rounded-full bg-muted-foreground/55 transition-colors group-hover/thumb:bg-muted-foreground/70" />
+          </div>
         </div>
       ) : null}
     </div>

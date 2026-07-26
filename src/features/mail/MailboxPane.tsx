@@ -69,7 +69,9 @@ export function MailboxPane({
   const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
   const activeSync = progress && !["idle", "complete", "failed"].includes(progress.phase);
-  const percentage = progress?.total ? (progress.completed / progress.total) * 100 : 8;
+  const percentage = progress?.phase === "summaries" && progress.total
+    ? (progress.completed / progress.total) * 100
+    : 8;
   const normalizedError = error ? normalizeCommandError(error) : null;
   const mailboxItems = flattenMailboxHierarchy(mailboxes);
   const visibleMailboxItems = mailboxItems.filter((item) =>
@@ -172,10 +174,15 @@ export function MailboxPane({
       {activeSync && !collapsed ? (
         <Stack className="rounded-lg bg-card/70 p-3" gap="sm">
           <Text className="text-xs">
-            {progress.currentMailboxName
-              ? t("sync.currentFolder", { folder: progress.currentMailboxName })
+            {progress.phase === "summaries" && progress.currentMailboxName && progress.total > 0
+              ? t("sync.currentFolderProgress", {
+                folder: progress.currentMailboxName,
+                completed: progress.completed,
+                total: progress.total,
+              })
+              : progress.currentMailboxName
+                ? t("sync.currentFolder", { folder: progress.currentMailboxName })
               : t(`sync.${progress.phase}`)}
-            {progress.total > 0 ? ` · ${progress.completed}/${progress.total}` : null}
           </Text>
           <Progress value={percentage} />
         </Stack>
@@ -185,6 +192,7 @@ export function MailboxPane({
       ) : null}
       {mailboxes.length ? (
         <OverlayScrollArea
+          autoHide
           className={collapsed ? "-mr-1.5 min-h-0 w-full flex-1" : "-mr-3 min-h-0 flex-1"}
           contentClassName="gap-1.5"
           viewportClassName={collapsed ? "pr-1.5" : "pr-3"}

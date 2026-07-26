@@ -137,6 +137,24 @@ pub async fn activate_new_mail_notification(
             .resolve_notification_target(&notification.candidate())
             .await
         {
+            if let Some(message_id) = target.message_id.as_ref() {
+                if let Err(error) = state
+                    .mail
+                    .set_message_read(
+                        &target.account_id,
+                        &target.mailbox_id,
+                        std::slice::from_ref(message_id),
+                        true,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        code = %error.code,
+                        retryable = error.retryable,
+                        "notification target mark-read failed"
+                    );
+                }
+            }
             if let Err(error) = app.emit_to("main", "open-mail-location", target) {
                 tracing::warn!(?error, "notification navigation event failed");
             }
@@ -403,6 +421,104 @@ pub async fn open_settings_window(app: AppHandle) -> CommandResult<()> {
         .show()
         .and_then(|_| window.set_focus())
         .map_err(|_| crate::error::CommandError::new("settings.window_create_failed"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_account_management_window(app: AppHandle) -> CommandResult<()> {
+    tokio::task::yield_now().await;
+
+    if let Some(window) = app.get_webview_window("accounts") {
+        window
+            .show()
+            .and_then(|_| window.set_focus())
+            .map_err(|_| crate::error::CommandError::new("accounts.window_create_failed"))?;
+        return Ok(());
+    }
+
+    let builder = WebviewWindowBuilder::new(
+        &app,
+        "accounts",
+        WebviewUrl::App("index.html?window=accounts".into()),
+    )
+    .title("NextMail Account Management")
+    .inner_size(980.0, 720.0)
+    .min_inner_size(820.0, 600.0)
+    .center()
+    .visible(false);
+    #[cfg(target_os = "windows")]
+    let builder = builder.decorations(false);
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    let window = builder
+        .build()
+        .map_err(|_| crate::error::CommandError::new("accounts.window_create_failed"))?;
+    window
+        .show()
+        .and_then(|_| window.set_focus())
+        .map_err(|_| crate::error::CommandError::new("accounts.window_create_failed"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_raw_message_window(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    account_id: String,
+    message_id: String,
+) -> CommandResult<()> {
+    tokio::task::yield_now().await;
+    uuid::Uuid::parse_str(&account_id)
+        .map_err(|_| crate::error::CommandError::new("account.not_found"))?;
+    uuid::Uuid::parse_str(&message_id)
+        .map_err(|_| crate::error::CommandError::new("message.not_found"))?;
+    state
+        .mail
+        .get_message_detail(&account_id, &message_id, None)
+        .await?;
+    let location = RawMessageWindowLocation {
+        account_id,
+        message_id,
+    };
+
+    if let Some(window) = app.get_webview_window("raw-message") {
+        window
+            .emit("raw-message-location-changed", &location)
+            .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
+        window
+            .show()
+            .and_then(|_| window.set_focus())
+            .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
+        return Ok(());
+    }
+
+    let url = format!(
+        "index.html?window=raw-message&accountId={}&messageId={}",
+        location.account_id, location.message_id
+    );
+    let builder = WebviewWindowBuilder::new(&app, "raw-message", WebviewUrl::App(url.into()))
+        .title("NextMail Message Source")
+        .inner_size(900.0, 700.0)
+        .min_inner_size(680.0, 500.0)
+        .center()
+        .visible(false);
+    #[cfg(target_os = "windows")]
+    let builder = builder.decorations(false);
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    let window = builder
+        .build()
+        .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
+    window
+        .show()
+        .and_then(|_| window.set_focus())
+        .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
     Ok(())
 }
 
@@ -1075,4 +1191,11 @@ struct AccountsChangedEvent {
 #[serde(rename_all = "camelCase")]
 struct AccountRemovingEvent {
     account_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RawMessageWindowLocation {
+    account_id: String,
+    message_id: String,
 }

@@ -86,7 +86,7 @@ export function SettingsApp() {
   }
 
   if (preferencesQuery.isPending || readingPreferencesQuery.isPending || accountsQuery.isPending) {
-    return <AppShell className="grid place-items-center bg-card"><Spinner size={24} /></AppShell>;
+    return <AppShell className="fixed inset-0 z-[110] grid place-items-center bg-card"><Spinner size={24} /></AppShell>;
   }
   if (preferencesQuery.isError || readingPreferencesQuery.isError || accountsQuery.isError || !preferencesQuery.data || !readingPreferencesQuery.data) {
     const error = normalizeCommandError(preferencesQuery.error ?? readingPreferencesQuery.error ?? accountsQuery.error);

@@ -76,6 +76,8 @@ pub fn run() {
             commands::quit_app,
             commands::log_frontend_event,
             commands::open_settings_window,
+            commands::open_account_management_window,
+            commands::open_raw_message_window,
             commands::list_mailboxes,
             commands::list_messages,
             commands::search_messages,

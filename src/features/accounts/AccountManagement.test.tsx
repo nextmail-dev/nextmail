@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { api } from "@/app/api";
 import i18n from "@/app/i18n";
 import type { AccountSummary } from "@/app/types";
-import { AccountManagementPanel, AccountsManagement, nextAccountIdAfterRemoval } from "./AccountManagementDialog";
+import { AccountManagementPanel, AccountsManagement, nextAccountIdAfterRemoval } from "./AccountManagement";
 
 vi.mock("@/app/api", () => ({
   api: {
@@ -60,7 +60,7 @@ describe("AccountsManagement", () => {
   it("reuses the account list and changes the managed account", () => {
     const onSelectedAccountChange = vi.fn();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
+    const { container } = render(
       <QueryClientProvider client={client}>
         <AccountsManagement
           accounts={accounts}
@@ -73,6 +73,9 @@ describe("AccountsManagement", () => {
 
     expect(screen.getByText("Email accounts")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add account" })).toBeInTheDocument();
+    const detailScrollArea = container.querySelector(".account-management-detail-scroll");
+    expect(detailScrollArea).toHaveClass("-ml-1");
+    expect(detailScrollArea?.querySelector(".native-scrollbar-hidden")).toHaveClass("pl-1", "pr-3");
     fireEvent.click(screen.getByRole("button", { name: /Bob bob@example\.com/ }));
     expect(onSelectedAccountChange).toHaveBeenCalledWith("account-two");
   });

@@ -76,17 +76,6 @@
   background: #fff;
 }
 
-.nextmail-editor-scroll {
-  scrollbar-gutter: stable;
-  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 42%, transparent) transparent;
-}
-
-.nextmail-editor-scroll::-webkit-scrollbar-thumb,
-.nextmail-editor-scroll.is-scrolling::-webkit-scrollbar-thumb {
-  background-color: color-mix(in srgb, var(--muted-foreground) 42%, transparent);
-  background-clip: padding-box;
-}
-
 .nextmail-editor-content .tableWrapper {
   max-width: 100%;
   overflow-x: auto;

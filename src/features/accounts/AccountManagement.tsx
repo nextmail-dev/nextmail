@@ -12,42 +12,11 @@ import { Modal } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PasswordField } from "@/components/ui/input";
 import { Inline, Page, Stack } from "@/components/ui/layout";
+import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SelectField } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { LabelText, Text } from "@/components/ui/typography";
 import { PasswordAccountForm } from "./PasswordAccountForm";
-
-export function AccountManagementDialog({
-  open,
-  onOpenChange,
-  accounts,
-  selectedAccountId,
-  onSelectedAccountChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  accounts: AccountSummary[];
-  selectedAccountId: string;
-  onSelectedAccountChange: (accountId: string) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <Modal
-      open={open}
-      onOpenChange={onOpenChange}
-      title={t("accounts.title")}
-      closeLabel={t("common.close")}
-      contentClassName="flex max-h-[calc(100vh-40px)] w-[min(980px,calc(100vw-40px))] flex-col"
-    >
-      <AccountsManagement
-        accounts={accounts}
-        selectedAccountId={selectedAccountId}
-        onSelectedAccountChange={onSelectedAccountChange}
-        enabled={open}
-      />
-    </Modal>
-  );
-}
 
 export function AccountsManagement({
   accounts,
@@ -88,7 +57,11 @@ export function AccountsManagement({
       </Inline>
       {accounts.length ? (
         <Page className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] gap-6 overflow-hidden">
-          <Stack className="self-start rounded-lg bg-muted/50 p-2" gap="xs">
+          <OverlayScrollArea
+            className="min-h-0 rounded-lg bg-muted/50"
+            contentClassName="gap-1"
+            viewportClassName="p-2 pr-3"
+          >
             {accounts.map((account) => (
               <Button
                 key={account.id}
@@ -102,15 +75,18 @@ export function AccountsManagement({
                 </Stack>
               </Button>
             ))}
-          </Stack>
+          </OverlayScrollArea>
           {activeAccountId ? (
-            <Stack className="min-h-0 overflow-y-scroll pr-2">
+            <OverlayScrollArea
+              className="account-management-detail-scroll -ml-1 min-h-0"
+              viewportClassName="pr-3 pl-1"
+            >
               <AccountManagementPanel
                 accountId={activeAccountId}
                 enabled={enabled}
                 onRemoved={selectAfterRemoval}
               />
-            </Stack>
+            </OverlayScrollArea>
           ) : null}
         </Page>
       ) : (
@@ -122,9 +98,13 @@ export function AccountsManagement({
         />
       )}
       <Modal open={addOpen} onOpenChange={setAddOpen} title={t("accounts.addTitle")} closeLabel={t("common.close")}>
-        <Stack className="mt-5 max-h-[72vh] overflow-auto pr-1">
+        <OverlayScrollArea
+          intrinsic
+          className="mt-5 max-h-[72vh]"
+          viewportClassName="pr-3"
+        >
           <PasswordAccountForm submitLabel={t("accounts.add")} onSubmit={addAccount} />
-        </Stack>
+        </OverlayScrollArea>
       </Modal>
     </Stack>
   );
@@ -259,11 +239,15 @@ export function AccountManagementPanel({
       ) : null}
 
       <Modal open={editOpen} onOpenChange={setEditOpen} title={t("accounts.editConnection")} closeLabel={t("common.close")}>
-        <Stack className="mt-5 max-h-[70vh] overflow-auto pr-1">
+        <OverlayScrollArea
+          intrinsic
+          className="mt-5 max-h-[70vh]"
+          viewportClassName="pr-3"
+        >
           {connectionQuery.isPending ? <Spinner size={22} /> : connectionQuery.data ? (
             <PasswordAccountForm key={accountId} initial={connectionQuery.data} passwordRequired={false} submitLabel={t("common.save")} onSubmit={updateAccount} />
           ) : null}
-        </Stack>
+        </OverlayScrollArea>
       </Modal>
 
       <Modal open={reauthOpen} onOpenChange={setReauthOpen} title={t("accounts.reauthenticate")} closeLabel={t("common.close")}>

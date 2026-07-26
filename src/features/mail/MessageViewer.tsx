@@ -26,7 +26,6 @@ import type { AttachmentSummary, MailboxSummary, MessageAddress, MessageBodyProg
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Modal } from "@/components/ui/dialog";
 import { Inline, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { Progress } from "@/components/ui/progress";
@@ -47,7 +46,6 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
 }) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
-  const [rawSource, setRawSource] = useState<string | null>(null);
   const [remoteImagesAllowed, setRemoteImagesAllowed] = useState(false);
   const [bodyProgress, setBodyProgress] = useState<MessageBodyProgress | null>(null);
   const readingPreferences = useQuery({
@@ -102,7 +100,9 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
     bodyRequestedRef.current = messageId;
     bodyMutation.mutate();
   }, [messageId, query.data?.bodyAvailability, bodyMutation.isPending]);
-  const rawMutation = useMutation({ mutationFn: () => api.requestRawMessage(accountId, messageId), onSuccess: setRawSource });
+  const rawWindowMutation = useMutation({
+    mutationFn: () => api.openRawMessageWindow(accountId, messageId),
+  });
   const messageOperation = useMutation({
     mutationFn: async (operation: { kind: "read" | "flag" | "move" | "copy" | "archive" | "delete"; destination?: string }) => {
       if (operation.kind === "read") await api.setMessageRead(accountId, mailboxId, [messageId], query.data?.unread ?? false);
@@ -135,7 +135,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
 
   const message = query.data;
   const allowRemoteImages = remoteImagesAllowed || readingPreferences.data?.autoLoadRemoteImages === true;
-  const operationError = bodyMutation.error ?? rawMutation.error ?? attachmentMutation.error ?? saveAttachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
+  const operationError = bodyMutation.error ?? rawWindowMutation.error ?? attachmentMutation.error ?? saveAttachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
   const normalizedOperationError = operationError ? normalizeCommandError(operationError) : null;
   const date = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(message.receivedAt * 1000));
   const sender = message.from[0];
@@ -205,7 +205,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
                   {isDraft ? (
                     <DropdownMenuItem onSelect={() => editDraftMutation.mutate()}><FilePenLine size={16} />{t("mail.editDraft")}</DropdownMenuItem>
                   ) : null}
-                  <DropdownMenuItem onSelect={() => rawMutation.mutate()}><FileText size={16} />{t("mail.viewSource")}</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => rawWindowMutation.mutate()}><FileText size={16} />{t("mail.viewSource")}</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </Inline>
@@ -230,9 +230,18 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
 
       <Stack className="min-h-0 flex-1" gap="none">
         {message.safeHtml ? (
-          <SafeMailFrame document={message.safeHtml} title={message.subject || t("mail.messageBody")} allowRemoteImages={allowRemoteImages} />
+          <div className="min-h-0 flex-1 overflow-hidden px-3 pb-2">
+            <SafeMailFrame document={message.safeHtml} title={message.subject || t("mail.messageBody")} allowRemoteImages={allowRemoteImages} />
+          </div>
         ) : message.plainText ? (
-          <Text className="select-text min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-8 py-5 text-sm leading-[1.75] text-foreground">{message.plainText}</Text>
+          <OverlayScrollArea
+            className="min-h-0 flex-1"
+            viewportClassName="px-8 py-5 pr-10"
+          >
+            <Text className="select-text whitespace-pre-wrap text-sm leading-[1.75] text-foreground">
+              {message.plainText}
+            </Text>
+          </OverlayScrollArea>
         ) : (
           <Stack className="m-auto w-full max-w-md items-center px-8" gap="md">
             <EmptyState
@@ -269,9 +278,6 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
           </Inline>
         </Stack>
       ) : null}
-      <Modal open={rawSource !== null} onOpenChange={(open) => { if (!open) setRawSource(null); }} title={t("mail.sourceTitle")} closeLabel={t("common.close")}>
-        <Text className="select-text mt-4 max-h-[65vh] overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs text-foreground">{rawSource ?? ""}</Text>
-      </Modal>
     </Stack>
   );
 }

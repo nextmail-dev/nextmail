@@ -3,6 +3,8 @@
   --shell-sidebar-width: 300px;
   --ui-font-caption: 11px;
   --ui-font-control: 13px;
+  --scrollbar-thumb: color-mix(in srgb, var(--muted-foreground) 42%, transparent);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--muted-foreground) 58%, transparent);
 }
 
 :root[data-platform="windows"] {
@@ -13,6 +15,10 @@
 * {
   box-sizing: border-box;
   border-color: var(--border);
+}
+
+html {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 html,
@@ -80,17 +86,12 @@ textarea,
   min-height: 32px;
   border: 3px solid transparent;
   border-radius: 999px;
-  background-color: transparent;
+  background-color: var(--scrollbar-thumb);
   background-clip: padding-box;
 }
 
-.is-scrolling::-webkit-scrollbar-thumb {
-  background-color: color-mix(in srgb, var(--muted-foreground) 42%, transparent);
-  background-clip: padding-box;
-}
-
-.is-scrolling {
-  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 42%, transparent) transparent;
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-track {

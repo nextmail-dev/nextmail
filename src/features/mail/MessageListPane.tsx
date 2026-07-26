@@ -142,7 +142,11 @@ export function MessageListPane({
       </Stack>
       {actionError ? <MessageListError error={actionError} /> : null}
       {items.length ? (
-        <OverlayScrollArea alwaysVisible className="min-h-0 flex-1" viewportClassName="pr-3">
+        <OverlayScrollArea
+          className="min-h-0 flex-1"
+          viewportClassName="pr-4"
+          trackClassName="right-2 w-3"
+        >
           {items.map((message) => (
             <MessageActionsContextMenu
               key={message.id}

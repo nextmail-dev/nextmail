@@ -76,7 +76,9 @@ describe("RichTextEditor composition nodes", () => {
     );
     await waitFor(() => expect(ref.current).not.toBeNull());
 
-    expect(container.querySelector(".nextmail-editor-scroll")).toHaveClass("overflow-y-scroll");
+    const editorViewport = container.querySelector(".native-scrollbar-hidden");
+    expect(editorViewport).toBeInTheDocument();
+    expect(editorViewport?.parentElement).toHaveAttribute("data-scrollbar-auto-hide", "false");
     expect(container.querySelector("img[src^='https://cdn.example']")).toBeNull();
     const originalFrame = container.querySelector<HTMLIFrameElement>(".nextmail-composition-original-frame");
     expect(originalFrame).not.toBeNull();

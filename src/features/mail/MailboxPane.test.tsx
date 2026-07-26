@@ -86,6 +86,36 @@ describe("MailboxPane draft actions", () => {
     expect(mailbox.querySelector("svg")).toHaveClass("size-[18px]", "shrink-0");
   });
 
+  it("auto-hides only the folder-list custom scrollbar", () => {
+    const inbox: MailboxSummary = {
+      id: "inbox",
+      accountId: "account-one",
+      name: "INBOX",
+      delimiter: null,
+      role: "inbox",
+      selectable: true,
+      totalCount: 3,
+      unreadCount: 1,
+      revision: 1,
+    };
+    const { container } = render(
+      <MailboxPane
+        mailboxes={[inbox]}
+        selectedMailboxId="inbox"
+        onSelect={vi.fn()}
+        onCompose={vi.fn()}
+        drafts={[]}
+        onOpenDraft={vi.fn()}
+        onDeleteDraft={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('[data-scrollbar-auto-hide="true"]')).toBeInTheDocument();
+  });
+
   it("builds nested folders from the server delimiter instead of guessing separators", () => {
     const mailboxes: MailboxSummary[] = [
       { id: "child", accountId: "account-one", name: "Other/Archive", delimiter: "/", role: "other", selectable: true, totalCount: 1, unreadCount: 0, revision: 1 },
@@ -181,5 +211,53 @@ describe("MailboxPane draft actions", () => {
     );
 
     expect(within(container).getByRole("button", { name: "Receive" })).toBeDisabled();
+  });
+
+  it("shows message progress without exposing folder-count progress", () => {
+    const baseProps = {
+      mailboxes: [],
+      selectedMailboxId: "",
+      onSelect: vi.fn(),
+      onCompose: vi.fn(),
+      drafts: [],
+      onOpenDraft: vi.fn(),
+      onDeleteDraft: vi.fn(),
+      onReceive: vi.fn(),
+      receiving: true,
+      onOpenSettings: vi.fn(),
+    };
+    const { rerender } = render(
+      <MailboxPane
+        {...baseProps}
+        progress={{
+          accountId: "account-one",
+          phase: "folders",
+          completed: 3,
+          total: 9,
+          currentMailboxName: "Archive",
+          errorCode: null,
+          revision: 1,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Synchronizing folder Archive")).toBeInTheDocument();
+    expect(screen.queryByText(/3\/9/)).not.toBeInTheDocument();
+
+    rerender(
+      <MailboxPane
+        {...baseProps}
+        progress={{
+          accountId: "account-one",
+          phase: "summaries",
+          completed: 3,
+          total: 9,
+          currentMailboxName: "Archive",
+          errorCode: null,
+          revision: 2,
+        }}
+      />,
+    );
+    expect(screen.getByText("Synchronizing Archive (3/9)")).toBeInTheDocument();
   });
 });

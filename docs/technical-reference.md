@@ -71,7 +71,7 @@ nextmail/
 │  ├─ styles/                  主题、基础、全局和写信样式
 │  └─ test/                    前端测试初始化
 ├─ src-tauri/
-│  ├─ capabilities/            main/composer/settings/notification 窄权限
+│  ├─ capabilities/            main/composer/settings/accounts/raw-message/notification 窄权限
 │  ├─ migrations/              SQLx 嵌入式迁移
 │  └─ src/
 │     ├─ core/                 DTO、稳定错误、ports
@@ -95,11 +95,13 @@ NextMail 使用一个 Tauri 进程：
 - `main`：账户、文件夹、邮件列表和阅读器。
 - `composer-*`：每个草稿一个独立写信 WebView；可在发送成功时受控销毁。
 - `settings`：单例设置 WebView；重复打开只聚焦现有窗口。
+- `accounts`：单例账户管理 WebView；主窗口账户菜单和无账户空状态只请求 Rust 创建或聚焦。
+- `raw-message`：单例原始邮件 WebView；重复查看时只以账户/邮件 ID 事件切换目标，原始 EML 由窗口通过稳定 Command 读取。
 - `notification-*`：受限的瞬时新邮件窗口；不进入任务栏、不主动抢焦点，也不保存窗口状态。
 
 Windows 关闭 decorations，由 React 绘制拖动区和窗口按钮。macOS 使用 Overlay 标题栏和系统默认交通灯位置，不伪造窗口按钮或硬编码交通灯坐标。每类窗口使用独立 Capability；前端没有 Shell、任意网络、任意文件和数据库权限。
 
-Tauri 官方 `window-state` 插件只在 Rust 宿主注册，保存尺寸、位置与最大化状态到系统应用配置目录。`main`、`settings` 和写信窗口类型分别恢复状态；动态 `composer-*` 统一映射到 `composer`，避免按草稿 ID 无限累积记录。`notification-*` 由插件 filter 明确排除，不持久化瞬时内容或几何状态。普通窗口创建时先隐藏并居中；有历史状态时插件恢复后显示，没有历史状态时保持居中默认尺寸。React 不读写窗口状态文件，也不获得新增 Capability。
+Tauri 官方 `window-state` 插件只在 Rust 宿主注册，保存尺寸、位置与最大化状态到系统应用配置目录。`main`、`settings`、`accounts`、`raw-message` 和写信窗口类型分别恢复状态；动态 `composer-*` 统一映射到 `composer`，避免按草稿 ID 无限累积记录。`notification-*` 由插件 filter 明确排除，不持久化瞬时内容或几何状态。普通窗口创建时先隐藏并居中；有历史状态时插件恢复后显示，没有历史状态时保持居中默认尺寸。React 不读写窗口状态文件，也不获得任意建窗权限。
 
 `NotificationRuntime` 由 `state.rs` 注入 `MailRuntime`。候选只在账户同步完整成功后进入调度；窗口按主窗口所在显示器的物理工作区和缩放因子从右下角向上排列，显示器高度不足时钳制实际可见数量。覆盖模式复用同一窗口并以 generation 使旧超时失效，层叠模式达到上限时淘汰最早窗口。偏好改变关闭当前临时通知，账户移除只清理该账户窗口。
 
@@ -146,7 +148,7 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 
 ## 6. 前端架构
 
-入口根据 URL 查询参数选择主窗口、写信窗口、设置窗口或按需加载的通知窗口。`src/app/api.ts` 是统一 IPC 客户端，业务组件不直接调用裸 `invoke`。`src/app/types.ts` 与 Rust DTO 保持 camelCase 序列化契约。
+入口根据 URL 查询参数选择主窗口、写信窗口、设置窗口、账户管理窗口、原始邮件窗口或按需加载的通知窗口。设置、账户管理、原始邮件和 Composer 继续按窗口动态加载；设置数据未就绪时使用覆盖整个 WebView 的中性加载层，不提前露出标题栏左右背景接缝。`src/app/api.ts` 是统一 IPC 客户端，业务组件不直接调用裸 `invoke`。`src/app/types.ts` 与 Rust DTO 保持 camelCase 序列化契约。
 
 读取模型使用 TanStack Query；Rust 事件只触发精确 key 或账户级前缀失效，不直接推送邮件正文。邮件详情 key 固定为：
 
@@ -156,13 +158,13 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 
 外观偏好统一使用 `appearanceQueryKey`。主窗口、设置窗口和写信窗口各自在所属 WebView 的 QueryClient 中读取 Rust 持久化值；写入先取消相同查询并乐观更新 cache，失败时恢复旧值，成功时以 Rust 返回值覆盖。`appearance-preferences-changed` 只把 DTO 写入当前窗口 cache 并应用 DOM 主题，各 WebView 不共享 React 内存状态。
 
-主工作区由 `useMailboxSelection` 管理账户、文件夹、邮件、搜索输入与通知目标选择，`useMailRuntimeEvents` 管理七类邮件运行时/定位事件及查询失效，`usePaneLayout` 管理折叠、宽度钳制、窗口 resize 和标题栏侧栏宽度令牌。Query key 由邮件 key 工厂集中生成：普通列表使用 `['messages', accountId, mailboxId]`，250ms 防抖后的当前文件夹搜索使用 `['messages', accountId, mailboxId, 'search', query]`；邮件事件失效文件夹或账户前缀即可同时刷新相关搜索。账户运行状态事件会立即刷新 runtime Query，使后台同步期间手动收信保持禁用；当前文件夹收到连续 `mailbox-changed` 时按事件顺序串行重新读取，后一封不会取消前一封刷新，也没有前端定时模拟播放。通知点击会先由 Rust 核验目标，再通过 `open-mail-location` 切换账户/文件夹并选择仍可见的消息；失效消息只保留文件夹选择。邮件列表向工作区报告当前可见顺序，删除、归档或移动成功后用纯选择函数优先选中下一封、末尾回退上一封；再次单击当前行会清除选择。右键菜单复用 `src/app/api.ts` 中与阅读器相同的窄命令，不维护第二套后端操作。写信窗口关闭监听按稳定账户/草稿身份只注册一次，通过 ref 读取最新保存函数与编辑状态。Composer Bootstrap 只返回当前账户可见的定义摘要；用户选择定义后由 Rust 使用当前收件人上下文渲染，React 只负责把返回的稳定节点内容交给 Tiptap。
+主工作区由 `useMailboxSelection` 管理账户、文件夹、邮件、搜索输入与通知目标选择，`useMailRuntimeEvents` 管理七类邮件运行时/定位事件及查询失效，`usePaneLayout` 管理折叠、宽度钳制、窗口 resize 和标题栏侧栏宽度令牌。Query key 由邮件 key 工厂集中生成：普通列表使用 `['messages', accountId, mailboxId]`，250ms 防抖后的当前文件夹搜索使用 `['messages', accountId, mailboxId, 'search', query]`；邮件事件失效文件夹或账户前缀即可同时刷新相关搜索。账户运行状态事件会立即刷新 runtime Query，使后台同步期间手动收信保持禁用；当前文件夹收到连续 `mailbox-changed` 时按事件顺序串行重新读取，后一封不会取消前一封刷新，也没有前端定时模拟播放。通知点击先由 Rust 核验目标，为仍存在的目标邮件排入已读更新，再通过 `open-mail-location` 切换账户/文件夹并选择消息；失效消息只保留文件夹选择。邮件列表向工作区报告当前可见顺序，删除、归档或移动成功后用纯选择函数优先选中下一封、末尾回退上一封；再次单击当前行会清除选择。右键菜单复用 `src/app/api.ts` 中与阅读器相同的窄命令，不维护第二套后端操作。写信窗口关闭监听按稳定账户/草稿身份只注册一次，通过 ref 读取最新保存函数与编辑状态。Composer Bootstrap 只返回当前账户可见的定义摘要；用户选择定义后由 Rust 使用当前收件人上下文渲染，React 只负责把返回的稳定节点内容交给 Tiptap。
 
-侧栏顶部账户身份始终打开 Radix 账户菜单，单账户和多账户行为一致；账户项之后的分割线提供账户管理入口。账户列表、添加和详情面板由主窗口内的 `AccountManagementDialog` 统一承载，继续使用 `['accounts']`、`['account-runtimes']` 等 Query 失效和 `src/app/api.ts` 窄命令。独立设置窗口不再维护重复账户类别；移除最后一个账户后，主窗口空状态打开同一个管理入口，不回退到已经完成的数据目录向导。
+侧栏顶部账户身份始终打开 Radix 账户菜单，单账户和多账户行为一致；名称和邮箱在固定侧栏宽度内完整换行，头像与菜单箭头保持固定尺寸。账户项之后的分割线提供账户管理入口。账户列表、添加和详情面板由独立 `accounts` 窗口承载，继续使用 `['accounts']`、`['account-runtimes']` 等 Query 失效和 `src/app/api.ts` 窄命令；主窗口不再渲染账户管理弹层。独立设置窗口不维护重复账户类别；移除最后一个账户后，主窗口空状态打开同一个独立管理窗口，不回退到已经完成的数据目录向导。
 
-组件层位于 `src/components/ui`，业务页面应优先组合 Button、Select、Dialog、Toast、OverlayScrollArea、ResizeHandle 等生产组件。原生 HTML 只在基础组件或满足语义/可访问性需求时使用，不展示浏览器默认表单外观。
+组件层位于 `src/components/ui`，业务页面应优先组合 Button、Select、Dialog、Toast、OverlayScrollArea、ResizeHandle 等生产组件。原生 HTML 只在基础组件或满足语义/可访问性需求时使用，不展示浏览器默认表单外观。应用纵向滚动区隐藏 WebView 原生滚动条并统一使用 `OverlayScrollArea` 的自绘覆盖滑块，不使用 `scrollbar-gutter`，滑块落在容器既有 padding/margin 内且不挤压主体。默认只要内容可滚动就常驻滑块；文件夹列表是唯一显式启用 `autoHide` 的例外，在 hover 或键盘焦点进入时显示。邮件列表的透明拖动命中区加宽并内收于列表 padding，避免与分栏 ResizeHandle 竞争且不改变列表项主体宽度。
 
-主题由语义 CSS Variables 驱动，支持系统、浅色、深色和多种主题色；设置分类与文件夹等选中状态统一使用主题色派生的淡色背景和主题色文字。Windows 使用 Segoe UI + Microsoft YaHei UI，macOS 使用系统 UI + PingFang SC。语言包缺失时回退英文。
+主题由语义 CSS Variables 驱动，支持系统、浅色、深色和多种主题色；未保存外观偏好时默认使用浅色，已有用户选择不被迁移或覆盖。设置分类与文件夹等选中状态统一使用主题色派生的淡色背景和主题色文字。Windows 使用 Segoe UI + Microsoft YaHei UI，macOS 使用系统 UI + PingFang SC。语言包缺失时回退英文。
 
 ## 7. Command 与 Event 边界
 
@@ -176,7 +178,7 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 - IMAP 写操作：已读、星标、移动、复制、删除、归档、角色映射和重试。
 - 写信：打开窗口、草稿 CRUD、普通附件、经校验的选择/粘贴内嵌图片、安全富 HTML 粘贴清洗、远端 Drafts、发件排队和重试。
 - 模板、签名与规则：按全局或账户范围管理富文本定义、四种场景模板规则及单一默认签名偏好，按当前账户渲染定义；账户 ID 在 Rust 内转换为匿名数据槽。
-- 窗口与应用：设置窗口、About 和明确退出。
+- 窗口与应用：设置、账户管理、原始邮件窗口，About 和明确退出。
 
 完整签名以 `src/app/api.ts` 和 `src-tauri/src/commands/mod.rs` 为准。所有失败统一为：
 
@@ -263,7 +265,7 @@ SQLite 数据格式当前为版本 19。主要表：
 
 变量白名单为 `sender_name`、`sender_email`、`recipient_name`、`recipient_email`、`date`。定义保存时拒绝未知变量；插入时缺少收件人姓名等上下文会返回稳定错误。Rust 分别渲染主题、Tiptap 文本节点、HTML 和纯文本：HTML 变量值进行实体转义，主题移除换行，日期按当前界面语言使用本机日期。
 
-设置窗口“写信”分类提供范围切换、四种默认模板规则、签名列表、默认标记、“设为默认”和“自动为邮件选择默认签名”；定义编辑弹窗按窗口可用高度伸展，名称/主题字段不参与纵向伸展，长正文在预留稳定滚动槽的编辑区内滚动。Composer 可显式选择当前账户可见的全局/账户定义；模板与签名分别写入 `nextmailTemplate` / `nextmailSignature` 块节点，并把定义 ID 同步到 HTML 的 `data-nextmail-*-id` 属性。签名节点只保留稳定语义边界，不附带引用线、底色、内边距或圆角。切换只替换同类节点，用户删除签名后保存和重开不会自动恢复。初始新建或回复/转发创建时才解析场景模板和签名偏好；关闭自动插入后仍可在 Composer 手动选择签名，远端既有草稿不重新套用默认值。回复动作另使用 `nextmailReply` 与 `nextmailOriginalMessage` 固定边界，默认顺序为回复区、空行、默认签名、原始邮件头与正文；模板只进入回复区，签名始终插在原文前。普通撰写内容由 Tiptap 编辑，引用原文以原始安全 HTML 为权威内容并在无权限 iframe 预览；CodeMirror 6 提供完整 HTML 源码与实时预览双栏，三格式保存后进入既有远端 Drafts 与 MIME 流程。
+设置窗口“写信”分类提供范围切换、四种默认模板规则、签名列表、默认标记、“设为默认”和“自动为邮件选择默认签名”；定义编辑弹窗按窗口可用高度伸展，名称/主题字段不参与纵向伸展，长正文通过不占主体宽度的统一自绘覆盖滑块滚动。Composer 可显式选择当前账户可见的全局/账户定义；模板与签名分别写入 `nextmailTemplate` / `nextmailSignature` 块节点，并把定义 ID 同步到 HTML 的 `data-nextmail-*-id` 属性。签名节点只保留稳定语义边界，不附带引用线、底色、内边距或圆角。切换只替换同类节点，用户删除签名后保存和重开不会自动恢复。初始新建或回复/转发创建时才解析场景模板和签名偏好；关闭自动插入后仍可在 Composer 手动选择签名，远端既有草稿不重新套用默认值。回复动作另使用 `nextmailReply` 与 `nextmailOriginalMessage` 固定边界，默认顺序为回复区、空行、默认签名、原始邮件头与正文；模板只进入回复区，签名始终插在原文前。普通撰写内容由 Tiptap 编辑，引用原文以原始安全 HTML 为权威内容并在无权限 iframe 预览；CodeMirror 6 提供完整 HTML 源码与实时预览双栏，三格式保存后进入既有远端 Drafts 与 MIME 流程。
 
 草稿保存 `editor_json`、`html` 与 `plain_text`，使用 revision 做乐观并发控制。Composer 把发件人显示为只读地址标签；To/Cc/Bcc 在空格、回车、逗号、分号或失焦时即时校验并生成标签，空输入退格会把末尾标签恢复为可编辑文本。未提交输入不会因 800ms 自动保存定时器而延迟变成标签；存在输入时暂停自动保存，并在发送或关闭前最终校验、提交，无效地址阻止发送与关闭。完全空白草稿可以条件删除；回复/回复全部/转发还带持久化“未编辑可丢弃”标记，只有用户实际保存后才保留并同步 Drafts。远端导入草稿与普通非空草稿不使用该标记。
 
@@ -290,7 +292,7 @@ SQLite 数据格式当前为版本 19。主要表：
 - 数据格式版本 13 为草稿附件增加 `content_id`/`is_inline`。本地原始 MIME 中实际被 HTML `cid:` 引用的 PNG/JPEG/GIF/WebP 与用户选择/粘贴图片进入现有 SHA-256 `attachments/` 内容存储；前端只得到不透明 ID、CID 和内存 data URL 预览。图片通过 `src/app/api.ts` 的窄 Command 进入 Rust，验证 MIME、文件魔数、单项 25MB 与总计 100MB 上限。富 HTML 粘贴先由 Rust 保留安全结构、class/ID、行内样式和样式表，再把选择器限定到 `data-nextmail-pasted-html` 容器；未经清洗的剪贴板 HTML 不进入 Composer DOM。远程 `http(s)` 图片不显示占位卡片、不被编辑器静默下载，地址仍随安全 HTML 保存。
 - `http`、`https`、`mailto` 经 Rust 规范化后直接保留为 `href`，固定使用 `_blank` 与 `noopener noreferrer`。相对路径、本机文件、用户信息、反斜线、控制字符、双向文本控制符、危险或未知 scheme 均移除。
 - 主窗口 `on_new_window` 对点击目标再次执行同一 Rust 校验，安全目标交给 `state.rs` 注入的系统浏览器/邮件程序打开器，并始终返回 `Deny`；React 没有链接事件、确认 UI 或接受任意 URL 的 IPC。`no-referrer` 保持不变。
-- 阅读器不再注入统一字体/行高、16px 内边距、任意断词或图片/表格最大宽度，避免覆盖作者固定宽度和居中布局。迁移 0011 作为可能已应用的原型保持不可变，0012 删除临时链接表并失效旧缓存；迁移 0014 为受限 `nth-*()` 保真再次失效旧 HTML 缓存，0015 新增本地搜索，0016 增加第十二阶段设置与草稿标记。
+- 阅读器不再向邮件文档注入统一字体/行高、16px 内边距、任意断词或图片/表格最大宽度，避免覆盖作者固定宽度和居中布局；阅读栏只在 iframe 宿主外保留 12px 左右留白。迁移 0011 作为可能已应用的原型保持不可变，0012 删除临时链接表并失效旧缓存；迁移 0014 为受限 `nth-*()` 保真再次失效旧 HTML 缓存，0015 新增本地搜索，0016 增加第十二阶段设置与草稿标记。
 - 第十阶段共享语料持续覆盖样式保真和主动内容边界。ADR 0008 已接受并根据第三、四批实机反馈修订；直接外链、传统布局、受限 `nth-*()` flex 表格、Composer 原始 HTML、源码沙箱与 CID 缓存已于 2026-07-21 通过 Windows WebView2 手动验收。ADR 0009 记录 Composer 边界；macOS 未执行。
 - 已收附件按账户槽验证归属；高风险扩展名只在文件管理器显示，不自动执行。
 

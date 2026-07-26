@@ -12,7 +12,6 @@ import { AppShell, Page, Stack } from "@/components/ui/layout";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Toast } from "@/components/ui/toast";
 import { Text } from "@/components/ui/typography";
-import { AccountManagementDialog } from "@/features/accounts/AccountManagementDialog";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { MailboxPane } from "./MailboxPane";
 import { MessageListPane } from "./MessageListPane";
@@ -43,7 +42,6 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   });
   const accounts = accountsQuery.data ?? [];
   const [composeError, setComposeError] = useState<string | null>(null);
-  const [accountManagementOpen, setAccountManagementOpen] = useState(false);
   const [sentNotice, setSentNotice] = useState<{ id: string; subject: string } | null>(null);
   // Kept in a ref (not state): it only feeds selectAfterRemoval, so updating it
   // must not re-render MainShell (and the heavy MessageViewer) on every arrival.
@@ -137,6 +135,12 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
       .catch((error) => setComposeError(normalizeCommandError(error).code));
   }
 
+  function openAccountManagement() {
+    setComposeError(null);
+    void api.openAccountManagementWindow()
+      .catch((error) => setComposeError(normalizeCommandError(error).code));
+  }
+
   if (!accounts.length) {
     return (
       <AppShell className="grid place-items-center bg-card p-8">
@@ -144,14 +148,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           title={t("accounts.noAccount")}
           description={t("accounts.noAccountDescription")}
           actionLabel={t("accounts.add")}
-          onAdd={() => setAccountManagementOpen(true)}
-        />
-        <AccountManagementDialog
-          open={accountManagementOpen}
-          onOpenChange={setAccountManagementOpen}
-          accounts={accounts}
-          selectedAccountId={selectedAccountId}
-          onSelectedAccountChange={selectAccount}
+          onAdd={openAccountManagement}
         />
       </AppShell>
     );
@@ -168,7 +165,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           runtimeSummaries={runtimeQuery.data ?? []}
           selectedAccountId={selectedAccountId}
           onAccountChange={selectAccount}
-          onManageAccounts={() => setAccountManagementOpen(true)}
+          onManageAccounts={openAccountManagement}
           collapsed={folderPaneCollapsed}
         />
         <MailboxPane
@@ -258,13 +255,6 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           </Stack>
         </Alert>
       ) : null}
-      <AccountManagementDialog
-        open={accountManagementOpen}
-        onOpenChange={setAccountManagementOpen}
-        accounts={accounts}
-        selectedAccountId={selectedAccountId}
-        onSelectedAccountChange={selectAccount}
-      />
     </AppShell>
   );
 }

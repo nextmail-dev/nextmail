@@ -312,12 +312,14 @@ mod tests {
 
         write_json_atomic(&path, &preferences, "write_failed").expect("write preferences");
         let mut updated = preferences.clone();
+        updated.theme = crate::domain::ThemePreference::System;
         updated.accent_color = "#7c3aed".to_owned();
         write_json_atomic(&path, &updated, "write_failed").expect("replace preferences");
         let loaded: AppearancePreferences = read_optional_json(&path, "read_failed")
             .expect("read preferences")
             .expect("preferences exist");
 
+        assert_eq!(loaded.theme, crate::domain::ThemePreference::System);
         assert_eq!(loaded.accent_color, updated.accent_color);
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }

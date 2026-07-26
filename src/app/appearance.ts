@@ -9,7 +9,7 @@ import type { AppearancePreferences } from "./types";
 export const appearanceQueryKey = ["preferences"] as const;
 
 export const defaultPreferences: AppearancePreferences = {
-  theme: "system",
+  theme: "light",
   accentColor: "#2563eb",
   language: "zh-CN",
 };

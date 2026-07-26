@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/card";
 import { Modal } from "@/components/ui/dialog";
 import { Inline, Stack } from "@/components/ui/layout";
+import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SelectField } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -145,27 +146,30 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
         title={t("notifications.folderTitle", { account: folderAccount?.displayName || folderAccount?.email || "" })}
         closeLabel={t("common.close")}
       >
-        <Stack
-          className="is-scrolling mt-5 max-h-[65vh] overflow-y-scroll pr-2 [scrollbar-gutter:stable]"
-          gap="sm"
+        <OverlayScrollArea
+          intrinsic
+          className="mt-5 max-h-[65vh]"
+          viewportClassName="pr-3"
         >
-          <Text>{t("notifications.folderDescription")}</Text>
-          {mailboxesQuery.isPending ? <Stack className="items-center py-6"><Spinner size={22} /></Stack> : null}
-          {(mailboxesQuery.data ?? []).filter((mailbox) => mailbox.selectable).map((mailbox) => (
-            <Inline key={mailbox.id} className="justify-between rounded-md bg-muted/60 px-3 py-2.5">
-              <Stack gap="xs">
-                <LabelText>{mailbox.name}</LabelText>
-                <Text className="text-xs">{t(`mailboxNames.${mailbox.role}`, { defaultValue: mailbox.role })}</Text>
-              </Stack>
-              <Switch
-                checked={notificationFolderEnabled(preferences, folderAccountId ?? "", mailbox)}
-                disabled={mutation.isPending}
-                label={t("notifications.folderToggle", { folder: mailbox.name })}
-                onCheckedChange={(enabled) => save(updateFolderSetting(preferences, folderAccountId ?? "", mailbox.id, enabled))}
-              />
-            </Inline>
-          ))}
-        </Stack>
+          <Stack gap="sm">
+            <Text>{t("notifications.folderDescription")}</Text>
+            {mailboxesQuery.isPending ? <Stack className="items-center py-6"><Spinner size={22} /></Stack> : null}
+            {(mailboxesQuery.data ?? []).filter((mailbox) => mailbox.selectable).map((mailbox) => (
+              <Inline key={mailbox.id} className="justify-between rounded-md bg-muted/60 px-3 py-2.5">
+                <Stack gap="xs">
+                  <LabelText>{mailbox.name}</LabelText>
+                  <Text className="text-xs">{t(`mailboxNames.${mailbox.role}`, { defaultValue: mailbox.role })}</Text>
+                </Stack>
+                <Switch
+                  checked={notificationFolderEnabled(preferences, folderAccountId ?? "", mailbox)}
+                  disabled={mutation.isPending}
+                  label={t("notifications.folderToggle", { folder: mailbox.name })}
+                  onCheckedChange={(enabled) => save(updateFolderSetting(preferences, folderAccountId ?? "", mailbox.id, enabled))}
+                />
+              </Inline>
+            ))}
+          </Stack>
+        </OverlayScrollArea>
       </Modal>
     </Stack>
   );

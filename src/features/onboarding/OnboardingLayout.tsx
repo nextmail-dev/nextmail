@@ -44,7 +44,7 @@ export function OnboardingLayout({
           <LanguageSwitcher preferences={preferences} onChange={onPreferencesChange} />
         </Surface>
       </Page>
-      <OverlayScrollArea alwaysVisible className="min-h-0 bg-background" viewportClassName="pr-3">
+      <OverlayScrollArea className="min-h-0 bg-background" viewportClassName="pr-3">
         <Page className="min-h-full px-[clamp(44px,7vw,104px)] pt-[calc(var(--titlebar-height)+clamp(42px,7vh,76px))] pb-[clamp(42px,7vh,76px)]">
           {children}
         </Page>

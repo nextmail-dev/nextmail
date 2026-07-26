@@ -46,6 +46,7 @@ vi.mock("@/app/api", () => ({
       size: 2048,
       availability: "available",
     }),
+    openRawMessageWindow: vi.fn().mockResolvedValue(undefined),
   },
   normalizeCommandError: vi.fn(() => ({
     code: "common.unexpected_error",
@@ -108,5 +109,33 @@ describe("MessageViewer", () => {
         queryKey: messageQueryKeys.detail("account-one", "inbox", "message-one"),
       });
     });
+  });
+
+  it("opens message source in the independent raw-message window", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageViewer
+          accountId="account-one"
+          mailboxId="inbox"
+          messageId="message-one"
+          mailboxes={[]}
+          onMessageRemoved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "More actions" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "View message source" }));
+
+    await waitFor(() => {
+      expect(api.openRawMessageWindow).toHaveBeenCalledWith("account-one", "message-one");
+    });
+    expect(screen.queryByRole("dialog", { name: "Message source" })).not.toBeInTheDocument();
   });
 });

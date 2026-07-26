@@ -5,7 +5,7 @@
 - `technical-reference.md`：当前已经实现的能力、技术栈、模块、Command/Event、数据、同步、发件、安全与已知限制。
 - `architecture.md`：当前有效的模块、存储、安全、同步、窗口和设计系统边界。
 - `development.md`：环境、命令、测试、渐进交付、代码边界与文档维护规范。
-- `plans/master-plan.md`：产品目标、技术基线、十四阶段总体路线与未排期设想。
+- `plans/master-plan.md`：产品目标、技术基线、十七阶段总体路线与未排期设想。
 - `iterations/`：每个实施阶段的范围、当前状态、自动验证与手动验收；后续阶段计划统一在此维护。
 - `iterations/0002-imap-local-reading.md`：第二阶段计划、当前实现结果与待确认差异。
 - `iterations/0003-compose-drafts-smtp.md`：第三阶段写信、草稿与 SMTP 发件实施计划与验收。
@@ -22,6 +22,7 @@
 - `iterations/0014-sync-and-composer-experience-corrections.md`：第十四阶段同步呈现、后台同步互斥、设置高亮及 Composer 图片/富文本粘贴修正。
 - `iterations/0015-header-first-sync-and-logging.md`：第十五阶段头部优先同步、按需正文、日志、超时、断点续传和待办状态修正。
 - `iterations/0016-repository-decoupling-and-robustness.md`：第十六阶段全局诊断、账户级 IMAP 会话协调与大型模块拆分。
+- `iterations/0017-ui-visual-and-window-experience.md`：第十七阶段统一覆盖式自绘滚动条、独立账户/原文窗口与工作区视觉体验修正。
 - `changes/`：按实施批次记录已经发生的功能和架构变动。
 - `changes/0005-message-and-mailbox-encoding.md`：邮件多字符集、IMAP 文件夹名和旧缓存重建说明。
 - `changes/0006-rfc2047-robustness.md`：完整 RFC 2047 encoded-word、安全降级和回归语料。
@@ -71,6 +72,7 @@
 - `changes/0050-sync-and-rich-paste-corrections.md`：显式账户同步调度、真实逐封本地刷新、后台收信互斥、设置主题高亮及 Composer 安全富文本粘贴修正。
 - `changes/0051-header-first-sync-logging-and-imap-timeout.md`：头部优先同步、按需正文、全局日志、IMAP 超时、并发抓取、断点续传与待办操作修正。
 - `changes/0052-repository-decoupling-and-robustness.md`：全局错误观测、账户级有界 IMAP 会话与大型 Rust 模块职责拆分。
+- `changes/0053-ui-visual-and-window-experience.md`：统一覆盖式自绘滚动条、账户管理/原始邮件独立窗口与第十七阶段视觉体验修正。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。

@@ -87,10 +87,9 @@ describe("NotificationSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Manage notification folders for Alice" }));
     expect(await screen.findByRole("switch", { name: "Notifications for Inbox" })).toBeChecked();
     const archiveSwitch = screen.getByRole("switch", { name: "Notifications for Archive" });
-    expect(archiveSwitch.closest(".overflow-y-scroll")).toHaveClass(
-      "is-scrolling",
-      "[scrollbar-gutter:stable]",
-    );
+    const folderViewport = archiveSwitch.closest(".native-scrollbar-hidden");
+    expect(folderViewport).toBeInTheDocument();
+    expect(folderViewport?.parentElement).toHaveAttribute("data-scrollbar-auto-hide", "false");
     expect(archiveSwitch).not.toBeChecked();
     fireEvent.click(archiveSwitch);
     await waitFor(() => {

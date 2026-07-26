@@ -32,6 +32,12 @@ const ComposerApp = lazy(() =>
 const SettingsApp = lazy(() =>
   import("@/features/preferences/SettingsApp").then((module) => ({ default: module.SettingsApp })),
 );
+const AccountManagementApp = lazy(() =>
+  import("@/features/accounts/AccountManagementApp").then((module) => ({ default: module.AccountManagementApp })),
+);
+const RawMessageApp = lazy(() =>
+  import("@/features/mail/RawMessageApp").then((module) => ({ default: module.RawMessageApp })),
+);
 const NotificationApp = lazy(() =>
   import("@/features/notifications/NotificationApp").then((module) => ({ default: module.NotificationApp })),
 );
@@ -46,9 +52,12 @@ export function App() {
   const params = new URLSearchParams(window.location.search);
   const composer = params.get("window") === "composer";
   const settings = params.get("window") === "settings";
+  const accountManagement = params.get("window") === "accounts";
+  const rawMessage = params.get("window") === "raw-message";
   const notification = params.get("window") === "notification";
   const notificationId = params.get("notificationId") ?? "";
   const accountId = params.get("accountId") ?? "";
+  const messageId = params.get("messageId") ?? "";
   const draftId = params.get("draftId") ?? "";
   if (notification && notificationId) {
     return (
@@ -60,30 +69,60 @@ export function App() {
       </QueryClientProvider>
     );
   }
-  const kind: WindowKind = composer ? "composer" : settings ? "settings" : "main";
+  const kind: WindowKind = composer
+    ? "composer"
+    : settings
+      ? "settings"
+      : accountManagement
+        ? "accounts"
+        : rawMessage
+          ? "raw-message"
+          : "main";
+  const windowContent = composer && accountId && draftId
+    ? <ComposerApp accountId={accountId} draftId={draftId} />
+    : settings
+      ? <SettingsApp />
+      : accountManagement
+        ? <AccountManagementApp />
+        : rawMessage && accountId && messageId
+          ? <RawMessageApp accountId={accountId} messageId={messageId} />
+          : <AppContent />;
   return (
     <QueryClientProvider client={queryClient}>
-      <WindowTitlebar kind={kind} title={kind === "main" ? "" : "NextMail"} />
       <AppearanceEventBridge />
       <ReadingPreferencesEventBridge />
       <AccountsEventBridge />
-      <ScrollActivityBridge />
-      <div className="h-full pt-[var(--titlebar-height)]">
+      {kind === "main" ? (
+        <WindowFrame kind={kind}>
+          <WindowContentBoundary kind={kind}>
+            {windowContent}
+          </WindowContentBoundary>
+        </WindowFrame>
+      ) : (
         <WindowContentBoundary kind={kind}>
-          {composer && accountId && draftId ? (
-            <Suspense fallback={<AppShell className="grid place-items-center"><Spinner size={24} /></AppShell>}>
-              <ComposerApp accountId={accountId} draftId={draftId} />
-            </Suspense>
-          ) : settings ? (
-            <Suspense fallback={<AppShell className="grid place-items-center"><Spinner size={24} /></AppShell>}>
-              <SettingsApp />
-            </Suspense>
-          ) : (
-            <AppContent />
-          )}
+          <Suspense fallback={<AppShell className="grid place-items-center bg-card"><Spinner size={24} /></AppShell>}>
+            <WindowFrame kind={kind}>{windowContent}</WindowFrame>
+          </Suspense>
         </WindowContentBoundary>
-      </div>
+      )}
     </QueryClientProvider>
+  );
+}
+
+function WindowFrame({ kind, children }: { kind: WindowKind; children: ReactNode }) {
+  const { t } = useTranslation();
+  const title = kind === "main"
+    ? ""
+    : kind === "accounts"
+      ? t("accounts.title")
+      : kind === "raw-message"
+        ? t("mail.sourceTitle")
+        : "NextMail";
+  return (
+    <>
+      <WindowTitlebar kind={kind} title={title} />
+      <div className="h-full pt-[var(--titlebar-height)]">{children}</div>
+    </>
   );
 }
 
@@ -106,7 +145,9 @@ class WindowContentBoundary extends Component<
 
   private closeWindow = () => {
     const appWindow = getCurrentWindow();
-    void (this.props.kind === "settings" ? appWindow.destroy() : appWindow.close());
+    void (["settings", "accounts", "raw-message"].includes(this.props.kind)
+      ? appWindow.destroy()
+      : appWindow.close());
   };
 
   render() {
@@ -156,34 +197,6 @@ function AccountsEventBridge() {
       void runtime.then((dispose) => dispose());
     };
   }, [queryCache]);
-  return null;
-}
-
-function ScrollActivityBridge() {
-  useEffect(() => {
-    const timers = new Map<Element, number>();
-    const markActive = (event: Event) => {
-      const target = event.target instanceof Element
-        ? event.target
-        : document.scrollingElement;
-      if (!target) return;
-      target.classList.add("is-scrolling");
-      const previous = timers.get(target);
-      if (previous !== undefined) window.clearTimeout(previous);
-      timers.set(target, window.setTimeout(() => {
-        target.classList.remove("is-scrolling");
-        timers.delete(target);
-      }, 700));
-    };
-    window.addEventListener("scroll", markActive, true);
-    return () => {
-      window.removeEventListener("scroll", markActive, true);
-      timers.forEach((timer, target) => {
-        window.clearTimeout(timer);
-        target.classList.remove("is-scrolling");
-      });
-    };
-  }, []);
   return null;
 }
 

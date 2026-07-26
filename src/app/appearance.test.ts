@@ -7,6 +7,10 @@ describe("appearance preferences", () => {
     document.documentElement.removeAttribute("style");
   });
 
+  it("uses the light theme before persisted preferences are available", () => {
+    expect(defaultPreferences.theme).toBe("light");
+  });
+
   it("applies the selected theme and accent as document tokens", () => {
     applyAppearance({
       ...defaultPreferences,

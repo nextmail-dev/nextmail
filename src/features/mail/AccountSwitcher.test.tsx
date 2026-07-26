@@ -71,6 +71,27 @@ describe("AccountSwitcher", () => {
     expect(screen.getByText("alice@example.com")).toBeInTheDocument();
     expect(screen.queryByText("Synchronizing")).not.toBeInTheDocument();
   });
+
+  it("allows long account names and addresses to wrap without losing width to the chevron", () => {
+    renderSwitcher([{
+      id: "one",
+      email: "a-very-long-address@example-corporate-domain.com",
+      displayName: "A very long account display name",
+    }]);
+
+    expect(screen.getByText("A very long account display name")).toHaveClass(
+      "break-words",
+      "whitespace-normal",
+    );
+    expect(screen.getByText("a-very-long-address@example-corporate-domain.com")).toHaveClass(
+      "break-all",
+      "whitespace-normal",
+    );
+    expect(screen.getByRole("button", { name: "Open account menu" })).toHaveClass(
+      "w-full",
+      "overflow-hidden",
+    );
+  });
 });
 
 function renderSwitcher(accounts: AccountSummary[], onManageAccounts = vi.fn()) {

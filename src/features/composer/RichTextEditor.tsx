@@ -26,6 +26,7 @@ import { useTranslation } from "react-i18next";
 import type { DraftAttachmentSummary, DraftContent } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { Inline, Page } from "@/components/ui/layout";
+import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SelectField } from "@/components/ui/select";
 import {
   DropdownMenu,
@@ -375,10 +376,15 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           </Page>
         </Page>
       ) : (
-        <EditorContent
-          editor={editor}
-          className="nextmail-editor-scroll min-h-0 flex-1 overflow-x-auto overflow-y-scroll"
-        />
+        <OverlayScrollArea
+          className="min-h-0 flex-1"
+          viewportClassName="pr-3"
+        >
+          <EditorContent
+            editor={editor}
+            className="min-h-full min-w-0 flex-1 overflow-x-auto"
+          />
+        </OverlayScrollArea>
       )}
     </Page>
   );

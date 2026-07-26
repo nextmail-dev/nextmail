@@ -57,7 +57,7 @@ pub struct AppearancePreferences {
 impl Default for AppearancePreferences {
     fn default() -> Self {
         Self {
-            theme: ThemePreference::System,
+            theme: ThemePreference::Light,
             accent_color: "#2563eb".to_owned(),
             language: LanguagePreference::ZhCn,
         }
@@ -817,8 +817,17 @@ pub struct SendJobSummary {
 #[cfg(test)]
 mod tests {
     use super::{
-        LanguagePreference, NotificationFolderSetting, NotificationPreferences, SyncInterval,
+        AppearancePreferences, LanguagePreference, NotificationFolderSetting,
+        NotificationPreferences, SyncInterval, ThemePreference,
     };
+
+    #[test]
+    fn appearance_preferences_default_to_light() {
+        assert_eq!(
+            AppearancePreferences::default().theme,
+            ThemePreference::Light
+        );
+    }
 
     #[test]
     fn uses_bcp_47_tags_and_accepts_legacy_lowercase_values() {
