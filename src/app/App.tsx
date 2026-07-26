@@ -6,6 +6,7 @@ import { AlertTriangle, Mail } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import i18n from "./i18n";
 import { api, normalizeCommandError } from "./api";
+import { reportCaughtError } from "./errorReporting";
 import {
   useAppearanceEventBridge,
   useAppearancePreferences,
@@ -97,7 +98,10 @@ class WindowContentBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("NextMail window content failed to render", error, info);
+    reportCaughtError(
+      `react.error-boundary.${this.props.kind}`,
+      new Error(`${error.message}\n${info.componentStack ?? ""}`),
+    );
   }
 
   private closeWindow = () => {

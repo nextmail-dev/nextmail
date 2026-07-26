@@ -147,7 +147,15 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
         .center()
         .visible(false)
         .on_new_window(move |url, _features| {
-            let _ = open_external_mail_target(external_link_opener.as_ref(), url.as_str());
+            if let Err(error) =
+                open_external_mail_target(external_link_opener.as_ref(), url.as_str())
+            {
+                tracing::warn!(
+                    code = %error.code,
+                    retryable = error.retryable,
+                    "external mail link opening failed"
+                );
+            }
             tauri::webview::NewWindowResponse::Deny
         })
         .build()?;

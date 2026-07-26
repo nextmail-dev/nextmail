@@ -51,7 +51,7 @@ impl AppState {
         let mail = Arc::new(MailRuntime::new(
             app.clone(),
             Arc::clone(&service),
-            Arc::new(AsyncImapProvider),
+            Arc::new(AsyncImapProvider::default()),
             Arc::new(SqliteMailRepositoryProvider),
             Arc::new(SystemAttachmentOpener),
             Arc::clone(&notifications),

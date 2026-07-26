@@ -1,52 +1,36 @@
+mod connection;
 mod encoding;
 mod parse;
+mod provider;
 mod session;
+mod session_budget;
 mod timeout;
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 
 pub use encoding::decode_modified_utf7;
 use encoding::{mailbox_leaf_display_name, mailbox_role};
 use parse::{message_flag_state, parse_message_in_background, MessageParseInput};
-use session::{
-    append_message_session, apply_operation_session, fetch_message_session, replace_draft_session,
-};
-use timeout::TimeoutStream;
+pub use provider::AsyncImapProvider;
 
-use super::native_tls_connector;
 use crate::core::{
-    CommandError, CommandResult, ConnectionSecurity, ContentAvailability, ImapAccountConfig,
-    ImapSyncProvider, MailSyncSink, MailboxRole, MessageListItem, RemoteMailbox, RemoteMessage,
-    RemoteMessageState, RemoteOperation, RemoteOperationOutcome, StoredMailbox, SyncNotice,
+    CommandError, CommandResult, ContentAvailability, ImapAccountConfig, MailSyncSink, MailboxRole,
+    MessageListItem, RemoteMailbox, RemoteMessage, RemoteMessageState, StoredMailbox, SyncNotice,
     SyncObserver,
 };
 use async_imap::{
     types::{Flag, NameAttribute},
     Session,
 };
-use async_trait::async_trait;
-use futures_util::future::{join_all, try_join_all};
+use futures_util::future::join_all;
 use futures_util::TryStreamExt;
-use rustls::pki_types::ServerName;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    net::TcpStream,
     sync::Mutex,
 };
 
 const FETCH_BATCH_SIZE: usize = 1;
-// Per-read/write budget for IMAP I/O. Resets on each chunk of progress, so a
-// large body that is actively streaming never trips it; only a stalled
-// connection fails after this many seconds of silence.
-const IMAP_IO_TIMEOUT: Duration = Duration::from_secs(60);
-const IMAP_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
-// Concurrent IMAP sessions used to fetch within a single folder. Each worker
-// owns its own connection and a disjoint slice of UIDs. Kept small to stay
-// within typical per-account connection limits and the 4-connection SQLite pool.
-const SYNC_WORKER_COUNT: usize = 3;
-
 struct FetchedMessageSummary {
     uid: u32,
     received_at: i64,
@@ -71,136 +55,6 @@ struct FolderDescriptor {
     delimiter: Option<String>,
     role: MailboxRole,
     selectable: bool,
-}
-
-#[derive(Default)]
-pub struct AsyncImapProvider;
-
-trait ImapTransport: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send {}
-
-impl<T> ImapTransport for T where T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send {}
-
-type BoxedImapTransport = Box<dyn ImapTransport>;
-
-#[async_trait]
-impl ImapSyncProvider for AsyncImapProvider {
-    async fn synchronize(
-        &self,
-        account: &ImapAccountConfig,
-        sink: &(dyn MailSyncSink + Send + Sync),
-        observer: &(dyn SyncObserver + Send + Sync),
-    ) -> CommandResult<()> {
-        // Open a small pool of sessions up front so they can be reused across
-        // every folder (amortizing login) and dispatched concurrently within a
-        // folder for parallel header/body fetches.
-        let pool = try_join_all((0..SYNC_WORKER_COUNT).map(|_| connect_session(account))).await?;
-        sync_session(pool, account, sink, observer).await
-    }
-
-    async fn fetch_message(
-        &self,
-        account: &ImapAccountConfig,
-        mailbox_name: &str,
-        uid: u32,
-        expected_uid_validity: u32,
-    ) -> CommandResult<RemoteMessage> {
-        fetch_message_session(
-            connect_session(account).await?,
-            mailbox_name,
-            uid,
-            expected_uid_validity,
-        )
-        .await
-    }
-
-    async fn apply_operation(
-        &self,
-        account: &ImapAccountConfig,
-        operation: &RemoteOperation,
-    ) -> CommandResult<RemoteOperationOutcome> {
-        apply_operation_session(connect_session(account).await?, operation).await
-    }
-
-    async fn append_message(
-        &self,
-        account: &ImapAccountConfig,
-        mailbox_name: &str,
-        flags: &str,
-        raw: &[u8],
-    ) -> CommandResult<()> {
-        append_message_session(connect_session(account).await?, mailbox_name, flags, raw).await
-    }
-
-    async fn replace_draft(
-        &self,
-        account: &ImapAccountConfig,
-        mailbox_name: &str,
-        draft_id: &str,
-        raw: &[u8],
-    ) -> CommandResult<RemoteOperationOutcome> {
-        replace_draft_session(connect_session(account).await?, mailbox_name, draft_id, raw).await
-    }
-}
-
-async fn connect_session(
-    account: &ImapAccountConfig,
-) -> CommandResult<Session<BoxedImapTransport>> {
-    let stream = tokio::time::timeout(
-        IMAP_CONNECT_TIMEOUT,
-        TcpStream::connect((account.host.as_str(), account.port)),
-    )
-    .await
-    .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?
-    .map_err(map_imap_err("sync.imap_connection_failed", true))?;
-    let transport: BoxedImapTransport = match account.security {
-        ConnectionSecurity::None => Box::new(TimeoutStream::new(stream, IMAP_IO_TIMEOUT)),
-        ConnectionSecurity::Tls => Box::new(TimeoutStream::new(
-            connect_tls(&account.host, stream).await?,
-            IMAP_IO_TIMEOUT,
-        )),
-        ConnectionSecurity::StartTls => {
-            let mut client = async_imap::Client::new(stream);
-            read_greeting(&mut client).await?;
-            client
-                .run_command_and_check_ok("STARTTLS", None)
-                .await
-                .map_err(map_imap_err("sync.imap_starttls_failed", false))?;
-            Box::new(TimeoutStream::new(
-                connect_tls(&account.host, client.into_inner()).await?,
-                IMAP_IO_TIMEOUT,
-            ))
-        }
-    };
-    let mut client = async_imap::Client::new(transport);
-    if account.security != ConnectionSecurity::StartTls {
-        read_greeting(&mut client).await?;
-    }
-    login(client, account).await
-}
-
-async fn read_greeting<T>(client: &mut async_imap::Client<T>) -> CommandResult<()>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    client
-        .read_response()
-        .await
-        .map_err(map_imap_err("sync.imap_greeting_failed", false))?
-        .ok_or_else(|| CommandError::new("sync.imap_greeting_failed"))?;
-    Ok(())
-}
-
-async fn login<T>(
-    client: async_imap::Client<T>,
-    account: &ImapAccountConfig,
-) -> CommandResult<Session<T>>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    client
-        .login(&account.username, &account.password)
-        .await
-        .map_err(map_imap_err("sync.imap_authentication_failed", false))
 }
 
 async fn sync_session<T>(
@@ -640,18 +494,6 @@ fn map_imap_err<E: std::fmt::Debug>(
             CommandError::new(code)
         }
     }
-}
-
-async fn connect_tls(
-    host: &str,
-    stream: TcpStream,
-) -> CommandResult<tokio_rustls::client::TlsStream<TcpStream>> {
-    let server_name = ServerName::try_from(host.to_owned())
-        .map_err(map_imap_err("sync.server_name_invalid", false))?;
-    native_tls_connector("sync.system_certificates_unavailable")?
-        .connect(server_name, stream)
-        .await
-        .map_err(map_imap_err("sync.imap_tls_failed", true))
 }
 
 #[cfg(test)]

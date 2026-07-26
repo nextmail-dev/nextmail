@@ -7,6 +7,7 @@ import type {
   MessageListPage,
   NotificationNavigationTarget,
 } from "@/app/types";
+import { reportCaughtError } from "@/app/errorReporting";
 import { mailQueryKeys, messageQueryKeys } from "../mail-query-keys";
 
 interface SentNotice {
@@ -106,7 +107,7 @@ export function useMailRuntimeEvents({
           if (disposed) unlisten();
           else unlisteners.push(unlisten);
         })
-        .catch(() => undefined)
+        .catch((error) => reportCaughtError(`event.listen.${eventName}`, error))
     );
 
     // Coalesce rapid message-arrived events (a sync with several workers fires
@@ -144,7 +145,9 @@ export function useMailRuntimeEvents({
           void (async () => {
             while (queue.pending > 0) {
               queue.pending -= 1;
-              await queryClient.refetchQueries({ queryKey, exact: true, type: "active" }).catch(() => undefined);
+              await queryClient
+                .refetchQueries({ queryKey, exact: true, type: "active" })
+                .catch((error) => reportCaughtError("mailbox.active-refetch", error));
             }
             queue.running = false;
             mailboxRefreshQueuesRef.current.delete(queueId);

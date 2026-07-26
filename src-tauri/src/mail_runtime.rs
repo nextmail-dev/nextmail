@@ -1,3 +1,9 @@
+mod content;
+mod operations;
+mod runtime_support;
+
+use runtime_support::*;
+
 use std::{
     collections::HashMap,
     sync::{
@@ -9,19 +15,16 @@ use std::{
 
 use crate::core::{
     AccountManagementDetail, AccountRemovalImpact, AccountRuntimeState, AccountRuntimeSummary,
-    AttachmentSummary, CommandError, CommandResult, ImapAccountConfig, ImapSyncProvider,
-    MailSyncSink, MailboxRole, MailboxSummary, MessageDetail, MessageListItem, MessageListPage,
-    NewMailCandidate, NotificationNavigationTarget, PendingOperationKind, PendingOperationSummary,
-    RemoteOperation, RemoteOperationKind, RemoteOperationOutcome, SyncInterval, SyncNotice,
-    SyncObserver, SyncPhase, SyncProgress,
+    CommandError, CommandResult, ImapAccountConfig, ImapSyncProvider, MailSyncSink, MailboxRole,
+    MailboxSummary, MessageDetail, MessageListPage, NewMailCandidate, NotificationNavigationTarget,
+    PendingOperationKind, RemoteOperation, RemoteOperationKind, SyncInterval, SyncPhase,
+    SyncProgress,
 };
 use crate::storage::{MailRepository, MailRepositoryProvider, PendingOperationWork};
-use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_dialog::DialogExt;
-use tokio::sync::{Notify, OnceCell, Semaphore};
+use tokio::sync::{OnceCell, Semaphore};
 
-use crate::adapters::{open_prepared_attachment, AttachmentOpener};
+use crate::adapters::AttachmentOpener;
 use crate::application::AppService;
 use crate::notification_runtime::NotificationRuntime;
 
@@ -244,17 +247,31 @@ impl MailRuntime {
                 supervisor.wake.notified().await;
                 continue;
             };
-            let _ = self
+            if let Err(error) = self
                 .recovery
                 .get_or_try_init(|| async {
                     repository.operations().recover_pending_operations().await
                 })
-                .await;
+                .await
+            {
+                tracing::warn!(
+                    %account_id,
+                    code = %error.code,
+                    "pending operation recovery failed"
+                );
+            }
 
             if !startup_sync_attempted {
-                let _ = self
+                if let Err(error) = self
                     .run_sync(&account_id, supervisor.generation, true)
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        %account_id,
+                        code = %error.code,
+                        "startup sync ended with an error"
+                    );
+                }
                 if supervisor.stopped.load(Ordering::Acquire)
                     || !self.is_current_supervisor(&account_id, supervisor.generation)
                 {
@@ -267,9 +284,16 @@ impl MailRuntime {
                 supervisor
                     .pending_operations_requested
                     .store(false, Ordering::Release);
-                let _ = self
+                if let Err(error) = self
                     .drain_pending_operations(&account_id, supervisor.generation)
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        %account_id,
+                        code = %error.code,
+                        "startup pending operation drain failed"
+                    );
+                }
                 continue;
             }
 
@@ -295,9 +319,17 @@ impl MailRuntime {
                 .swap(false, Ordering::AcqRel);
             let should_sync = manual || wake == SupervisorWake::Periodic;
             if should_sync {
-                let _ = self
+                if let Err(error) = self
                     .run_sync(&account_id, supervisor.generation, manual)
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        %account_id,
+                        code = %error.code,
+                        manual,
+                        "scheduled sync ended with an error"
+                    );
+                }
                 if supervisor.stopped.load(Ordering::Acquire)
                     || !self.is_current_supervisor(&account_id, supervisor.generation)
                 {
@@ -306,9 +338,16 @@ impl MailRuntime {
             }
 
             if pending_operations || should_sync {
-                let _ = self
+                if let Err(error) = self
                     .drain_pending_operations(&account_id, supervisor.generation)
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        %account_id,
+                        code = %error.code,
+                        "pending operation drain failed"
+                    );
+                }
             }
         }
         if self.is_current_supervisor(&supervisor.account_id, supervisor.generation) {
@@ -469,479 +508,6 @@ impl MailRuntime {
         Ok(())
     }
 
-    pub async fn set_message_read(
-        &self,
-        account_id: &str,
-        mailbox_id: &str,
-        message_ids: &[String],
-        read: bool,
-    ) -> CommandResult<()> {
-        self.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        self.repository()
-            .await?
-            .operations()
-            .queue_set_read(&account.data_slot_id, mailbox_id, message_ids, read)
-            .await?;
-        self.emit_local_change(account_id, mailbox_id, message_ids);
-        self.request_pending_operations(account_id);
-        Ok(())
-    }
-
-    pub async fn set_message_flagged(
-        &self,
-        account_id: &str,
-        mailbox_id: &str,
-        message_ids: &[String],
-        flagged: bool,
-    ) -> CommandResult<()> {
-        self.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        self.repository()
-            .await?
-            .operations()
-            .queue_set_flagged(&account.data_slot_id, mailbox_id, message_ids, flagged)
-            .await?;
-        self.emit_local_change(account_id, mailbox_id, message_ids);
-        self.request_pending_operations(account_id);
-        Ok(())
-    }
-
-    pub async fn transfer_messages(
-        &self,
-        account_id: &str,
-        source_mailbox_id: &str,
-        destination_mailbox_id: &str,
-        message_ids: &[String],
-        copy: bool,
-    ) -> CommandResult<()> {
-        self.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        self.repository()
-            .await?
-            .operations()
-            .queue_transfer(
-                &account.data_slot_id,
-                source_mailbox_id,
-                destination_mailbox_id,
-                message_ids,
-                copy,
-            )
-            .await?;
-        self.emit_local_change(account_id, source_mailbox_id, message_ids);
-        self.request_pending_operations(account_id);
-        Ok(())
-    }
-
-    pub async fn delete_messages(
-        &self,
-        account_id: &str,
-        source_mailbox_id: &str,
-        message_ids: &[String],
-    ) -> CommandResult<()> {
-        self.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        let repository = self.repository().await?;
-        let role = repository
-            .mailbox_roles()
-            .mailbox_role_for_id(&account.data_slot_id, source_mailbox_id)
-            .await?;
-        if role == MailboxRole::Trash {
-            repository
-                .operations()
-                .queue_permanent_delete(&account.data_slot_id, source_mailbox_id, message_ids)
-                .await?;
-        } else {
-            let (trash_id, _) = repository
-                .mailbox_roles()
-                .mailbox_for_role(&account.data_slot_id, MailboxRole::Trash)
-                .await?
-                .ok_or_else(|| CommandError::new("mailbox.trash_not_mapped"))?;
-            repository
-                .operations()
-                .queue_transfer(
-                    &account.data_slot_id,
-                    source_mailbox_id,
-                    &trash_id,
-                    message_ids,
-                    false,
-                )
-                .await?;
-        }
-        self.emit_local_change(account_id, source_mailbox_id, message_ids);
-        self.request_pending_operations(account_id);
-        Ok(())
-    }
-
-    pub async fn archive_messages(
-        &self,
-        account_id: &str,
-        source_mailbox_id: &str,
-        message_ids: &[String],
-    ) -> CommandResult<()> {
-        self.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        let repository = self.repository().await?;
-        let (archive_id, _) = repository
-            .mailbox_roles()
-            .mailbox_for_role(&account.data_slot_id, MailboxRole::Archive)
-            .await?
-            .ok_or_else(|| CommandError::new("mailbox.archive_not_mapped"))?;
-        repository
-            .operations()
-            .queue_transfer(
-                &account.data_slot_id,
-                source_mailbox_id,
-                &archive_id,
-                message_ids,
-                false,
-            )
-            .await?;
-        self.emit_local_change(account_id, source_mailbox_id, message_ids);
-        self.request_pending_operations(account_id);
-        Ok(())
-    }
-
-    pub async fn set_mailbox_role_mapping(
-        &self,
-        account_id: &str,
-        role: MailboxRole,
-        mailbox_id: Option<&str>,
-    ) -> CommandResult<()> {
-        self.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        self.repository()
-            .await?
-            .mailbox_roles()
-            .set_mailbox_role_mapping(&account.data_slot_id, role, mailbox_id)
-            .await?;
-        self.emit_mailbox_change(account_id, mailbox_id.unwrap_or_default(), 0);
-        Ok(())
-    }
-
-    pub async fn list_pending_operation_status(
-        &self,
-        account_id: &str,
-    ) -> CommandResult<Vec<PendingOperationSummary>> {
-        let account = self.service.account_record(account_id)?;
-        self.repository()
-            .await?
-            .operations()
-            .list_pending_operation_status(account_id, &account.data_slot_id)
-            .await
-    }
-
-    pub async fn retry_pending_operation(
-        &self,
-        account_id: &str,
-        operation_id: &str,
-    ) -> CommandResult<()> {
-        self.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        self.repository()
-            .await?
-            .operations()
-            .retry_pending_operation(&account.data_slot_id, operation_id)
-            .await?;
-        self.request_pending_operations(account_id);
-        Ok(())
-    }
-
-    pub async fn request_raw_message(
-        &self,
-        account_id: &str,
-        message_id: &str,
-    ) -> CommandResult<String> {
-        let account = self.service.account_record(account_id)?;
-        let repository = Arc::clone(self.repository().await?);
-        let raw = match repository
-            .read()
-            .raw_message(&account.data_slot_id, message_id)
-            .await?
-        {
-            Some(raw) => raw,
-            None => {
-                self.fetch_and_store_message(&account.id, message_id)
-                    .await?;
-                repository
-                    .read()
-                    .raw_message(&account.data_slot_id, message_id)
-                    .await?
-                    .ok_or_else(|| CommandError::new("message.raw_unavailable"))?
-            }
-        };
-        Ok(String::from_utf8_lossy(&raw).into_owned())
-    }
-
-    pub async fn request_message_body(
-        &self,
-        account_id: &str,
-        message_id: &str,
-        mailbox_id: Option<&str>,
-    ) -> CommandResult<MessageDetail> {
-        self.request_message_body_inner(account_id, message_id, mailbox_id, false)
-            .await
-    }
-
-    pub async fn request_message_body_with_progress(
-        &self,
-        account_id: &str,
-        message_id: &str,
-        mailbox_id: Option<&str>,
-    ) -> CommandResult<MessageDetail> {
-        self.request_message_body_inner(account_id, message_id, mailbox_id, true)
-            .await
-    }
-
-    async fn request_message_body_inner(
-        &self,
-        account_id: &str,
-        message_id: &str,
-        mailbox_id: Option<&str>,
-        emit_progress: bool,
-    ) -> CommandResult<MessageDetail> {
-        if emit_progress {
-            self.emit_message_body_progress(account_id, message_id, "preparing", 5);
-        }
-        let account = self.service.account_record(account_id)?;
-        let repository = Arc::clone(self.repository().await?);
-        if let Some(raw) = repository
-            .read()
-            .raw_message(&account.data_slot_id, message_id)
-            .await?
-        {
-            if emit_progress {
-                self.emit_message_body_progress(account_id, message_id, "processing", 55);
-            }
-            let body = tokio::task::spawn_blocking(move || {
-                crate::protocols::sanitize_raw_message_body(&raw)
-            })
-            .await
-            .map_err(|_| CommandError::new("message.mime_parse_failed"))?;
-            if let Some(body) = body {
-                repository
-                    .sync_sink()
-                    .replace_message_body(
-                        &account.data_slot_id,
-                        message_id,
-                        body.plain_text.as_deref(),
-                        body.safe_html.as_deref(),
-                        body.remote_images_blocked,
-                    )
-                    .await?;
-                if emit_progress {
-                    self.emit_message_body_progress(account_id, message_id, "updating", 90);
-                }
-                let detail = repository
-                    .read()
-                    .get_message_detail(&account.data_slot_id, message_id, mailbox_id)
-                    .await?;
-                let _ = self.app.emit(
-                    "message-content-changed",
-                    MessageContentChangedEvent {
-                        account_id: account_id.to_owned(),
-                        message_id: message_id.to_owned(),
-                        revision: detail.revision,
-                    },
-                );
-                if emit_progress {
-                    self.emit_message_body_progress(account_id, message_id, "complete", 100);
-                }
-                return Ok(detail);
-            }
-        }
-        if emit_progress {
-            self.emit_message_body_progress(account_id, message_id, "downloading", 20);
-        }
-        self.fetch_and_store_message(account_id, message_id).await?;
-        if emit_progress {
-            self.emit_message_body_progress(account_id, message_id, "updating", 90);
-        }
-        let detail = self
-            .get_message_detail(account_id, message_id, mailbox_id)
-            .await?;
-        if emit_progress {
-            self.emit_message_body_progress(account_id, message_id, "complete", 100);
-        }
-        Ok(detail)
-    }
-
-    fn emit_message_body_progress(
-        &self,
-        account_id: &str,
-        message_id: &str,
-        stage: &'static str,
-        progress: u8,
-    ) {
-        let _ = self.app.emit(
-            "message-body-progress",
-            MessageBodyProgressEvent {
-                account_id: account_id.to_owned(),
-                message_id: message_id.to_owned(),
-                stage,
-                progress,
-            },
-        );
-    }
-
-    pub async fn request_attachment(
-        &self,
-        account_id: &str,
-        attachment_id: &str,
-    ) -> CommandResult<AttachmentSummary> {
-        let account = self.service.account_record(account_id)?;
-        let repository = self.repository().await?;
-        let current = repository
-            .read()
-            .attachment_summary(&account.data_slot_id, attachment_id)
-            .await?;
-        if current.availability == crate::core::ContentAvailability::Available {
-            return Ok(current);
-        }
-        self.ensure_account_writable(account_id)?;
-        let (message_id, part_index) = repository
-            .read()
-            .attachment_context(&account.data_slot_id, attachment_id)
-            .await?;
-        let raw = match repository
-            .read()
-            .raw_message(&account.data_slot_id, &message_id)
-            .await?
-        {
-            Some(raw) => raw,
-            None => {
-                self.fetch_and_store_message(&account.id, &message_id)
-                    .await?;
-                repository
-                    .read()
-                    .raw_message(&account.data_slot_id, &message_id)
-                    .await?
-                    .ok_or_else(|| CommandError::new("message.raw_unavailable"))?
-            }
-        };
-        let content = crate::protocols::extract_attachment(&raw, part_index)?;
-        repository
-            .read()
-            .store_attachment_content(&account.data_slot_id, attachment_id, &content)
-            .await
-    }
-
-    pub async fn open_message_attachment(
-        &self,
-        account_id: &str,
-        attachment_id: &str,
-    ) -> CommandResult<()> {
-        let prepared = self
-            .prepare_message_attachment(account_id, attachment_id)
-            .await?;
-        open_prepared_attachment(self.attachment_opener.as_ref(), &prepared)
-    }
-
-    pub async fn save_message_attachment_as(
-        &self,
-        account_id: &str,
-        attachment_id: &str,
-    ) -> CommandResult<bool> {
-        let prepared = self
-            .prepare_message_attachment(account_id, attachment_id)
-            .await?;
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        self.app
-            .dialog()
-            .file()
-            .set_file_name(&prepared.file_name)
-            .save_file(move |path| {
-                let _ = sender.send(path);
-            });
-        let selected = receiver
-            .await
-            .map_err(|_| CommandError::new("attachment.save_dialog_failed"))?;
-        let Some(selected) = selected else {
-            return Ok(false);
-        };
-        let target = selected
-            .into_path()
-            .map_err(|_| CommandError::new("attachment.save_path_invalid"))?;
-        if target == prepared.path {
-            return Ok(true);
-        }
-        tokio::fs::copy(&prepared.path, target)
-            .await
-            .map_err(|_| CommandError::new("attachment.save_failed"))?;
-        Ok(true)
-    }
-
-    async fn prepare_message_attachment(
-        &self,
-        account_id: &str,
-        attachment_id: &str,
-    ) -> CommandResult<crate::storage::PreparedAttachmentFile> {
-        let account = self.service.account_record(account_id)?;
-        let repository = self.repository().await?;
-        match repository
-            .read()
-            .prepare_attachment_file(&account.data_slot_id, attachment_id)
-            .await
-        {
-            Ok(prepared) => Ok(prepared),
-            Err(error) if error.code == "attachment.content_unavailable" => {
-                self.request_attachment(account_id, attachment_id).await?;
-                repository
-                    .read()
-                    .prepare_attachment_file(&account.data_slot_id, attachment_id)
-                    .await
-            }
-            Err(error) => Err(error),
-        }
-    }
-
-    async fn fetch_and_store_message(
-        &self,
-        account_id: &str,
-        message_id: &str,
-    ) -> CommandResult<()> {
-        self.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        let repository = Arc::clone(self.repository().await?);
-        let context = repository
-            .read()
-            .remote_message_context(&account.data_slot_id, message_id)
-            .await?;
-        let config = self.imap_config(&account.id).await?;
-        let _permit = self
-            .network_limit
-            .acquire()
-            .await
-            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
-        let message = self
-            .provider
-            .fetch_message(
-                &config,
-                &context.mailbox_name,
-                context.uid,
-                context.uid_validity,
-            )
-            .await?;
-        repository
-            .sync_sink()
-            .upsert_message(&account.data_slot_id, &context.mailbox_id, &message)
-            .await?;
-        let revision = repository
-            .read()
-            .get_message_detail(&account.data_slot_id, message_id, Some(&context.mailbox_id))
-            .await?
-            .revision;
-        let _ = self.app.emit(
-            "message-content-changed",
-            MessageContentChangedEvent {
-                account_id: account_id.to_owned(),
-                message_id: message_id.to_owned(),
-                revision,
-            },
-        );
-        Ok(())
-    }
-
     async fn imap_config(&self, account_id: &str) -> CommandResult<ImapAccountConfig> {
         let account = self.service.account_record(account_id)?;
         let password = self
@@ -975,158 +541,6 @@ impl MailRuntime {
                 self.repository_provider.open(&data_dir).await.map(Arc::new)
             })
             .await
-    }
-
-    async fn drain_pending_operations(
-        &self,
-        account_id: &str,
-        generation: u64,
-    ) -> CommandResult<bool> {
-        if !self.is_current_supervisor(account_id, generation) {
-            return Ok(false);
-        }
-        let account = self.service.account_record(account_id)?;
-        let repository = Arc::clone(self.repository().await?);
-        let config = self.imap_config(account_id).await?;
-        let _permit = self
-            .network_limit
-            .acquire()
-            .await
-            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
-        let mut processed = false;
-        while let Some(work) = repository
-            .operations()
-            .claim_pending_operation(&account.data_slot_id)
-            .await?
-        {
-            if !self.is_current_supervisor(account_id, generation) {
-                break;
-            }
-            processed = true;
-            let result = self
-                .run_pending_operation(&repository, &config, &work)
-                .await;
-            match result {
-                Ok(outcome) => {
-                    repository
-                        .operations()
-                        .complete_pending_operation(&work, outcome.cleanup_pending)
-                        .await?;
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        kind = ?work.kind,
-                        uid = ?work.uid,
-                        mailbox = ?work.source_mailbox_name,
-                        attempt = work.attempt_count,
-                        code = %error.code,
-                        retryable = error.retryable,
-                        "pending operation failed"
-                    );
-                    repository
-                        .operations()
-                        .fail_pending_operation(&work, &error.code, error.retryable)
-                        .await?;
-                    self.emit_pending_operation(account_id, &work.id, "failed");
-                    if error.retryable {
-                        break;
-                    }
-                    continue;
-                }
-            }
-            self.emit_pending_operation(account_id, &work.id, "succeeded");
-            if let Some(mailbox_id) = work.source_mailbox_id.as_deref() {
-                self.emit_mailbox_change(account_id, mailbox_id, 0);
-            }
-        }
-        Ok(processed)
-    }
-
-    async fn run_pending_operation(
-        &self,
-        repository: &MailRepository,
-        config: &ImapAccountConfig,
-        work: &PendingOperationWork,
-    ) -> CommandResult<RemoteOperationOutcome> {
-        match work.kind {
-            PendingOperationKind::AppendSent => {
-                self.run_append_sent(repository, config, work).await
-            }
-            PendingOperationKind::AppendDraft => {
-                self.run_append_draft(repository, config, work).await
-            }
-            _ => {
-                self.provider
-                    .apply_operation(config, &remote_operation(work)?)
-                    .await
-            }
-        }
-    }
-
-    async fn run_append_sent(
-        &self,
-        repository: &MailRepository,
-        config: &ImapAccountConfig,
-        work: &PendingOperationWork,
-    ) -> CommandResult<RemoteOperationOutcome> {
-        let destination = required_destination(work)?;
-        let hash = required_payload(work, "mimeHash", "operation.mime_missing")?;
-        let raw = repository.send_jobs().read_send_mime(hash).await?;
-        self.provider
-            .append_message(config, destination, "(\\Seen)", &raw)
-            .await?;
-        Ok(RemoteOperationOutcome::default())
-    }
-
-    async fn run_append_draft(
-        &self,
-        repository: &MailRepository,
-        config: &ImapAccountConfig,
-        work: &PendingOperationWork,
-    ) -> CommandResult<RemoteOperationOutcome> {
-        let destination = required_destination(work)?;
-        let hash = required_payload(work, "mimeHash", "operation.mime_missing")?;
-        let draft_id = required_payload(work, "draftId", "operation.draft_missing")?;
-        let raw = repository.send_jobs().read_send_mime(hash).await?;
-        self.provider
-            .replace_draft(config, destination, draft_id, &raw)
-            .await
-    }
-
-    fn emit_local_change(&self, account_id: &str, mailbox_id: &str, message_ids: &[String]) {
-        self.emit_mailbox_change(account_id, mailbox_id, 0);
-        for message_id in message_ids {
-            let _ = self.app.emit(
-                "message-content-changed",
-                MessageContentChangedEvent {
-                    account_id: account_id.to_owned(),
-                    message_id: message_id.clone(),
-                    revision: 0,
-                },
-            );
-        }
-    }
-
-    fn emit_mailbox_change(&self, account_id: &str, mailbox_id: &str, revision: u64) {
-        let _ = self.app.emit(
-            "mailbox-changed",
-            MailboxChangedEvent {
-                account_id: account_id.to_owned(),
-                mailbox_id: mailbox_id.to_owned(),
-                revision,
-            },
-        );
-    }
-
-    fn emit_pending_operation(&self, account_id: &str, operation_id: &str, status: &str) {
-        let _ = self.app.emit(
-            "pending-operation-changed",
-            PendingOperationChangedEvent {
-                account_id: account_id.to_owned(),
-                operation_id: operation_id.to_owned(),
-                status: status.to_owned(),
-            },
-        );
     }
 
     async fn run_sync(
@@ -1204,14 +618,16 @@ impl MailRuntime {
                         Some(error.code.clone()),
                     );
                 }
-                let _ = self.app.emit(
+                if let Err(event_error) = self.app.emit(
                     "sync-failed",
                     SyncFailedEvent {
                         account_id: account_id.to_owned(),
                         code: error.code.clone(),
                         retryable: error.retryable,
                     },
-                );
+                ) {
+                    tracing::warn!(%account_id, ?event_error, "sync failed event emission failed");
+                }
                 if is_authentication_error(&error.code) {
                     self.update_runtime_state(
                         account_id,
@@ -1237,7 +653,14 @@ impl MailRuntime {
             return;
         };
         for candidate in eligible_new_mail_candidates(&preferences, account_id, candidates) {
-            let _ = self.app.emit("new-mail-candidate", &candidate);
+            if let Err(error) = self.app.emit("new-mail-candidate", &candidate) {
+                tracing::warn!(
+                    %account_id,
+                    message_id = %candidate.message_id,
+                    ?error,
+                    "new mail candidate event failed"
+                );
+            }
             self.notifications.present(candidate, &preferences);
         }
     }
@@ -1297,7 +720,9 @@ impl MailRuntime {
         } else {
             return;
         };
-        let _ = self.app.emit("account-runtime-status-changed", summary);
+        if let Err(error) = self.app.emit("account-runtime-status-changed", summary) {
+            tracing::warn!(%account_id, ?error, "account runtime event failed");
+        }
     }
 
     fn update_progress(
@@ -1327,249 +752,10 @@ impl MailRuntime {
         } else {
             return;
         };
-        let _ = self.app.emit("sync-progress", progress);
-    }
-}
-
-struct RuntimeObserver<'a> {
-    runtime: &'a MailRuntime,
-    account_id: String,
-    generation: u64,
-    report_progress: bool,
-    candidates: Mutex<Vec<PendingNewMailCandidate>>,
-}
-
-impl RuntimeObserver<'_> {
-    fn take_candidates(&self) -> Vec<PendingNewMailCandidate> {
-        self.candidates
-            .lock()
-            .map(|mut candidates| std::mem::take(&mut *candidates))
-            .unwrap_or_default()
-    }
-}
-
-#[derive(Clone, Debug)]
-struct PendingNewMailCandidate {
-    candidate: NewMailCandidate,
-    default_enabled: bool,
-}
-
-fn eligible_new_mail_candidates(
-    preferences: &crate::core::NotificationPreferences,
-    account_id: &str,
-    candidates: Vec<PendingNewMailCandidate>,
-) -> Vec<NewMailCandidate> {
-    if !preferences.enabled || !preferences.account_enabled(account_id) {
-        return Vec::new();
-    }
-    let mut emitted = std::collections::HashSet::new();
-    candidates
-        .into_iter()
-        .filter_map(|pending| {
-            let candidate = pending.candidate;
-            if emitted.insert((candidate.mailbox_id.clone(), candidate.message_id.clone()))
-                && preferences.folder_enabled(
-                    account_id,
-                    &candidate.mailbox_id,
-                    pending.default_enabled,
-                )
-            {
-                Some(candidate)
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-struct AccountSupervisor {
-    account_id: String,
-    generation: u64,
-    wake: Notify,
-    manual_sync_requested: AtomicBool,
-    pending_operations_requested: AtomicBool,
-    stopped: AtomicBool,
-}
-
-impl AccountSupervisor {
-    fn new(account_id: &str, generation: u64) -> Self {
-        Self {
-            account_id: account_id.to_owned(),
-            generation,
-            wake: Notify::new(),
-            manual_sync_requested: AtomicBool::new(false),
-            pending_operations_requested: AtomicBool::new(false),
-            stopped: AtomicBool::new(false),
+        if let Err(error) = self.app.emit("sync-progress", progress) {
+            tracing::warn!(%account_id, ?error, "sync progress event failed");
         }
     }
-}
-
-impl SyncObserver for RuntimeObserver<'_> {
-    fn notify(&self, notice: SyncNotice) {
-        if !self
-            .runtime
-            .is_current_supervisor(&self.account_id, self.generation)
-        {
-            return;
-        }
-        match notice {
-            SyncNotice::Folders {
-                completed,
-                total,
-                mailbox_name,
-            } if self.report_progress => self.runtime.update_progress(
-                &self.account_id,
-                SyncPhase::Folders,
-                completed,
-                total,
-                mailbox_name,
-                None,
-            ),
-            SyncNotice::Summaries {
-                completed,
-                total,
-                mailbox_name,
-            } if self.report_progress => self.runtime.update_progress(
-                &self.account_id,
-                SyncPhase::Summaries,
-                completed,
-                total,
-                Some(mailbox_name),
-                None,
-            ),
-            SyncNotice::Bodies {
-                completed,
-                total,
-                mailbox_name,
-            } if self.report_progress => self.runtime.update_progress(
-                &self.account_id,
-                SyncPhase::Bodies,
-                completed,
-                total,
-                Some(mailbox_name),
-                None,
-            ),
-            SyncNotice::Folders { .. }
-            | SyncNotice::Summaries { .. }
-            | SyncNotice::Bodies { .. } => {}
-            SyncNotice::MailboxChanged {
-                mailbox_id,
-                revision,
-            } => {
-                let _ = self.runtime.app.emit(
-                    "mailbox-changed",
-                    MailboxChangedEvent {
-                        account_id: self.account_id.clone(),
-                        mailbox_id,
-                        revision,
-                    },
-                );
-            }
-            SyncNotice::MessageArrived { mailbox_id, item } => {
-                let _ = self.runtime.app.emit(
-                    "message-arrived",
-                    MessageArrivedEvent {
-                        account_id: self.account_id.clone(),
-                        mailbox_id,
-                        item,
-                    },
-                );
-            }
-            SyncNotice::NewMessageCandidate {
-                mailbox_id,
-                message_id,
-                sender_name,
-                sender_email,
-                subject,
-                default_enabled,
-            } => {
-                if let Ok(mut candidates) = self.candidates.lock() {
-                    candidates.push(PendingNewMailCandidate {
-                        candidate: NewMailCandidate {
-                            account_id: self.account_id.clone(),
-                            mailbox_id,
-                            message_id,
-                            sender_name,
-                            sender_email,
-                            subject,
-                        },
-                        default_enabled,
-                    });
-                }
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SupervisorWake {
-    Requested,
-    Periodic,
-}
-
-async fn wait_for_supervisor(
-    supervisor: &AccountSupervisor,
-    interval: &SyncInterval,
-) -> SupervisorWake {
-    match interval.minutes() {
-        Some(minutes) => tokio::select! {
-            _ = supervisor.wake.notified() => SupervisorWake::Requested,
-            _ = tokio::time::sleep(Duration::from_secs(minutes * 60)) => SupervisorWake::Periodic,
-        },
-        None => {
-            supervisor.wake.notified().await;
-            SupervisorWake::Requested
-        }
-    }
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MailboxChangedEvent {
-    account_id: String,
-    mailbox_id: String,
-    revision: u64,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MessageArrivedEvent {
-    account_id: String,
-    mailbox_id: String,
-    item: MessageListItem,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SyncFailedEvent {
-    account_id: String,
-    code: String,
-    retryable: bool,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MessageContentChangedEvent {
-    account_id: String,
-    message_id: String,
-    revision: u64,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MessageBodyProgressEvent {
-    account_id: String,
-    message_id: String,
-    stage: &'static str,
-    progress: u8,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PendingOperationChangedEvent {
-    account_id: String,
-    operation_id: String,
-    status: String,
 }
 
 fn required_destination(work: &PendingOperationWork) -> CommandResult<&str> {

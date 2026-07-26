@@ -1,0 +1,105 @@
+use async_imap::Session;
+use async_trait::async_trait;
+use futures_util::future::try_join_all;
+
+use super::{
+    connection::{connect_session, BoxedImapTransport},
+    session::{
+        append_message_session, apply_operation_session, fetch_message_session,
+        replace_draft_session,
+    },
+    session_budget::{SessionBudgetRegistry, SYNC_SESSION_COUNT},
+    sync_session,
+};
+use crate::core::{
+    CommandResult, ImapAccountConfig, ImapSyncProvider, MailSyncSink, RemoteMessage,
+    RemoteOperation, RemoteOperationOutcome, SyncObserver,
+};
+
+#[derive(Default)]
+pub struct AsyncImapProvider {
+    session_budgets: SessionBudgetRegistry,
+}
+
+#[async_trait]
+impl ImapSyncProvider for AsyncImapProvider {
+    async fn synchronize(
+        &self,
+        account: &ImapAccountConfig,
+        sink: &(dyn MailSyncSink + Send + Sync),
+        observer: &(dyn SyncObserver + Send + Sync),
+    ) -> CommandResult<()> {
+        // A full sync leases only two of the three per-account slots. The
+        // remaining slot lets an interactive body/attachment request proceed
+        // without opening a fourth connection that can cause stricter servers
+        // to reset one of the existing sync sessions.
+        let budgeted =
+            try_join_all((0..SYNC_SESSION_COUNT).map(|_| self.connect_budgeted_session(account)))
+                .await?;
+        let (session_permits, pool): (Vec<_>, Vec<_>) = budgeted.into_iter().unzip();
+        let result = sync_session(pool, account, sink, observer).await;
+        drop(session_permits);
+        result
+    }
+
+    async fn fetch_message(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        uid: u32,
+        expected_uid_validity: u32,
+    ) -> CommandResult<RemoteMessage> {
+        let (_permit, session) = self.connect_budgeted_session(account).await?;
+        fetch_message_session(session, mailbox_name, uid, expected_uid_validity).await
+    }
+
+    async fn apply_operation(
+        &self,
+        account: &ImapAccountConfig,
+        operation: &RemoteOperation,
+    ) -> CommandResult<RemoteOperationOutcome> {
+        let (_permit, session) = self.connect_budgeted_session(account).await?;
+        apply_operation_session(session, operation).await
+    }
+
+    async fn append_message(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        flags: &str,
+        raw: &[u8],
+    ) -> CommandResult<()> {
+        let (_permit, session) = self.connect_budgeted_session(account).await?;
+        append_message_session(session, mailbox_name, flags, raw).await
+    }
+
+    async fn replace_draft(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        draft_id: &str,
+        raw: &[u8],
+    ) -> CommandResult<RemoteOperationOutcome> {
+        let (_permit, session) = self.connect_budgeted_session(account).await?;
+        replace_draft_session(session, mailbox_name, draft_id, raw).await
+    }
+}
+
+impl AsyncImapProvider {
+    async fn connect_budgeted_session(
+        &self,
+        account: &ImapAccountConfig,
+    ) -> CommandResult<(
+        tokio::sync::OwnedSemaphorePermit,
+        Session<BoxedImapTransport>,
+    )> {
+        let permit = self.session_budgets.acquire(&account.account_id).await?;
+        match connect_session(account).await {
+            Ok(session) => Ok((permit, session)),
+            Err(error) => {
+                drop(permit);
+                Err(error)
+            }
+        }
+    }
+}

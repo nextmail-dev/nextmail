@@ -2,9 +2,11 @@
 
 ## 状态
 
-已实施并自动验证通过，待实机验收。
+已验收。
 
-本阶段围绕同步稳定性与可诊断性，处理三件事：移除"正文同步范围/始终下载正文"可配置项、建立全局日志与异常捕获、将同步改为"头部优先 + 后台补正文"。起因是用户在收取过程中观察到 `sync.message_fetch_failed`（Windows 10054 ConnectionReset）且同步按钮卡在 loading、无法手动重启。
+验收日期：2026-07-26。
+
+本阶段围绕同步稳定性与可诊断性，处理三件事：移除"正文同步范围/始终下载正文"可配置项、建立全局日志与异常捕获、将同步改为"头部优先 + 打开时按需下载正文"。起因是用户在收取过程中观察到 `sync.message_fetch_failed`（Windows 10054 ConnectionReset）且同步按钮卡在 loading、无法手动重启。
 
 ## 诊断：同步失败与按钮卡死
 
@@ -42,7 +44,7 @@
 ### 文件夹内并发抓取
 
 - `synchronize` 用 `try_join_all` 并发建立 `SYNC_WORKER_COUNT = 3` 个 IMAP 会话，跨文件夹复用以摊销登录成本。
-- `sync_folder` 让每个 worker 会话进入邮箱，把待抓 UID 按连续区间切成 3 份不相交子集，用 `join_all` 并发抓取头部与正文；`reconcile_flags` 仍走单会话。新增 `split_uids` 切片辅助与 `fetch_summaries_worker` / `backfill_worker` 两个 worker 函数。
+- `sync_folder` 让每个 worker 会话进入邮箱，把待抓 UID 按连续区间切成 3 份不相交子集，用 `join_all` 并发抓取头部；`reconcile_flags` 仍走单会话。新增 `split_uids` 切片辅助与 `fetch_summaries_worker`。
 - 进度计数用 `AtomicU64` 跨 worker 聚合；`sink`/`observer` 均为 `Send + Sync`（内部加锁），并发 `notify` 与 `upsert` 安全。
 - worker 数选 3：兼顾"2-4 个"诉求，且不超过 SQLite 连接池上限（4）；单账号 3 条 IMAP 连接在多数服务器并发限额内，账户级并发上限（`network_limit = 2`）不变。
 - 修复 `split_uids` 在空 UID 列表（文件夹无新邮件）时 `slice::chunks(0)` panic 的 bug（`chunk_size` 至少为 1），补空输入回归测试。
@@ -101,7 +103,7 @@
 
 ## 待办与后续
 
-- **真后台 backfill**：当前 backfill 仍在同一同步流程内串行执行（同步状态维持到 backfill 完成）。若希望头部同步完成后立即 Ready、backfill 作为独立任务继续，需单独连接与生命周期管理，列为后续。
+- **可选后台正文预取**：当前没有后台正文 backfill，正文只在用户打开邮件时按需下载。未来若重新引入预取，必须使用独立任务、受控连接和明确生命周期，不得重新阻塞头部同步。
 - **批次调优**：`FETCH_BATCH_SIZE = 1` 命令数多、重置概率高；由于 `message-arrived` + `setQueryData` 已保证逐封出现，头部批次可适度上调以减少往返，待实机验证后决定。
 - **日志清理**：`tracing-appender` 按天滚动但不自动删除旧文件，长期积累，可加"保留最近 N 天"的清理。
 
@@ -117,3 +119,7 @@ Windows 10 22H2+：
 6. 同步 6000+ 大文件夹：写锁串行后多 worker 不再 database is locked，同步应能一次跑完；日志若仍有存储错误应带真实 sqlx 原因。即便中途因网络/超时失败，再次同步也应只抓缺失部分（计数从断点继续、不归零重抓）。
 7. 打开一封正文未同步的未读邮件：正文自动加载显示、邮件标记为已读；切换到下一封后再切回，前一封应仍为已读（不回退为未读、无需再点一次）。
 8. 阅读若干未读邮件后到 web 端确认已标记已读；本地待办队列应排空、不再报"无法更新状态"。若仍有失败，日志应含 `imap operation failed`（真实 imap 原因）与 `pending operation failed`（kind/uid/code）两条。
+
+## 验收结果
+
+用户于 2026-07-26 明确确认第十五阶段验收通过。后续结构与健壮性工作进入第十六阶段，不回改本阶段已验收的同步产品语义。

@@ -20,6 +20,8 @@
 - `iterations/0012-experience-optimization.md`：第十二阶段收信、写信与跨平台体验优化计划及验收门禁。
 - `iterations/0013-signatures-account-management-notifications.md`：第十三阶段默认签名、账户管理入口和分层桌面通知计划。
 - `iterations/0014-sync-and-composer-experience-corrections.md`：第十四阶段同步呈现、后台同步互斥、设置高亮及 Composer 图片/富文本粘贴修正。
+- `iterations/0015-header-first-sync-and-logging.md`：第十五阶段头部优先同步、按需正文、日志、超时、断点续传和待办状态修正。
+- `iterations/0016-repository-decoupling-and-robustness.md`：第十六阶段全局诊断、账户级 IMAP 会话协调与大型模块拆分。
 - `changes/`：按实施批次记录已经发生的功能和架构变动。
 - `changes/0005-message-and-mailbox-encoding.md`：邮件多字符集、IMAP 文件夹名和旧缓存重建说明。
 - `changes/0006-rfc2047-robustness.md`：完整 RFC 2047 encoded-word、安全降级和回归语料。
@@ -67,6 +69,8 @@
 - `changes/0048-notification-preferences-and-candidates.md`：第十三阶段第三批分层通知偏好、持久化同步基线和新邮件候选判定。
 - `changes/0049-controlled-desktop-notifications.md`：第十三阶段受控桌面通知窗口、层叠/覆盖调度、超时与点击定位。
 - `changes/0050-sync-and-rich-paste-corrections.md`：显式账户同步调度、真实逐封本地刷新、后台收信互斥、设置主题高亮及 Composer 安全富文本粘贴修正。
+- `changes/0051-header-first-sync-logging-and-imap-timeout.md`：头部优先同步、按需正文、全局日志、IMAP 超时、并发抓取、断点续传与待办操作修正。
+- `changes/0052-repository-decoupling-and-robustness.md`：全局错误观测、账户级有界 IMAP 会话与大型 Rust 模块职责拆分。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
@@ -81,6 +85,7 @@
 - `adr/0011-inline-cid-reading.md`：已收邮件 CID 图片的本地 data URL、附件分类和权限边界。
 - `adr/0012-controlled-desktop-notification-windows.md`：自有通知窗口、工作区层叠、最小 DTO 与点击核验边界。
 - `adr/0013-explicit-account-sync-scheduling.md`：启动/账户间隔/手动三类完整同步入口、待办唤醒隔离和真实逐封本地刷新。
+- `adr/0014-bounded-account-imap-sessions.md`：每账户三条有界会话、同步只占两条并为交互操作保留容量。
 - `third-party-notices.md`：当前随应用分发的独立第三方资源及许可证说明。
 
 当架构或安全决策出现需要长期解释的取舍时，在 `adr/` 中新增 ADR；单纯实现细节不创建 ADR。

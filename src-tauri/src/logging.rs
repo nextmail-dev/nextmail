@@ -4,6 +4,8 @@ use tauri::{AppHandle, Manager};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+use crate::core::install_command_error_observer;
+
 // The non-blocking writer guard must outlive the subscriber; dropping it would
 // stop the background writer and lose buffered log lines. Keeping it in a
 // process-lifetime static pins it for the whole app run.
@@ -20,20 +22,41 @@ pub fn init(app: &AppHandle) {
         .app_local_data_dir()
         .map(|dir| dir.join("logs"))
         .unwrap_or_else(|_| std::env::temp_dir().join("nextmail").join("logs"));
-    let _ = std::fs::create_dir_all(&log_dir);
+    if let Err(error) = std::fs::create_dir_all(&log_dir) {
+        eprintln!("nextmail: failed to create log directory {log_dir:?}: {error}");
+    }
 
     let file_appender = tracing_appender::rolling::daily(&log_dir, "nextmail.log");
     let (writer, guard) = tracing_appender::non_blocking(file_appender);
-    let _ = LOG_GUARD.set(guard);
+    if LOG_GUARD.set(guard).is_err() {
+        eprintln!("nextmail: logging worker guard was already initialized");
+    }
 
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let _ = tracing_subscriber::registry()
+    if let Err(error) = tracing_subscriber::registry()
         .with(filter)
         .with(fmt::layer().with_writer(writer).with_ansi(false))
-        .try_init();
+        .try_init()
+    {
+        eprintln!("nextmail: failed to initialize tracing subscriber: {error}");
+    }
 
+    if !install_command_error_observer(report_command_error) {
+        tracing::warn!("command error observer was already initialized");
+    }
     install_panic_hook();
     tracing::info!(?log_dir, "logging initialized");
+}
+
+fn report_command_error(code: &str, retryable: bool, file: &'static str, line: u32, column: u32) {
+    tracing::warn!(
+        %code,
+        retryable,
+        source.file = file,
+        source.line = line,
+        source.column = column,
+        "stable backend error created"
+    );
 }
 
 fn install_panic_hook() {

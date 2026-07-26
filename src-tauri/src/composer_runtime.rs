@@ -1,39 +1,33 @@
+mod definitions;
+mod delivery;
+
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::{atomic::AtomicBool, Arc},
     time::Duration,
 };
 
 use crate::core::{
     AccountRecord, AccountSummary, CommandError, CommandResult, ComposerBootstrap,
-    CompositionDefinitionSummary, CompositionScene, CompositionSceneRule,
-    CompositionSceneRuleDraft, DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem,
-    DraftRecipientFields, DraftStatus, LanguagePreference, MailSignature, MailSignatureDraft,
-    MailTemplate, MailTemplateDraft, MailboxRole, MessageAddress, MessageComposeAction,
-    RenderedMailSignature, RenderedMailTemplate, SendJobSummary, SignaturePreferences,
-    SignaturePreferencesDraft,
+    CompositionDefinitionSummary, CompositionScene, DraftAttachmentSummary, DraftContent,
+    DraftDetail, DraftListItem, DraftRecipientFields, DraftStatus, LanguagePreference,
+    MessageAddress, MessageComposeAction,
 };
-use crate::protocols::{build_outgoing_message, OutgoingAttachment};
 use crate::storage::{
-    ClaimedSendJob, MailRepository, PersistImportedDraftRequest, PersistMessageActionDraftRequest,
-    SaveDraftRequest,
+    MailRepository, PersistImportedDraftRequest, PersistMessageActionDraftRequest, SaveDraftRequest,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use lettre::{address::Envelope, Address};
+use lettre::Address;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::Notify;
 
 use crate::{
-    adapters::send_raw_smtp,
     application::{
         assemble_composition_content, compose_imported_draft, compose_message_action_draft,
-        normalize_mail_signature_draft, normalize_mail_template_draft, render_mail_signature,
-        render_mail_template, AppService, CompositionRenderContext, MessageActionLabels,
+        render_mail_signature, render_mail_template, AppService, CompositionRenderContext,
+        MessageActionLabels,
     },
     mail_runtime::MailRuntime,
 };
@@ -61,110 +55,6 @@ impl ComposerRuntime {
         }
     }
 
-    pub fn start(self: &Arc<Self>) {
-        if self.started.swap(true, Ordering::AcqRel) {
-            self.wake_worker.notify_one();
-            return;
-        }
-        let runtime = Arc::clone(self);
-        tauri::async_runtime::spawn(async move {
-            let Ok(repository) = runtime.repository().await else {
-                runtime.started.store(false, Ordering::Release);
-                return;
-            };
-            let _ = repository.send_jobs().recover_interrupted_send_jobs().await;
-            let mut active_accounts = HashSet::new();
-            let mut workers = tokio::task::JoinSet::new();
-            let mut fair_cursor = 0_usize;
-            loop {
-                while active_accounts.len() < 2 {
-                    let Ok(slots) = repository.send_jobs().ready_send_account_slots().await else {
-                        break;
-                    };
-                    if slots.is_empty() {
-                        break;
-                    }
-                    let Some(slot) =
-                        select_ready_account(&slots, &active_accounts, &mut fair_cursor)
-                    else {
-                        break;
-                    };
-                    let Ok(Some(job)) = repository
-                        .send_jobs()
-                        .claim_next_send_job_for_account(&slot)
-                        .await
-                    else {
-                        break;
-                    };
-                    active_accounts.insert(slot.clone());
-                    let worker = Arc::clone(&runtime);
-                    workers.spawn(async move {
-                        worker.process_send_job(job).await;
-                        slot
-                    });
-                }
-                tokio::select! {
-                    completed = workers.join_next(), if !workers.is_empty() => {
-                        if let Some(Ok(slot)) = completed {
-                            active_accounts.remove(&slot);
-                        }
-                    }
-                    _ = runtime.wake_worker.notified() => {},
-                    _ = tokio::time::sleep(Duration::from_secs(2)) => {},
-                }
-            }
-        });
-    }
-
-    async fn process_send_job(self: &Arc<Self>, job: ClaimedSendJob) {
-        let Ok(repository) = self.repository().await else {
-            return;
-        };
-        self.emit_job(&job.id, &job.account_slot_id).await;
-        let result = self
-            .deliver(
-                &job.account_slot_id,
-                &job.mime_hash,
-                &job.envelope_recipients,
-            )
-            .await;
-        match result {
-            Ok(()) => {
-                let sent_mailbox = repository
-                    .mailbox_roles()
-                    .mailbox_for_role(&job.account_slot_id, MailboxRole::Sent)
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|(id, _)| id);
-                let _ = repository
-                    .send_jobs()
-                    .complete_send_job_and_queue_sent(&job.id, sent_mailbox.as_deref())
-                    .await;
-                self.mail
-                    .request_pending_operations_by_slot(&job.account_slot_id);
-            }
-            Err(error) if error.retryable && job.attempt_count < 3 => {
-                self.mail
-                    .report_account_error_by_slot(&job.account_slot_id, &error);
-                let delay = 5_i64.saturating_mul(1_i64 << (job.attempt_count - 1));
-                let _ = repository
-                    .send_jobs()
-                    .defer_send_job(&job.id, &error.code, unix_timestamp().saturating_add(delay))
-                    .await;
-            }
-            Err(error) => {
-                self.mail
-                    .report_account_error_by_slot(&job.account_slot_id, &error);
-                let _ = repository
-                    .send_jobs()
-                    .fail_send_job(&job.id, &error.code)
-                    .await;
-            }
-        }
-        self.emit_job(&job.id, &job.account_slot_id).await;
-    }
-
     pub async fn open_composer(&self, account_id: &str) -> CommandResult<String> {
         self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
@@ -189,12 +79,19 @@ impl ComposerRuntime {
             .create_initialized_draft(account_id, &account.data_slot_id, &subject, &content)
             .await?;
         if let Err(error) = self.show_composer_window(&account.id, &draft.id).await {
-            let _ = self
+            if let Err(cleanup_error) = self
                 .repository()
                 .await?
                 .drafts()
                 .discard_empty_draft(&account.data_slot_id, &draft.id)
-                .await;
+                .await
+            {
+                tracing::warn!(
+                    draft_id = %draft.id,
+                    code = %cleanup_error.code,
+                    "failed composer draft cleanup failed"
+                );
+            }
             return Err(error);
         }
         Ok(draft.id)
@@ -223,7 +120,9 @@ impl ComposerRuntime {
             .collect::<Vec<_>>();
         for label in &labels {
             if let Some(window) = self.app.get_webview_window(label) {
-                let _ = window.close();
+                if let Err(error) = window.close() {
+                    tracing::warn!(%label, ?error, "composer window close failed");
+                }
             }
         }
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
@@ -420,9 +319,16 @@ impl ComposerRuntime {
                 )
                 .await
             {
-                let _ = drafts
+                if let Err(cleanup_error) = drafts
                     .delete_editing_draft(&account.data_slot_id, &draft.id)
-                    .await;
+                    .await
+                {
+                    tracing::warn!(
+                        draft_id = %draft.id,
+                        code = %cleanup_error.code,
+                        "invalid inline image draft cleanup failed"
+                    );
+                }
                 return Err(error);
             }
         }
@@ -430,12 +336,19 @@ impl ComposerRuntime {
             .get_draft(account_id, &account.data_slot_id, &draft.id)
             .await?;
         if let Err(error) = self.show_composer_window(account_id, &draft.id).await {
-            let _ = self
+            if let Err(cleanup_error) = self
                 .repository()
                 .await?
                 .drafts()
                 .delete_editing_draft(&account.data_slot_id, &draft.id)
-                .await;
+                .await
+            {
+                tracing::warn!(
+                    draft_id = %draft.id,
+                    code = %cleanup_error.code,
+                    "failed action composer draft cleanup failed"
+                );
+            }
             return Err(error);
         }
         Ok(())
@@ -538,262 +451,6 @@ impl ComposerRuntime {
             templates,
             signatures,
         })
-    }
-
-    pub async fn list_mail_templates(
-        &self,
-        account_id: Option<&str>,
-    ) -> CommandResult<Vec<MailTemplate>> {
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .list_mail_templates(
-                account.as_ref().map(|value| value.id.as_str()),
-                account.as_ref().map(|value| value.data_slot_id.as_str()),
-            )
-            .await
-    }
-
-    pub async fn create_mail_template(
-        &self,
-        account_id: Option<&str>,
-        draft: MailTemplateDraft,
-    ) -> CommandResult<MailTemplate> {
-        let mut draft = draft;
-        draft.content = sanitize_draft_content(draft.content)?;
-        let draft = normalize_mail_template_draft(draft)?;
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .create_mail_template(
-                account.as_ref().map(|value| value.id.as_str()),
-                account.as_ref().map(|value| value.data_slot_id.as_str()),
-                &draft,
-            )
-            .await
-    }
-
-    pub async fn update_mail_template(
-        &self,
-        account_id: Option<&str>,
-        template_id: &str,
-        draft: MailTemplateDraft,
-        expected_revision: u64,
-    ) -> CommandResult<MailTemplate> {
-        let mut draft = draft;
-        draft.content = sanitize_draft_content(draft.content)?;
-        let draft = normalize_mail_template_draft(draft)?;
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .update_mail_template(
-                account.as_ref().map(|value| value.id.as_str()),
-                account.as_ref().map(|value| value.data_slot_id.as_str()),
-                template_id,
-                &draft,
-                expected_revision,
-            )
-            .await
-    }
-
-    pub async fn delete_mail_template(
-        &self,
-        account_id: Option<&str>,
-        template_id: &str,
-        expected_revision: u64,
-    ) -> CommandResult<()> {
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .delete_mail_template(
-                account.as_ref().map(|value| value.id.as_str()),
-                account.as_ref().map(|value| value.data_slot_id.as_str()),
-                template_id,
-                expected_revision,
-            )
-            .await
-    }
-
-    pub async fn list_mail_signatures(
-        &self,
-        account_id: Option<&str>,
-    ) -> CommandResult<Vec<MailSignature>> {
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .list_mail_signatures(
-                account.as_ref().map(|value| value.id.as_str()),
-                account.as_ref().map(|value| value.data_slot_id.as_str()),
-            )
-            .await
-    }
-
-    pub async fn create_mail_signature(
-        &self,
-        account_id: Option<&str>,
-        draft: MailSignatureDraft,
-    ) -> CommandResult<MailSignature> {
-        let mut draft = draft;
-        draft.content = sanitize_draft_content(draft.content)?;
-        let draft = normalize_mail_signature_draft(draft)?;
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .create_mail_signature(
-                account.as_ref().map(|value| value.id.as_str()),
-                account.as_ref().map(|value| value.data_slot_id.as_str()),
-                &draft,
-            )
-            .await
-    }
-
-    pub async fn update_mail_signature(
-        &self,
-        account_id: Option<&str>,
-        signature_id: &str,
-        draft: MailSignatureDraft,
-        expected_revision: u64,
-    ) -> CommandResult<MailSignature> {
-        let mut draft = draft;
-        draft.content = sanitize_draft_content(draft.content)?;
-        let draft = normalize_mail_signature_draft(draft)?;
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .update_mail_signature(
-                account.as_ref().map(|value| value.id.as_str()),
-                account.as_ref().map(|value| value.data_slot_id.as_str()),
-                signature_id,
-                &draft,
-                expected_revision,
-            )
-            .await
-    }
-
-    pub async fn delete_mail_signature(
-        &self,
-        account_id: Option<&str>,
-        signature_id: &str,
-        expected_revision: u64,
-    ) -> CommandResult<()> {
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .delete_mail_signature(
-                account.as_ref().map(|value| value.id.as_str()),
-                account.as_ref().map(|value| value.data_slot_id.as_str()),
-                signature_id,
-                expected_revision,
-            )
-            .await
-    }
-
-    pub async fn get_signature_preferences(
-        &self,
-        account_id: Option<&str>,
-    ) -> CommandResult<SignaturePreferences> {
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .signature_preferences(account.as_ref().map(|value| value.data_slot_id.as_str()))
-            .await
-    }
-
-    pub async fn save_signature_preferences(
-        &self,
-        account_id: Option<&str>,
-        draft: SignaturePreferencesDraft,
-        expected_revision: u64,
-    ) -> CommandResult<SignaturePreferences> {
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .save_signature_preferences(
-                account.as_ref().map(|value| value.data_slot_id.as_str()),
-                &draft,
-                expected_revision,
-            )
-            .await
-    }
-
-    pub async fn list_composition_scene_rules(
-        &self,
-        account_id: Option<&str>,
-    ) -> CommandResult<Vec<CompositionSceneRule>> {
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .list_composition_scene_rules(account.as_ref().map(|value| value.data_slot_id.as_str()))
-            .await
-    }
-
-    pub async fn save_composition_scene_rule(
-        &self,
-        account_id: Option<&str>,
-        mut draft: CompositionSceneRuleDraft,
-        expected_revision: u64,
-    ) -> CommandResult<CompositionSceneRule> {
-        draft.signature_id = None;
-        let account = self.definition_account(account_id)?;
-        self.repository()
-            .await?
-            .composition_definitions()
-            .save_composition_scene_rule(
-                account.as_ref().map(|value| value.id.as_str()),
-                account.as_ref().map(|value| value.data_slot_id.as_str()),
-                &draft,
-                expected_revision,
-            )
-            .await
-    }
-
-    pub async fn render_mail_template(
-        &self,
-        account_id: &str,
-        template_id: &str,
-        recipients: DraftRecipientFields,
-    ) -> CommandResult<RenderedMailTemplate> {
-        let account = self.service.account_record(account_id)?;
-        let template = self
-            .repository()
-            .await?
-            .composition_definitions()
-            .available_mail_template(account_id, &account.data_slot_id, template_id)
-            .await?;
-        render_mail_template(
-            &template,
-            &self.render_context(&account, recipients.to.first())?,
-        )
-    }
-
-    pub async fn render_mail_signature(
-        &self,
-        account_id: &str,
-        signature_id: &str,
-        recipients: DraftRecipientFields,
-    ) -> CommandResult<RenderedMailSignature> {
-        let account = self.service.account_record(account_id)?;
-        let signature = self
-            .repository()
-            .await?
-            .composition_definitions()
-            .available_mail_signature(account_id, &account.data_slot_id, signature_id)
-            .await?;
-        render_mail_signature(
-            &signature,
-            &self.render_context(&account, recipients.to.first())?,
-        )
     }
 
     pub async fn save_draft(
@@ -1005,232 +662,6 @@ impl ComposerRuntime {
             .drafts()
             .delete_editing_draft(&account.data_slot_id, draft_id)
             .await
-    }
-
-    pub async fn queue_remote_draft(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {
-        self.mail.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        let repository = self.repository().await?;
-        let drafts = repository.drafts();
-        let draft = drafts
-            .get_draft(account_id, &account.data_slot_id, draft_id)
-            .await?;
-        let is_empty = draft.subject.trim().is_empty()
-            && draft.recipients.to.is_empty()
-            && draft.recipients.cc.is_empty()
-            && draft.recipients.bcc.is_empty()
-            && draft.content.plain_text.trim().is_empty()
-            && (draft.content.html.trim().is_empty() || draft.content.html.trim() == "<p></p>")
-            && draft.attachments.is_empty();
-        if is_empty {
-            return Ok(());
-        }
-        let Some((drafts_mailbox_id, _)) = repository
-            .mailbox_roles()
-            .mailbox_for_role(&account.data_slot_id, MailboxRole::Drafts)
-            .await?
-        else {
-            return Ok(());
-        };
-        let mut attachments = Vec::new();
-        for stored in drafts
-            .draft_attachments(&account.data_slot_id, draft_id)
-            .await?
-        {
-            attachments.push(OutgoingAttachment {
-                file_name: stored.summary.file_name,
-                content_type: stored.summary.content_type,
-                bytes: drafts.attachment_bytes(&stored.content_hash).await?,
-                content_id: stored.summary.content_id,
-            });
-        }
-        let sender = MessageAddress {
-            name: nonempty(&account.display_name),
-            email: account.email,
-        };
-        let raw = build_outgoing_message(
-            &sender,
-            &draft.recipients,
-            &draft.subject,
-            &draft.content,
-            attachments,
-        )?;
-        let threading = drafts
-            .draft_threading_headers(&account.data_slot_id, draft_id)
-            .await?;
-        let raw = add_threading_headers(raw, &threading)?;
-        let raw = add_draft_identity_headers(raw, draft_id, draft.revision)?;
-        let hash = repository.send_jobs().write_send_mime(&raw).await?;
-        repository
-            .operations()
-            .queue_draft_append(
-                &account.data_slot_id,
-                &drafts_mailbox_id,
-                draft_id,
-                &hash,
-                draft.revision,
-            )
-            .await?;
-        self.mail.request_pending_operations(account_id);
-        Ok(())
-    }
-
-    pub async fn queue_send(
-        &self,
-        account_id: &str,
-        draft_id: &str,
-    ) -> CommandResult<SendJobSummary> {
-        self.mail.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        let repository = self.repository().await?;
-        let drafts = repository.drafts();
-        let draft = drafts
-            .get_draft(account_id, &account.data_slot_id, draft_id)
-            .await?;
-        validate_recipient_fields(&draft.recipients, true)?;
-        validate_content(&draft.content)?;
-        let mut attachments = Vec::new();
-        for stored in drafts
-            .draft_attachments(&account.data_slot_id, draft_id)
-            .await?
-        {
-            attachments.push(OutgoingAttachment {
-                file_name: stored.summary.file_name,
-                content_type: stored.summary.content_type,
-                bytes: drafts.attachment_bytes(&stored.content_hash).await?,
-                content_id: stored.summary.content_id,
-            });
-        }
-        let sender = MessageAddress {
-            name: nonempty(&account.display_name),
-            email: account.email.clone(),
-        };
-        let raw = build_outgoing_message(
-            &sender,
-            &draft.recipients,
-            &draft.subject,
-            &draft.content,
-            attachments,
-        )?;
-        let threading = drafts
-            .draft_threading_headers(&account.data_slot_id, draft_id)
-            .await?;
-        let raw = add_threading_headers(raw, &threading)?;
-        let send_jobs = repository.send_jobs();
-        let hash = send_jobs.write_send_mime(&raw).await?;
-        let envelope = envelope_recipients(&draft.recipients);
-        let job = send_jobs
-            .queue_send_job(
-                account_id,
-                &account.data_slot_id,
-                draft_id,
-                &hash,
-                &envelope,
-            )
-            .await?;
-        self.wake_worker.notify_one();
-        Ok(job)
-    }
-
-    pub async fn retry_send(
-        &self,
-        account_id: &str,
-        job_id: &str,
-    ) -> CommandResult<SendJobSummary> {
-        self.mail.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        let repository = self.repository().await?;
-        let send_jobs = repository.send_jobs();
-        send_jobs
-            .get_send_job(account_id, &account.data_slot_id, job_id)
-            .await?;
-        send_jobs
-            .retry_send_job(&account.data_slot_id, job_id)
-            .await?;
-        self.wake_worker.notify_one();
-        send_jobs
-            .get_send_job(account_id, &account.data_slot_id, job_id)
-            .await
-    }
-
-    pub async fn get_send_job(
-        &self,
-        account_id: &str,
-        job_id: &str,
-    ) -> CommandResult<SendJobSummary> {
-        let account = self.service.account_record(account_id)?;
-        self.repository()
-            .await?
-            .send_jobs()
-            .get_send_job(account_id, &account.data_slot_id, job_id)
-            .await
-    }
-
-    async fn deliver(
-        &self,
-        account_slot_id: &str,
-        mime_hash: &str,
-        recipients: &[String],
-    ) -> CommandResult<()> {
-        let account = self.service.account_record_for_slot(account_slot_id)?;
-        let password = self
-            .service
-            .account_password(&account.credential_ref)
-            .await?;
-        let from: Address = account
-            .email
-            .parse()
-            .map_err(|_| CommandError::new("send.sender_invalid"))?;
-        let to = recipients
-            .iter()
-            .map(|value| {
-                value
-                    .parse::<Address>()
-                    .map_err(|_| CommandError::new("send.recipient_invalid"))
-            })
-            .collect::<CommandResult<Vec<_>>>()?;
-        let envelope = Envelope::new(Some(from), to)
-            .map_err(|_| CommandError::new("send.envelope_invalid"))?;
-        let raw = self
-            .repository()
-            .await?
-            .send_jobs()
-            .read_send_mime(mime_hash)
-            .await?;
-        send_raw_smtp(&account.outgoing, &password, &envelope, &raw).await
-    }
-
-    async fn emit_job(&self, job_id: &str, account_slot_id: &str) {
-        let Ok(account) = self.service.account_record_for_slot(account_slot_id) else {
-            return;
-        };
-        let Ok(repository) = self.repository().await else {
-            return;
-        };
-        let Ok(job) = repository
-            .send_jobs()
-            .get_send_job(&account.id, account_slot_id, job_id)
-            .await
-        else {
-            return;
-        };
-        let subject = repository
-            .drafts()
-            .get_draft(&account.id, account_slot_id, &job.draft_id)
-            .await
-            .map(|draft| draft.subject)
-            .unwrap_or_default();
-        let _ = self.app.emit(
-            "send-job-changed",
-            SendJobChangedEvent {
-                account_id: job.account_id,
-                draft_id: job.draft_id,
-                job_id: job.id,
-                status: job.status,
-                subject,
-                revision: job.revision,
-            },
-        );
     }
 
     async fn repository(&self) -> CommandResult<&Arc<MailRepository>> {

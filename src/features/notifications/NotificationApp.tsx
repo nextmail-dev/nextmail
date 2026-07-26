@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
 import { useAppearancePreferences } from "@/app/appearance";
+import { reportCaughtError } from "@/app/errorReporting";
 import type { NewMailNotification } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,8 @@ export function NotificationApp({ notificationId }: { notificationId: string }) 
         unlisten = dispose;
         setBridgeReady(true);
       }
-    }).catch(() => {
+    }).catch((error) => {
+      reportCaughtError("notification.event-listen", error);
       if (!disposed) setBridgeReady(true);
     });
     return () => {

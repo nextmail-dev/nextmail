@@ -80,21 +80,38 @@ impl NotificationRuntime {
             .present(notification, &preferences.display_mode, max_visible);
 
         self.destroy_ids(result.evicted_ids);
-        if self.ensure_window(&result.notification).is_err() {
+        if let Err(error) = self.ensure_window(&result.notification) {
+            tracing::error!(
+                notification_id = %result.notification.id,
+                code = %error.code,
+                "notification window setup failed"
+            );
             self.remove_without_destroy(&result.notification.id);
             return;
         }
-        let _ = self.app.emit_to(
+        if let Err(error) = self.app.emit_to(
             notification_window_label(&result.notification.id),
             "notification-content-changed",
             &result.notification,
-        );
+        ) {
+            tracing::warn!(
+                notification_id = %result.notification.id,
+                ?error,
+                "notification content event failed"
+            );
+        }
         self.reflow();
         if let Some(window) = self
             .app
             .get_webview_window(&notification_window_label(&result.notification.id))
         {
-            let _ = window.show();
+            if let Err(error) = window.show() {
+                tracing::warn!(
+                    notification_id = %result.notification.id,
+                    ?error,
+                    "notification window show failed"
+                );
+            }
         }
 
         let runtime = Arc::clone(self);
@@ -215,7 +232,13 @@ impl NotificationRuntime {
             let slot_from_bottom = ids.len().saturating_sub(index + 1);
             if let Some(window) = self.app.get_webview_window(&notification_window_label(id)) {
                 let position = notification_position(&work_area, scale_factor, slot_from_bottom);
-                let _ = window.set_position(position);
+                if let Err(error) = window.set_position(position) {
+                    tracing::warn!(
+                        notification_id = %id,
+                        ?error,
+                        "notification window positioning failed"
+                    );
+                }
             }
         }
     }
@@ -243,7 +266,13 @@ impl NotificationRuntime {
     fn destroy_ids(&self, ids: Vec<String>) {
         for id in ids {
             if let Some(window) = self.app.get_webview_window(&notification_window_label(&id)) {
-                let _ = window.destroy();
+                if let Err(error) = window.destroy() {
+                    tracing::warn!(
+                        notification_id = %id,
+                        ?error,
+                        "notification window destruction failed"
+                    );
+                }
             }
         }
     }

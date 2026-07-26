@@ -9,6 +9,16 @@ function describeError(value: unknown): FrontendErrorDescriptor {
   if (value instanceof Error) {
     return { message: value.message, location: value.stack ?? null };
   }
+  if (typeof value === "object" && value !== null && "code" in value) {
+    const commandError = value as { code?: unknown; retryable?: unknown };
+    return {
+      message: JSON.stringify({
+        code: String(commandError.code ?? "common.unexpected_error"),
+        retryable: commandError.retryable === true,
+      }),
+      location: null,
+    };
+  }
   if (typeof value === "string") {
     return { message: value, location: null };
   }
@@ -19,11 +29,15 @@ function describeError(value: unknown): FrontendErrorDescriptor {
   }
 }
 
-function report(level: string, value: unknown) {
+function report(level: string, context: string, value: unknown) {
   const { message, location } = describeError(value);
   // eslint-disable-next-line no-console
-  console.error("[nextmail]", level, message, location ?? "");
-  void api.logFrontendEvent(level, message, location).catch(() => undefined);
+  console.error("[nextmail]", level, context, message, location ?? "");
+  void api.logFrontendEvent(level, `${context}: ${message}`, location).catch(() => undefined);
+}
+
+export function reportCaughtError(context: string, value: unknown) {
+  report("error", context, value);
 }
 
 /**
@@ -33,9 +47,9 @@ function report(level: string, value: unknown) {
  */
 export function setupGlobalErrorReporting() {
   window.addEventListener("error", (event) => {
-    report("error", event.error ?? event.message);
+    report("error", "window.error", event.error ?? event.message);
   });
   window.addEventListener("unhandledrejection", (event) => {
-    report("error", event.reason);
+    report("error", "window.unhandledrejection", event.reason);
   });
 }

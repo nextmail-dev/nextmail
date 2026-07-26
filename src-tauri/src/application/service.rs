@@ -301,7 +301,12 @@ impl AppService {
             {
                 let mut cleanup_file = self.accounts.load().unwrap_or_default();
                 push_cleanup_reference(&mut cleanup_file, credential_ref.clone());
-                let _ = self.accounts.save(&cleanup_file);
+                if let Err(cleanup_error) = self.accounts.save(&cleanup_file) {
+                    tracing::error!(
+                        code = %cleanup_error.code,
+                        "credential cleanup marker persistence failed"
+                    );
+                }
             }
             delete_account_slot(&bootstrap.data_dir, &data_slot_id).await;
             return Err(error);
@@ -386,7 +391,12 @@ impl AppService {
         }
         if let Err(error) = self.accounts.save(&accounts_file) {
             if let Some(reference) = replacement_ref.as_deref() {
-                let _ = self.credentials.delete_password(reference).await;
+                if let Err(cleanup_error) = self.credentials.delete_password(reference).await {
+                    tracing::warn!(
+                        code = %cleanup_error.code,
+                        "replacement credential rollback failed"
+                    );
+                }
             }
             return Err(error);
         }
@@ -401,7 +411,12 @@ impl AppService {
             remove_cleanup_reference(&mut accounts_file, &current.credential_ref);
             // The configuration already points at the new credential. Keeping a stale,
             // idempotent cleanup reference is safer than reporting the committed update as failed.
-            let _ = self.accounts.save(&accounts_file);
+            if let Err(cleanup_error) = self.accounts.save(&accounts_file) {
+                tracing::warn!(
+                    code = %cleanup_error.code,
+                    "credential cleanup marker removal persistence failed"
+                );
+            }
         }
         Ok(AccountSummary::from(&updated))
     }
@@ -443,7 +458,12 @@ impl AppService {
         {
             remove_cleanup_reference(&mut accounts_file, &removed.credential_ref);
             // A stale cleanup reference is harmless because credential deletion is idempotent.
-            let _ = self.accounts.save(&accounts_file);
+            if let Err(cleanup_error) = self.accounts.save(&accounts_file) {
+                tracing::warn!(
+                    code = %cleanup_error.code,
+                    "removed account credential marker persistence failed"
+                );
+            }
         }
         Ok(accounts_file.revision)
     }

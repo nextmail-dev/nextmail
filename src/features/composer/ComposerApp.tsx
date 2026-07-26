@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
 import { useAppearancePreferences } from "@/app/appearance";
+import { reportCaughtError } from "@/app/errorReporting";
 import type {
   ComposerBootstrap,
   DraftAttachmentSummary,
@@ -178,7 +179,9 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   useEffect(() => {
     if (!editable || dirty || revision === draft.revision) return;
     const timeout = window.setTimeout(
-      () => void api.queueRemoteDraft(sender.id, draft.id).catch(() => undefined),
+      () => void api
+        .queueRemoteDraft(sender.id, draft.id)
+        .catch((error) => reportCaughtError("draft.remote-queue", error)),
       10_000,
     );
     return () => window.clearTimeout(timeout);

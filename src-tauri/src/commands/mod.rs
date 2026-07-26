@@ -51,7 +51,7 @@ pub fn set_appearance_preferences(
     preferences: AppearancePreferences,
 ) -> CommandResult<AppearancePreferences> {
     let preferences = state.service.set_preferences(preferences)?;
-    let _ = app.emit("appearance-preferences-changed", &preferences);
+    emit_or_log(&app, "appearance-preferences-changed", &preferences);
     Ok(preferences)
 }
 
@@ -67,7 +67,7 @@ pub fn set_reading_preferences(
     preferences: ReadingPreferences,
 ) -> CommandResult<ReadingPreferences> {
     let preferences = state.service.set_reading_preferences(preferences)?;
-    let _ = app.emit("reading-preferences-changed", &preferences);
+    emit_or_log(&app, "reading-preferences-changed", &preferences);
     Ok(preferences)
 }
 
@@ -86,7 +86,7 @@ pub fn set_notification_preferences(
 ) -> CommandResult<NotificationPreferences> {
     let preferences = state.service.set_notification_preferences(preferences)?;
     state.notifications.preferences_changed();
-    let _ = app.emit("notification-preferences-changed", &preferences);
+    emit_or_log(&app, "notification-preferences-changed", &preferences);
     Ok(preferences)
 }
 
@@ -123,15 +123,23 @@ pub async fn activate_new_mail_notification(
         .notifications
         .take_for_window(&notification_id, window.label())?;
     if let Some(main) = app.get_webview_window("main") {
-        let _ = main.show();
-        let _ = main.unminimize();
-        let _ = main.set_focus();
+        if let Err(error) = main.show() {
+            tracing::warn!(?error, "main window show failed");
+        }
+        if let Err(error) = main.unminimize() {
+            tracing::warn!(?error, "main window unminimize failed");
+        }
+        if let Err(error) = main.set_focus() {
+            tracing::warn!(?error, "main window focus failed");
+        }
         if let Some(target) = state
             .mail
             .resolve_notification_target(&notification.candidate())
             .await
         {
-            let _ = app.emit_to("main", "open-mail-location", target);
+            if let Err(error) = app.emit_to("main", "open-mail-location", target) {
+                tracing::warn!(?error, "notification navigation event failed");
+            }
         }
     }
     Ok(())
@@ -189,7 +197,13 @@ pub fn complete_onboarding(state: State<'_, AppState>) -> CommandResult<Bootstra
 
 #[tauri::command]
 pub async fn start_background_services(state: State<'_, AppState>) -> CommandResult<()> {
-    let _ = state.service.retry_pending_credential_cleanup().await;
+    if let Err(error) = state.service.retry_pending_credential_cleanup().await {
+        tracing::warn!(
+            code = %error.code,
+            retryable = error.retryable,
+            "pending credential cleanup failed"
+        );
+    }
     state.mail.start();
     state.composer.start();
     Ok(())
@@ -256,7 +270,8 @@ pub async fn remove_account(
     account_id: String,
 ) -> CommandResult<()> {
     state.service.account_record(&account_id)?;
-    let _ = app.emit(
+    emit_or_log(
+        &app,
         "account-removing",
         AccountRemovingEvent {
             account_id: account_id.clone(),
@@ -326,11 +341,28 @@ pub fn quit_app(app: AppHandle) {
 
 #[tauri::command]
 pub fn log_frontend_event(level: String, message: String, location: Option<String>) {
+    const MAX_FRONTEND_MESSAGE_BYTES: usize = 4_096;
+    const MAX_FRONTEND_LOCATION_BYTES: usize = 16_384;
+    let message = truncate_log_field(message, MAX_FRONTEND_MESSAGE_BYTES);
+    let location = location.map(|value| truncate_log_field(value, MAX_FRONTEND_LOCATION_BYTES));
     match level.as_str() {
         "error" => tracing::error!(%message, location, "frontend error"),
         "warn" => tracing::warn!(%message, location, "frontend warning"),
         _ => tracing::info!(%message, location, "frontend event"),
     }
+}
+
+fn truncate_log_field(mut value: String, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value;
+    }
+    let mut boundary = max_bytes;
+    while !value.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    value.truncate(boundary);
+    value.push('…');
+    value
 }
 
 #[tauri::command]
@@ -1024,7 +1056,13 @@ pub async fn get_send_job(
 }
 
 fn emit_accounts_changed(app: &AppHandle, revision: u64) {
-    let _ = app.emit("accounts-changed", AccountsChangedEvent { revision });
+    emit_or_log(app, "accounts-changed", AccountsChangedEvent { revision });
+}
+
+fn emit_or_log<S: Serialize + Clone>(app: &AppHandle, event: &'static str, payload: S) {
+    if let Err(error) = app.emit(event, payload) {
+        tracing::warn!(%event, ?error, "application event emission failed");
+    }
 }
 
 #[derive(Clone, Serialize)]

@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { normalizeCommandError } from "@/app/api";
+import { reportCaughtError } from "@/app/errorReporting";
 import type { DraftListItem, MailboxRole, MailboxSummary, SyncProgress } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -137,7 +138,9 @@ export function MailboxPane({
                         setPendingDeleteDraftId(draft.id);
                         return;
                       }
-                      void onDeleteDraft(draft.id).then(() => setPendingDeleteDraftId(null)).catch(() => undefined);
+                      void onDeleteDraft(draft.id)
+                        .then(() => setPendingDeleteDraftId(null))
+                        .catch((error) => reportCaughtError("draft.delete", error));
                     }}
                   >
                     {pendingDeleteDraftId === draft.id ? <Trash2 size={13} /> : <X size={13} />}

@@ -3,6 +3,7 @@ mod composition_definition_repository;
 mod content_store;
 mod draft_repository;
 mod mailbox_role_repository;
+mod message_sync_repository;
 mod operation_repository;
 mod repository;
 
