@@ -23,6 +23,7 @@
 - `iterations/0015-header-first-sync-and-logging.md`：第十五阶段头部优先同步、按需正文、日志、超时、断点续传和待办状态修正。
 - `iterations/0016-repository-decoupling-and-robustness.md`：第十六阶段全局诊断、账户级 IMAP 会话协调与大型模块拆分。
 - `iterations/0017-ui-visual-and-window-experience.md`：第十七阶段统一覆盖式自绘滚动条、独立账户/原文窗口与工作区视觉体验修正。
+- `iterations/0018-imap-folder-management-and-local-ordering.md`：第十八阶段 IMAP 文件夹创建、重命名、移动、删除、全部已读与本地拖拽排序计划。
 - `changes/`：按实施批次记录已经发生的功能和架构变动。
 - `changes/0005-message-and-mailbox-encoding.md`：邮件多字符集、IMAP 文件夹名和旧缓存重建说明。
 - `changes/0006-rfc2047-robustness.md`：完整 RFC 2047 encoded-word、安全降级和回归语料。
@@ -73,6 +74,7 @@
 - `changes/0051-header-first-sync-logging-and-imap-timeout.md`：头部优先同步、按需正文、全局日志、IMAP 超时、并发抓取、断点续传与待办操作修正。
 - `changes/0052-repository-decoupling-and-robustness.md`：全局错误观测、账户级有界 IMAP 会话与大型 Rust 模块职责拆分。
 - `changes/0053-ui-visual-and-window-experience.md`：统一覆盖式自绘滚动条、账户管理/原始邮件独立窗口与第十七阶段视觉体验修正。
+- `changes/0054-imap-folder-management-and-local-ordering.md`：第十八阶段 IMAP 文件夹管理、在线结构投影与本地拖拽排序。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。
@@ -88,6 +90,7 @@
 - `adr/0012-controlled-desktop-notification-windows.md`：自有通知窗口、工作区层叠、最小 DTO 与点击核验边界。
 - `adr/0013-explicit-account-sync-scheduling.md`：启动/账户间隔/手动三类完整同步入口、待办唤醒隔离和真实逐封本地刷新。
 - `adr/0014-bounded-account-imap-sessions.md`：每账户三条有界会话、同步只占两条并为交互操作保留容量。
+- `adr/0015-online-imap-folder-mutations-and-local-order.md`：文件夹结构在线确认、本地事务投影与服务器层级分离的本地排序决策。
 - `third-party-notices.md`：当前随应用分发的独立第三方资源及许可证说明。
 
 当架构或安全决策出现需要长期解释的取舍时，在 `adr/` 中新增 ADR；单纯实现细节不创建 ADR。

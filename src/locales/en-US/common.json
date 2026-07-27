@@ -20,7 +20,8 @@
     "hide": "Hide",
     "save": "Save",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "confirm": "Confirm"
   },
   "preferences": {
     "appearance": "Appearance",
@@ -186,7 +187,33 @@
     "downloadAttachment": "Download {{name}}",
     "openAttachment": "Open {{name}}",
     "saveAttachmentAs": "Save {{name}} as",
-    "saveAs": "Save as"
+    "saveAs": "Save as",
+    "createRootFolder": "New folder",
+    "createSubfolder": "New subfolder",
+    "renameFolder": "Rename folder",
+    "moveFolder": "Move folder",
+    "deleteFolder": "Delete folder",
+    "markFolderAllRead": "Mark all as read",
+    "folderName": "Folder name",
+    "folderNamePlaceholder": "Enter a folder name",
+    "folderDestination": "Destination",
+    "folderRoot": "Top level",
+    "folderDialog": {
+      "create": {
+        "title": "Create folder",
+        "parent": "The new folder will be created under {{folder}}."
+      },
+      "rename": {
+        "title": "Rename folder"
+      },
+      "move": {
+        "title": "Move folder"
+      },
+      "delete": {
+        "title": "Delete folder",
+        "description": "Delete “{{folder}}” from the mail server? If the server refuses to delete a non-empty folder, nothing will be removed locally."
+      }
+    }
   },
   "composer": {
     "send": "Send",
@@ -527,6 +554,22 @@
     "mailbox.trash_not_mapped": "Choose a Trash folder in account management first.",
     "mailbox.archive_not_mapped": "Choose an Archive folder in account management first.",
     "mailbox.role_mapping_failed": "The system folder mapping could not be saved.",
+    "mailbox.not_found": "This mail folder no longer exists.",
+    "mailbox.create_failed": "The folder could not be created on the mail server.",
+    "mailbox.rename_failed": "The folder could not be renamed or moved on the mail server.",
+    "mailbox.delete_failed": "The folder could not be deleted on the mail server.",
+    "mailbox.mark_all_read_failed": "The folder could not be marked as read on the mail server.",
+    "mailbox.name_required": "Enter a folder name.",
+    "mailbox.name_invalid": "The folder name contains a control character or the server's folder separator.",
+    "mailbox.hierarchy_unsupported": "This mail server does not expose a separator for creating subfolders.",
+    "mailbox.already_exists": "A folder with that name already exists.",
+    "mailbox.remote_name_missing": "The mail server did not return the new folder path.",
+    "mailbox.local_write_failed": "The local folder view could not be updated.",
+    "mailbox.inbox_immutable": "Inbox cannot be renamed, moved, or deleted.",
+    "mailbox.move_into_self": "A folder cannot be moved into itself or one of its subfolders.",
+    "mailbox.same_parent": "Choose a different destination folder.",
+    "mailbox.not_selectable": "This folder cannot contain messages.",
+    "mailbox.order_conflict": "The folder list changed while it was being reordered. Try dragging again.",
     "message.remote_location_missing": "The server location for this message is unavailable.",
     "message.raw_unavailable": "The raw message is currently unavailable.",
     "message.not_found": "This message could not be found. It may have been moved or deleted.",

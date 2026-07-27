@@ -16,8 +16,8 @@ use sqlx::{
 };
 
 use super::{
-    CompositionDefinitionRepository, ContentStore, DraftRepository, MailboxRoleRepository,
-    OperationRepository, PreparedAttachmentFile, SendJobRepository,
+    CompositionDefinitionRepository, ContentStore, DraftRepository, MailboxRepository,
+    MailboxRoleRepository, OperationRepository, PreparedAttachmentFile, SendJobRepository,
 };
 
 pub const CONTENT_DATABASE_FILENAME: &str = "content.sqlite";
@@ -180,6 +180,12 @@ impl MailRepository {
         }
     }
 
+    pub fn mailboxes(&self) -> MailboxRepository {
+        MailboxRepository {
+            pool: self.pool.clone(),
+        }
+    }
+
     pub fn composition_definitions(&self) -> CompositionDefinitionRepository {
         CompositionDefinitionRepository {
             pool: self.pool.clone(),
@@ -259,6 +265,7 @@ impl MailReadRepository {
                     b.total_count, b.unread_count, b.revision \
              FROM mailboxes b LEFT JOIN mailbox_role_overrides o ON o.mailbox_id = b.id \
                AND o.account_slot_id = b.account_slot_id WHERE b.account_slot_id = ? ORDER BY \
+             CASE WHEN b.local_sort_order IS NULL THEN 1 ELSE 0 END, b.local_sort_order, \
              CASE WHEN o.role = 'sent' THEN 1 WHEN o.role = 'drafts' THEN 2 WHEN o.role = 'archive' THEN 3 \
              WHEN o.role = 'trash' THEN 5 WHEN b.role = 'inbox' THEN 0 \
              WHEN EXISTS(SELECT 1 FROM mailbox_role_overrides x WHERE x.account_slot_id = b.account_slot_id AND x.role = b.role) THEN 6 \
@@ -1546,7 +1553,7 @@ mod tests {
             .fetch_one(&repository.pool)
             .await
             .unwrap(),
-            "19"
+            "20"
         );
     }
 

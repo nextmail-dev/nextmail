@@ -6,14 +6,95 @@ use mail_parser::MessageParser;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::core::{
-    CommandError, CommandResult, RemoteMessage, RemoteOperation, RemoteOperationKind,
-    RemoteOperationOutcome,
+    CommandError, CommandResult, RemoteMailboxOperation, RemoteMailboxOperationOutcome,
+    RemoteMessage, RemoteOperation, RemoteOperationKind, RemoteOperationOutcome,
 };
 
 use super::{
+    encoding::encode_modified_utf7,
     format_uid_set,
     parse::{message_flag_state, parse_message_in_background, MessageParseInput},
 };
+
+pub(super) async fn apply_mailbox_operation_session<T>(
+    mut session: Session<T>,
+    operation: &RemoteMailboxOperation,
+) -> CommandResult<RemoteMailboxOperationOutcome>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let mut outcome = RemoteMailboxOperationOutcome::default();
+    match operation {
+        RemoteMailboxOperation::Create {
+            parent_mailbox,
+            delimiter,
+            leaf_name,
+        } => {
+            let mailbox_name =
+                join_mailbox_path(parent_mailbox.as_deref(), delimiter.as_deref(), leaf_name)?;
+            session
+                .create(&mailbox_name)
+                .await
+                .map_err(map_operation_err("mailbox.create_failed"))?;
+            outcome.mailbox_name = Some(mailbox_name);
+        }
+        RemoteMailboxOperation::Rename {
+            source_mailbox,
+            destination_parent,
+            delimiter,
+            leaf_name,
+        } => {
+            let mailbox_name = join_mailbox_path(
+                destination_parent.as_deref(),
+                delimiter.as_deref(),
+                leaf_name,
+            )?;
+            session
+                .rename(source_mailbox, &mailbox_name)
+                .await
+                .map_err(map_operation_err("mailbox.rename_failed"))?;
+            outcome.mailbox_name = Some(mailbox_name);
+        }
+        RemoteMailboxOperation::Delete { mailbox_name } => {
+            session
+                .delete(mailbox_name)
+                .await
+                .map_err(map_operation_err("mailbox.delete_failed"))?;
+        }
+        RemoteMailboxOperation::MarkAllRead { mailbox_name } => {
+            session
+                .select(mailbox_name)
+                .await
+                .map_err(map_operation_err("operation.mailbox_open_failed"))?;
+            session
+                .uid_store("1:*", "+FLAGS.SILENT (\\Seen)")
+                .await
+                .map_err(map_operation_err("mailbox.mark_all_read_failed"))?
+                .try_collect::<Vec<_>>()
+                .await
+                .map_err(map_operation_err("mailbox.mark_all_read_failed"))?;
+        }
+    }
+    let _ = session.logout().await;
+    Ok(outcome)
+}
+
+fn join_mailbox_path(
+    parent_mailbox: Option<&str>,
+    delimiter: Option<&str>,
+    leaf_name: &str,
+) -> CommandResult<String> {
+    let encoded_leaf = encode_modified_utf7(leaf_name);
+    match parent_mailbox {
+        Some(parent) => {
+            let delimiter = delimiter
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| CommandError::new("mailbox.hierarchy_unsupported"))?;
+            Ok(format!("{parent}{delimiter}{encoded_leaf}"))
+        }
+        None => Ok(encoded_leaf),
+    }
+}
 
 pub(super) async fn apply_operation_session<T>(
     mut session: Session<T>,
@@ -366,4 +447,24 @@ where
                 .ok_or_else(|| CommandError::new("sync.message_not_found"))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod mailbox_operation_tests {
+    use super::join_mailbox_path;
+
+    #[test]
+    fn builds_modified_utf7_mailbox_paths_without_exposing_encoding_to_runtime() {
+        assert_eq!(
+            join_mailbox_path(Some("Projects"), Some("/"), "日本語").unwrap(),
+            "Projects/&ZeVnLIqe-"
+        );
+        assert_eq!(join_mailbox_path(None, Some("/"), "A&B").unwrap(), "A&-B");
+        assert_eq!(
+            join_mailbox_path(Some("Projects"), None, "2026")
+                .unwrap_err()
+                .code,
+            "mailbox.hierarchy_unsupported"
+        );
+    }
 }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     core::{
         CommandError, CommandResult, ImapAccountConfig, MailboxRole, PendingOperationKind,
-        PendingOperationSummary, RemoteOperationOutcome,
+        PendingOperationSummary, RemoteMailboxOperation, RemoteOperationOutcome,
     },
     storage::{MailRepository, PendingOperationWork},
 };
@@ -15,6 +15,289 @@ use super::{
 };
 
 impl MailRuntime {
+    pub async fn create_mailbox(
+        &self,
+        account_id: &str,
+        parent_mailbox_id: Option<&str>,
+        name: &str,
+    ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
+        let account = self.service.account_record(account_id)?;
+        let repository = self.repository().await?;
+        let mailboxes = repository.mailboxes();
+        let parent = match parent_mailbox_id {
+            Some(mailbox_id) => Some(
+                mailboxes
+                    .mutation_context(&account.data_slot_id, mailbox_id)
+                    .await?,
+            ),
+            None => None,
+        };
+        let delimiter = match parent.as_ref() {
+            Some(parent) => parent.delimiter.clone(),
+            None => mailboxes.default_delimiter(&account.data_slot_id).await?,
+        };
+        let leaf_name = validate_mailbox_leaf(name, delimiter.as_deref())?;
+        let display_name = join_display_mailbox_path(
+            parent.as_ref().map(|value| value.display_name.as_str()),
+            delimiter.as_deref(),
+            &leaf_name,
+        )?;
+        let operation = RemoteMailboxOperation::Create {
+            parent_mailbox: parent.as_ref().map(|value| value.remote_name.clone()),
+            delimiter: delimiter.clone(),
+            leaf_name,
+        };
+        let config = self.imap_config(account_id).await?;
+        let _permit = self
+            .network_limit
+            .acquire()
+            .await
+            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        let outcome = self
+            .provider
+            .apply_mailbox_operation(&config, &operation)
+            .await?;
+        let remote_name = outcome
+            .mailbox_name
+            .ok_or_else(|| CommandError::new("mailbox.remote_name_missing"))?;
+        let mailbox_id = mailboxes
+            .insert_created_mailbox(
+                &account.data_slot_id,
+                &remote_name,
+                &display_name,
+                delimiter.as_deref(),
+            )
+            .await?;
+        self.emit_mailbox_change(account_id, &mailbox_id, 0);
+        Ok(())
+    }
+
+    pub async fn rename_mailbox(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+        name: &str,
+    ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
+        let account = self.service.account_record(account_id)?;
+        let repository = self.repository().await?;
+        let mailboxes = repository.mailboxes();
+        let source = mailboxes
+            .mutation_context(&account.data_slot_id, mailbox_id)
+            .await?;
+        ensure_mailbox_structure_mutable(&source.remote_name)?;
+        let leaf_name = validate_mailbox_leaf(name, source.delimiter.as_deref())?;
+        let source_parent_remote =
+            mailbox_parent_name(&source.remote_name, source.delimiter.as_deref());
+        let source_parent_display =
+            mailbox_parent_name(&source.display_name, source.delimiter.as_deref());
+        let display_name = join_display_mailbox_path(
+            source_parent_display,
+            source.delimiter.as_deref(),
+            &leaf_name,
+        )?;
+        let operation = RemoteMailboxOperation::Rename {
+            source_mailbox: source.remote_name.clone(),
+            destination_parent: source_parent_remote.map(str::to_owned),
+            delimiter: source.delimiter.clone(),
+            leaf_name,
+        };
+        self.apply_mailbox_rename(
+            account_id,
+            &account.data_slot_id,
+            &source,
+            &display_name,
+            operation,
+        )
+        .await
+    }
+
+    pub async fn move_mailbox(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+        destination_parent_mailbox_id: Option<&str>,
+    ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
+        let account = self.service.account_record(account_id)?;
+        let repository = self.repository().await?;
+        let mailboxes = repository.mailboxes();
+        let source = mailboxes
+            .mutation_context(&account.data_slot_id, mailbox_id)
+            .await?;
+        ensure_mailbox_structure_mutable(&source.remote_name)?;
+        let destination_parent = match destination_parent_mailbox_id {
+            Some(destination_id) => Some(
+                mailboxes
+                    .mutation_context(&account.data_slot_id, destination_id)
+                    .await?,
+            ),
+            None => None,
+        };
+        if let Some(parent) = destination_parent.as_ref() {
+            let delimiter = source.delimiter.as_deref().unwrap_or_default();
+            let descendant_prefix = format!("{}{}", source.remote_name, delimiter);
+            if parent.id == source.id
+                || (!delimiter.is_empty() && parent.remote_name.starts_with(&descendant_prefix))
+            {
+                return Err(CommandError::new("mailbox.move_into_self"));
+            }
+        }
+        let delimiter = match destination_parent.as_ref() {
+            Some(parent) => parent.delimiter.clone(),
+            None => source.delimiter.clone(),
+        };
+        let leaf_name = mailbox_leaf_name(&source.display_name, source.delimiter.as_deref());
+        let current_parent = mailbox_parent_name(&source.remote_name, source.delimiter.as_deref());
+        let destination_parent_remote = destination_parent
+            .as_ref()
+            .map(|value| value.remote_name.as_str());
+        if current_parent == destination_parent_remote {
+            return Err(CommandError::new("mailbox.same_parent"));
+        }
+        let display_name = join_display_mailbox_path(
+            destination_parent
+                .as_ref()
+                .map(|value| value.display_name.as_str()),
+            delimiter.as_deref(),
+            leaf_name,
+        )?;
+        let operation = RemoteMailboxOperation::Rename {
+            source_mailbox: source.remote_name.clone(),
+            destination_parent: destination_parent
+                .as_ref()
+                .map(|value| value.remote_name.clone()),
+            delimiter,
+            leaf_name: leaf_name.to_owned(),
+        };
+        self.apply_mailbox_rename(
+            account_id,
+            &account.data_slot_id,
+            &source,
+            &display_name,
+            operation,
+        )
+        .await
+    }
+
+    pub async fn delete_mailbox(&self, account_id: &str, mailbox_id: &str) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
+        let account = self.service.account_record(account_id)?;
+        let repository = self.repository().await?;
+        let mailboxes = repository.mailboxes();
+        let source = mailboxes
+            .mutation_context(&account.data_slot_id, mailbox_id)
+            .await?;
+        ensure_mailbox_structure_mutable(&source.remote_name)?;
+        let config = self.imap_config(account_id).await?;
+        let _permit = self
+            .network_limit
+            .acquire()
+            .await
+            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        self.provider
+            .apply_mailbox_operation(
+                &config,
+                &RemoteMailboxOperation::Delete {
+                    mailbox_name: source.remote_name,
+                },
+            )
+            .await?;
+        mailboxes
+            .delete_mailbox(&account.data_slot_id, mailbox_id)
+            .await?;
+        self.emit_mailbox_change(account_id, mailbox_id, 0);
+        Ok(())
+    }
+
+    pub async fn mark_mailbox_all_read(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+    ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
+        let account = self.service.account_record(account_id)?;
+        let repository = self.repository().await?;
+        let mailboxes = repository.mailboxes();
+        let source = mailboxes
+            .mutation_context(&account.data_slot_id, mailbox_id)
+            .await?;
+        if !source.selectable {
+            return Err(CommandError::new("mailbox.not_selectable"));
+        }
+        let config = self.imap_config(account_id).await?;
+        let _permit = self
+            .network_limit
+            .acquire()
+            .await
+            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        self.provider
+            .apply_mailbox_operation(
+                &config,
+                &RemoteMailboxOperation::MarkAllRead {
+                    mailbox_name: source.remote_name,
+                },
+            )
+            .await?;
+        mailboxes
+            .mark_all_read(&account.data_slot_id, mailbox_id)
+            .await?;
+        self.emit_mailbox_change(account_id, mailbox_id, 0);
+        Ok(())
+    }
+
+    pub async fn reorder_mailboxes(
+        &self,
+        account_id: &str,
+        ordered_mailbox_ids: &[String],
+    ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .mailboxes()
+            .reorder(&account.data_slot_id, ordered_mailbox_ids)
+            .await?;
+        self.emit_mailbox_change(account_id, "", 0);
+        Ok(())
+    }
+
+    async fn apply_mailbox_rename(
+        &self,
+        account_id: &str,
+        account_slot_id: &str,
+        source: &crate::storage::MailboxMutationContext,
+        destination_display_name: &str,
+        operation: RemoteMailboxOperation,
+    ) -> CommandResult<()> {
+        let config = self.imap_config(account_id).await?;
+        let _permit = self
+            .network_limit
+            .acquire()
+            .await
+            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        let outcome = self
+            .provider
+            .apply_mailbox_operation(&config, &operation)
+            .await?;
+        let remote_name = outcome
+            .mailbox_name
+            .ok_or_else(|| CommandError::new("mailbox.remote_name_missing"))?;
+        self.repository()
+            .await?
+            .mailboxes()
+            .rename_mailbox_tree(
+                account_slot_id,
+                source,
+                &remote_name,
+                destination_display_name,
+            )
+            .await?;
+        self.emit_mailbox_change(account_id, &source.id, 0);
+        Ok(())
+    }
+
     pub async fn set_message_read(
         &self,
         account_id: &str,
@@ -360,5 +643,90 @@ impl MailRuntime {
                 "pending operation event failed"
             );
         }
+    }
+}
+
+fn validate_mailbox_leaf(name: &str, delimiter: Option<&str>) -> CommandResult<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CommandError::new("mailbox.name_required"));
+    }
+    if name.chars().any(char::is_control)
+        || delimiter
+            .filter(|value| !value.is_empty())
+            .is_some_and(|value| name.contains(value))
+    {
+        return Err(CommandError::new("mailbox.name_invalid"));
+    }
+    Ok(name.to_owned())
+}
+
+fn ensure_mailbox_structure_mutable(remote_name: &str) -> CommandResult<()> {
+    if remote_name.eq_ignore_ascii_case("INBOX") {
+        Err(CommandError::new("mailbox.inbox_immutable"))
+    } else {
+        Ok(())
+    }
+}
+
+fn mailbox_parent_name<'a>(name: &'a str, delimiter: Option<&str>) -> Option<&'a str> {
+    let delimiter = delimiter.filter(|value| !value.is_empty())?;
+    name.rsplit_once(delimiter).map(|(parent, _)| parent)
+}
+
+fn mailbox_leaf_name<'a>(name: &'a str, delimiter: Option<&str>) -> &'a str {
+    mailbox_parent_name(name, delimiter)
+        .and_then(|parent| name.get(parent.len() + delimiter.unwrap_or_default().len()..))
+        .filter(|value| !value.is_empty())
+        .unwrap_or(name)
+}
+
+fn join_display_mailbox_path(
+    parent: Option<&str>,
+    delimiter: Option<&str>,
+    leaf_name: &str,
+) -> CommandResult<String> {
+    match parent {
+        Some(parent) => {
+            let delimiter = delimiter
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| CommandError::new("mailbox.hierarchy_unsupported"))?;
+            Ok(format!("{parent}{delimiter}{leaf_name}"))
+        }
+        None => Ok(leaf_name.to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod mailbox_operation_tests {
+    use super::{
+        join_display_mailbox_path, mailbox_leaf_name, mailbox_parent_name, validate_mailbox_leaf,
+    };
+
+    #[test]
+    fn validates_leaf_names_and_preserves_server_delimiters() {
+        assert_eq!(
+            validate_mailbox_leaf("  2026  ", Some("/")).unwrap(),
+            "2026"
+        );
+        assert_eq!(
+            validate_mailbox_leaf("A/B", Some("/")).unwrap_err().code,
+            "mailbox.name_invalid"
+        );
+        assert_eq!(
+            join_display_mailbox_path(Some("Projects"), Some("/"), "2026").unwrap(),
+            "Projects/2026"
+        );
+    }
+
+    #[test]
+    fn separates_parent_and_leaf_without_guessing_a_delimiter() {
+        assert_eq!(
+            mailbox_parent_name("Projects/2026", Some("/")),
+            Some("Projects")
+        );
+        assert_eq!(mailbox_leaf_name("Projects/2026", Some("/")), "2026");
+        assert_eq!(mailbox_parent_name("News/2026", Some(".")), None);
+        assert_eq!(mailbox_leaf_name("News/2026", Some(".")), "News/2026");
     }
 }

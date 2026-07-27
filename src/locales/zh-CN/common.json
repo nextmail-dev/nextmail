@@ -20,7 +20,8 @@
     "hide": "隐藏",
     "save": "保存",
     "edit": "编辑",
-    "delete": "删除"
+    "delete": "删除",
+    "confirm": "确认"
   },
   "preferences": {
     "appearance": "外观",
@@ -186,7 +187,33 @@
     "downloadAttachment": "下载 {{name}}",
     "openAttachment": "打开 {{name}}",
     "saveAttachmentAs": "将 {{name}} 另存为",
-    "saveAs": "另存为"
+    "saveAs": "另存为",
+    "createRootFolder": "新建文件夹",
+    "createSubfolder": "新建子文件夹",
+    "renameFolder": "重命名文件夹",
+    "moveFolder": "移动文件夹",
+    "deleteFolder": "删除文件夹",
+    "markFolderAllRead": "全部标为已读",
+    "folderName": "文件夹名称",
+    "folderNamePlaceholder": "输入文件夹名称",
+    "folderDestination": "目标位置",
+    "folderRoot": "顶层",
+    "folderDialog": {
+      "create": {
+        "title": "新建文件夹",
+        "parent": "新文件夹将创建在“{{folder}}”下。"
+      },
+      "rename": {
+        "title": "重命名文件夹"
+      },
+      "move": {
+        "title": "移动文件夹"
+      },
+      "delete": {
+        "title": "删除文件夹",
+        "description": "要从邮件服务器删除“{{folder}}”吗？如果服务器拒绝删除非空文件夹，本地不会提前移除任何内容。"
+      }
+    }
   },
   "composer": {
     "send": "发送",
@@ -526,6 +553,22 @@
     "mailbox.trash_not_mapped": "请先在账户管理中指定垃圾箱文件夹。",
     "mailbox.archive_not_mapped": "请先在账户管理中指定归档文件夹。",
     "mailbox.role_mapping_failed": "无法保存系统文件夹映射。",
+    "mailbox.not_found": "此邮件文件夹已不存在。",
+    "mailbox.create_failed": "无法在邮件服务器上创建文件夹。",
+    "mailbox.rename_failed": "无法在邮件服务器上重命名或移动文件夹。",
+    "mailbox.delete_failed": "无法在邮件服务器上删除文件夹。",
+    "mailbox.mark_all_read_failed": "无法在邮件服务器上将此文件夹全部标为已读。",
+    "mailbox.name_required": "请输入文件夹名称。",
+    "mailbox.name_invalid": "文件夹名称包含控制字符或服务器使用的层级分隔符。",
+    "mailbox.hierarchy_unsupported": "此邮件服务器没有提供可用于创建子文件夹的层级分隔符。",
+    "mailbox.already_exists": "已存在同名文件夹。",
+    "mailbox.remote_name_missing": "邮件服务器没有返回新的文件夹路径。",
+    "mailbox.local_write_failed": "无法更新本地文件夹视图。",
+    "mailbox.inbox_immutable": "收件箱不能重命名、移动或删除。",
+    "mailbox.move_into_self": "不能将文件夹移动到自身或其下级文件夹中。",
+    "mailbox.same_parent": "请选择不同的目标位置。",
+    "mailbox.not_selectable": "此文件夹不能包含邮件。",
+    "mailbox.order_conflict": "拖拽期间文件夹列表已变化，请重新排序。",
     "message.remote_location_missing": "找不到这封邮件对应的服务器位置。",
     "message.raw_unavailable": "原始邮件当前不可用。",
     "message.not_found": "找不到这封邮件，可能已被移动或删除。",

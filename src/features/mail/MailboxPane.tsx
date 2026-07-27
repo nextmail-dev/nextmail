@@ -4,8 +4,12 @@ import {
   ChevronRight,
   FilePenLine,
   Folder,
+  FolderInput,
+  FolderPlus,
   Inbox,
+  MailCheck,
   MailPlus,
+  Pencil,
   RefreshCw,
   Send,
   Settings,
@@ -13,7 +17,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { normalizeCommandError } from "@/app/api";
@@ -33,6 +37,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
 import { LabelText, Text } from "@/components/ui/typography";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  MailboxFolderDialog,
+  type MailboxDialogAction,
+} from "./MailboxFolderDialog";
+import { useMailboxReorderGesture } from "./hooks/useMailboxReorderGesture";
+import { reorderMailboxHierarchy } from "./mailbox-order";
 
 interface MailboxPaneProps {
   mailboxes: MailboxSummary[];
@@ -46,6 +63,16 @@ interface MailboxPaneProps {
   onDeleteDraft: (draftId: string) => Promise<void>;
   onReceive: () => void;
   receiving: boolean;
+  folderActionBusy?: boolean;
+  onCreateFolder?: (parentMailboxId: string | null, name: string) => Promise<void>;
+  onRenameFolder?: (mailboxId: string, name: string) => Promise<void>;
+  onMoveFolder?: (
+    mailboxId: string,
+    destinationParentMailboxId: string | null,
+  ) => Promise<void>;
+  onDeleteFolder?: (mailboxId: string) => Promise<void>;
+  onMarkFolderAllRead?: (mailboxId: string) => Promise<void>;
+  onReorderFolders?: (orderedMailboxIds: string[]) => Promise<void>;
   onOpenSettings: () => void;
   collapsed?: boolean;
 }
@@ -62,12 +89,20 @@ export function MailboxPane({
   onDeleteDraft,
   onReceive,
   receiving,
+  folderActionBusy = false,
+  onCreateFolder = async () => {},
+  onRenameFolder = async () => {},
+  onMoveFolder = async () => {},
+  onDeleteFolder = async () => {},
+  onMarkFolderAllRead = async () => {},
+  onReorderFolders = async () => {},
   onOpenSettings,
   collapsed = false,
 }: MailboxPaneProps) {
   const { t } = useTranslation();
   const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
+  const [folderDialogAction, setFolderDialogAction] = useState<MailboxDialogAction | null>(null);
   const activeSync = progress && !["idle", "complete", "failed"].includes(progress.phase);
   const percentage = progress?.phase === "summaries" && progress.total
     ? (progress.completed / progress.total) * 100
@@ -76,6 +111,37 @@ export function MailboxPane({
   const mailboxItems = flattenMailboxHierarchy(mailboxes);
   const visibleMailboxItems = mailboxItems.filter((item) =>
     item.ancestorIds.every((ancestorId) => !collapsedFolderIds.has(ancestorId)));
+  const handleFolderDrop = useCallback((
+    sourceId: string,
+    targetId: string,
+    position: "before" | "after",
+  ) => {
+    const orderedMailboxIds = reorderMailboxHierarchy(
+      mailboxItems,
+      sourceId,
+      targetId,
+      position,
+    );
+    if (!orderedMailboxIds) return;
+    void onReorderFolders(orderedMailboxIds)
+      .catch((error) => reportCaughtError("mailbox.reorder", error));
+  }, [mailboxItems, onReorderFolders]);
+  const canDropFolder = useCallback((sourceId: string, targetId: string) => {
+    const source = mailboxItems.find(({ mailbox }) => mailbox.id === sourceId);
+    const target = mailboxItems.find(({ mailbox }) => mailbox.id === targetId);
+    if (!source || !target) return false;
+    return (source.ancestorIds[source.ancestorIds.length - 1] ?? null)
+      === (target.ancestorIds[target.ancestorIds.length - 1] ?? null);
+  }, [mailboxItems]);
+  const {
+    draggingId,
+    dropTarget,
+    getGestureProps,
+  } = useMailboxReorderGesture({
+    enabled: !collapsed && !folderActionBusy,
+    canDrop: canDropFolder,
+    onDrop: handleFolderDrop,
+  });
 
   function toggleFolder(mailboxId: string) {
     setCollapsedFolderIds((current) => {
@@ -153,24 +219,51 @@ export function MailboxPane({
           </DropdownMenu>
         ) : null}
       </Inline>
-      <Inline className={collapsed ? "w-full justify-center" : "w-full px-2 pt-1"}>
-        {collapsed ? null : (
-          <LabelText className="min-w-0 flex-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">
-            {t("mail.folders")}
-          </LabelText>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={collapsed ? "size-9" : "size-7"}
-          aria-label={t("mail.receive")}
-          title={t("mail.receive")}
-          disabled={receiving}
-          onClick={onReceive}
-        >
-          <RefreshCw className={receiving ? "animate-spin" : undefined} size={15} />
-        </Button>
-      </Inline>
+      {collapsed ? (
+        <Inline className="w-full justify-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9"
+            aria-label={t("mail.receive")}
+            title={t("mail.receive")}
+            disabled={receiving}
+            onClick={onReceive}
+          >
+            <RefreshCw className={receiving ? "animate-spin" : undefined} size={15} />
+          </Button>
+        </Inline>
+      ) : (
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <Inline className="w-full px-2 pt-1">
+              <LabelText className="min-w-0 flex-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">
+                {t("mail.folders")}
+              </LabelText>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label={t("mail.receive")}
+                title={t("mail.receive")}
+                disabled={receiving}
+                onClick={onReceive}
+              >
+                <RefreshCw className={receiving ? "animate-spin" : undefined} size={15} />
+              </Button>
+            </Inline>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem
+              disabled={folderActionBusy}
+              onSelect={() => setFolderDialogAction({ kind: "create", parent: null })}
+            >
+              <FolderPlus size={15} />
+              {t("mail.createRootFolder")}
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      )}
       {activeSync && !collapsed ? (
         <Stack className="rounded-lg bg-card/70 p-3" gap="sm">
           <Text className="text-xs">
@@ -201,57 +294,128 @@ export function MailboxPane({
             const selected = mailbox.id === selectedMailboxId;
             const label = mailbox.role === "other" ? displayName : t(`mailboxNames.${mailbox.role}`);
             const folderCollapsed = collapsedFolderIds.has(mailbox.id);
+            const structureMutable = mailbox.role !== "inbox";
+            const dropClass = dropTarget?.mailboxId === mailbox.id
+              ? dropTarget.position === "before"
+                ? "shadow-[inset_0_2px_0_var(--primary)]"
+                : "shadow-[inset_0_-2px_0_var(--primary)]"
+              : "";
+            const actions = (
+              <ContextMenuContent>
+                <ContextMenuItem
+                  disabled={folderActionBusy || !mailbox.delimiter}
+                  onSelect={() => setFolderDialogAction({ kind: "create", parent: mailbox })}
+                >
+                  <FolderPlus size={15} />
+                  {t("mail.createSubfolder")}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={folderActionBusy || !structureMutable}
+                  onSelect={() => setFolderDialogAction({
+                    kind: "rename",
+                    mailbox,
+                    displayName,
+                  })}
+                >
+                  <Pencil size={15} />
+                  {t("mail.renameFolder")}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={folderActionBusy || !structureMutable}
+                  onSelect={() => setFolderDialogAction({
+                    kind: "move",
+                    mailbox,
+                    displayName,
+                  })}
+                >
+                  <FolderInput size={15} />
+                  {t("mail.moveFolder")}
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  disabled={folderActionBusy || !mailbox.selectable || mailbox.unreadCount === 0}
+                  onSelect={() => void onMarkFolderAllRead(mailbox.id)
+                    .catch((error) => reportCaughtError("mailbox.mark-all-read", error))}
+                >
+                  <MailCheck size={15} />
+                  {t("mail.markFolderAllRead")}
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  className="text-destructive focus:text-destructive"
+                  disabled={folderActionBusy || !structureMutable}
+                  onSelect={() => setFolderDialogAction({
+                    kind: "delete",
+                    mailbox,
+                    displayName,
+                  })}
+                >
+                  <Trash2 size={15} />
+                  {t("mail.deleteFolder")}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            );
             if (!collapsed) {
               return (
-                <Inline
-                  key={mailbox.id}
-                  className={selected
-                    ? "h-10 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary"
-                    : "h-10 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5"}
-                  style={{ paddingInlineStart: `${4 + depth * 16}px` }}
-                >
-                  {hasChildren ? (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 shrink-0 rounded-none bg-transparent p-0 hover:bg-transparent hover:text-foreground"
-                      aria-label={t(folderCollapsed ? "mail.expandFolder" : "mail.collapseFolder", { folder: label })}
-                      aria-expanded={!folderCollapsed}
-                      onClick={() => toggleFolder(mailbox.id)}
+                <ContextMenu key={mailbox.id}>
+                  <ContextMenuTrigger asChild>
+                    <Inline
+                      {...getGestureProps(mailbox.id)}
+                      className={`${selected
+                        ? "h-10 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary"
+                        : "h-10 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5"} ${dropClass} ${draggingId === mailbox.id ? "cursor-grabbing opacity-55" : "cursor-default"}`}
+                      style={{ paddingInlineStart: `${4 + depth * 16}px` }}
+                      aria-grabbed={draggingId === mailbox.id}
                     >
-                      {folderCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                    </Button>
-                  ) : (
-                    <Inline className="size-6 shrink-0" aria-hidden="true" />
-                  )}
-                  <Button
-                    variant="ghost"
-                    className="h-10 min-w-0 flex-1 justify-start rounded-md bg-transparent px-1.5 text-inherit hover:bg-transparent hover:text-foreground"
-                    aria-label={label}
-                    onClick={() => onSelect(mailbox.id)}
-                  >
-                    <MailboxIcon role={mailbox.role} />
-                    <Text className="min-w-0 flex-1 truncate text-left text-[length:var(--ui-font-control)] text-inherit">{label}</Text>
-                    {mailbox.unreadCount ? (
-                      <Text className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold leading-none text-primary-foreground">{mailbox.unreadCount}</Text>
-                    ) : null}
-                  </Button>
-                </Inline>
+                      {hasChildren ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 shrink-0 rounded-none bg-transparent p-0 hover:bg-transparent hover:text-foreground"
+                          aria-label={t(folderCollapsed ? "mail.expandFolder" : "mail.collapseFolder", { folder: label })}
+                          aria-expanded={!folderCollapsed}
+                          onClick={() => toggleFolder(mailbox.id)}
+                        >
+                          {folderCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                        </Button>
+                      ) : (
+                        <Inline className="size-6 shrink-0" aria-hidden="true" />
+                      )}
+                      <Button
+                        variant="ghost"
+                        className="h-10 min-w-0 flex-1 justify-start rounded-md bg-transparent px-1.5 text-inherit hover:bg-transparent hover:text-foreground"
+                        aria-label={label}
+                        onClick={() => onSelect(mailbox.id)}
+                      >
+                        <MailboxIcon role={mailbox.role} />
+                        <Text className="min-w-0 flex-1 truncate text-left text-[length:var(--ui-font-control)] text-inherit">{label}</Text>
+                        {mailbox.unreadCount ? (
+                          <Text className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold leading-none text-primary-foreground">{mailbox.unreadCount}</Text>
+                        ) : null}
+                      </Button>
+                    </Inline>
+                  </ContextMenuTrigger>
+                  {actions}
+                </ContextMenu>
               );
             }
             return (
-              <Button
-                key={mailbox.id}
-                variant="ghost"
-                className={selected
-                  ? "mx-auto size-11 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
-                  : "mx-auto size-11 flex-none justify-center p-0"}
-                aria-label={label}
-                title={label}
-                onClick={() => onSelect(mailbox.id)}
-              >
-                <MailboxIcon role={mailbox.role} />
-              </Button>
+              <ContextMenu key={mailbox.id}>
+                <ContextMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className={selected
+                      ? "mx-auto size-11 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
+                      : "mx-auto size-11 flex-none justify-center p-0"}
+                    aria-label={label}
+                    title={label}
+                    onClick={() => onSelect(mailbox.id)}
+                  >
+                    <MailboxIcon role={mailbox.role} />
+                  </Button>
+                </ContextMenuTrigger>
+                {actions}
+              </ContextMenu>
             );
           })}
         </OverlayScrollArea>
@@ -270,6 +434,16 @@ export function MailboxPane({
         <Settings className="size-[18px] shrink-0" strokeWidth={1.8} />
         {collapsed ? null : <Text className="text-[length:var(--ui-font-control)] text-inherit">{t("mail.settings")}</Text>}
       </Button>
+      <MailboxFolderDialog
+        action={folderDialogAction}
+        hierarchy={mailboxItems}
+        busy={folderActionBusy}
+        onClose={() => setFolderDialogAction(null)}
+        onCreate={onCreateFolder}
+        onRename={onRenameFolder}
+        onMove={onMoveFolder}
+        onDelete={onDeleteFolder}
+      />
     </Stack>
   );
 }

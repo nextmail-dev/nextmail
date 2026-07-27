@@ -183,6 +183,32 @@ pub struct RemoteOperationOutcome {
     pub cleanup_pending: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RemoteMailboxOperation {
+    Create {
+        parent_mailbox: Option<String>,
+        delimiter: Option<String>,
+        leaf_name: String,
+    },
+    Rename {
+        source_mailbox: String,
+        destination_parent: Option<String>,
+        delimiter: Option<String>,
+        leaf_name: String,
+    },
+    Delete {
+        mailbox_name: String,
+    },
+    MarkAllRead {
+        mailbox_name: String,
+    },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RemoteMailboxOperationOutcome {
+    pub mailbox_name: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub enum SyncNotice {
     Folders {
@@ -244,6 +270,12 @@ pub trait ImapSyncProvider: Send + Sync {
         account: &ImapAccountConfig,
         operation: &RemoteOperation,
     ) -> CommandResult<RemoteOperationOutcome>;
+
+    async fn apply_mailbox_operation(
+        &self,
+        account: &ImapAccountConfig,
+        operation: &RemoteMailboxOperation,
+    ) -> CommandResult<RemoteMailboxOperationOutcome>;
 
     async fn append_message(
         &self,

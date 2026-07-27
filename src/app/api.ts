@@ -111,6 +111,23 @@ export const api = {
     invoke<void>("open_raw_message_window", { accountId, messageId }),
   listMailboxes: (accountId: string) =>
     invoke<MailboxSummary[]>("list_mailboxes", { accountId }),
+  createMailbox: (accountId: string, parentMailboxId: string | null, name: string) =>
+    invoke<void>("create_mailbox", { accountId, parentMailboxId, name }),
+  renameMailbox: (accountId: string, mailboxId: string, name: string) =>
+    invoke<void>("rename_mailbox", { accountId, mailboxId, name }),
+  moveMailbox: (
+    accountId: string,
+    mailboxId: string,
+    destinationParentMailboxId: string | null,
+  ) => invoke<void>("move_mailbox", {
+    accountId, mailboxId, destinationParentMailboxId,
+  }),
+  deleteMailbox: (accountId: string, mailboxId: string) =>
+    invoke<void>("delete_mailbox", { accountId, mailboxId }),
+  markMailboxAllRead: (accountId: string, mailboxId: string) =>
+    invoke<void>("mark_mailbox_all_read", { accountId, mailboxId }),
+  reorderMailboxes: (accountId: string, orderedMailboxIds: string[]) =>
+    invoke<void>("reorder_mailboxes", { accountId, orderedMailboxIds }),
   listMessages: (accountId: string, mailboxId: string, cursor: string | null, limit = 50) =>
     invoke<MessageListPage>("list_messages", { accountId, mailboxId, cursor, limit }),
   searchMessages: (

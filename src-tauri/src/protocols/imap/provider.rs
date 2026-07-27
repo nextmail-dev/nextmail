@@ -4,21 +4,24 @@ use futures_util::future::try_join_all;
 
 use super::{
     connection::{connect_session, BoxedImapTransport},
+    path_lock::MailboxPathLockRegistry,
     session::{
-        append_message_session, apply_operation_session, fetch_message_session,
-        replace_draft_session,
+        append_message_session, apply_mailbox_operation_session, apply_operation_session,
+        fetch_message_session, replace_draft_session,
     },
     session_budget::{SessionBudgetRegistry, SYNC_SESSION_COUNT},
     sync_session,
 };
 use crate::core::{
-    CommandResult, ImapAccountConfig, ImapSyncProvider, MailSyncSink, RemoteMessage,
-    RemoteOperation, RemoteOperationOutcome, SyncObserver,
+    CommandResult, ImapAccountConfig, ImapSyncProvider, MailSyncSink, RemoteMailboxOperation,
+    RemoteMailboxOperationOutcome, RemoteMessage, RemoteOperation, RemoteOperationOutcome,
+    SyncObserver,
 };
 
 #[derive(Default)]
 pub struct AsyncImapProvider {
     session_budgets: SessionBudgetRegistry,
+    mailbox_path_locks: MailboxPathLockRegistry,
 }
 
 #[async_trait]
@@ -29,6 +32,8 @@ impl ImapSyncProvider for AsyncImapProvider {
         sink: &(dyn MailSyncSink + Send + Sync),
         observer: &(dyn SyncObserver + Send + Sync),
     ) -> CommandResult<()> {
+        let path_lock = self.mailbox_path_locks.lock(&account.account_id);
+        let _path_guard = path_lock.read().await;
         // A full sync leases only two of the three per-account slots. The
         // remaining slot lets an interactive body/attachment request proceed
         // without opening a fourth connection that can cause stricter servers
@@ -49,6 +54,8 @@ impl ImapSyncProvider for AsyncImapProvider {
         uid: u32,
         expected_uid_validity: u32,
     ) -> CommandResult<RemoteMessage> {
+        let path_lock = self.mailbox_path_locks.lock(&account.account_id);
+        let _path_guard = path_lock.read().await;
         let (_permit, session) = self.connect_budgeted_session(account).await?;
         fetch_message_session(session, mailbox_name, uid, expected_uid_validity).await
     }
@@ -58,8 +65,21 @@ impl ImapSyncProvider for AsyncImapProvider {
         account: &ImapAccountConfig,
         operation: &RemoteOperation,
     ) -> CommandResult<RemoteOperationOutcome> {
+        let path_lock = self.mailbox_path_locks.lock(&account.account_id);
+        let _path_guard = path_lock.read().await;
         let (_permit, session) = self.connect_budgeted_session(account).await?;
         apply_operation_session(session, operation).await
+    }
+
+    async fn apply_mailbox_operation(
+        &self,
+        account: &ImapAccountConfig,
+        operation: &RemoteMailboxOperation,
+    ) -> CommandResult<RemoteMailboxOperationOutcome> {
+        let path_lock = self.mailbox_path_locks.lock(&account.account_id);
+        let _path_guard = path_lock.write().await;
+        let (_permit, session) = self.connect_budgeted_session(account).await?;
+        apply_mailbox_operation_session(session, operation).await
     }
 
     async fn append_message(
@@ -69,6 +89,8 @@ impl ImapSyncProvider for AsyncImapProvider {
         flags: &str,
         raw: &[u8],
     ) -> CommandResult<()> {
+        let path_lock = self.mailbox_path_locks.lock(&account.account_id);
+        let _path_guard = path_lock.read().await;
         let (_permit, session) = self.connect_budgeted_session(account).await?;
         append_message_session(session, mailbox_name, flags, raw).await
     }
@@ -80,6 +102,8 @@ impl ImapSyncProvider for AsyncImapProvider {
         draft_id: &str,
         raw: &[u8],
     ) -> CommandResult<RemoteOperationOutcome> {
+        let path_lock = self.mailbox_path_locks.lock(&account.account_id);
+        let _path_guard = path_lock.read().await;
         let (_permit, session) = self.connect_budgeted_session(account).await?;
         replace_draft_session(session, mailbox_name, draft_id, raw).await
     }

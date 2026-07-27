@@ -1,6 +1,7 @@
 mod connection;
 mod encoding;
 mod parse;
+mod path_lock;
 mod provider;
 mod session;
 mod session_budget;

@@ -19,6 +19,7 @@ import { MessageViewer } from "./MessageViewer";
 import { nextMessageIdAfterRemoval } from "./message-selection";
 import { useMailboxSelection } from "./hooks/useMailboxSelection";
 import { useMailRuntimeEvents } from "./hooks/useMailRuntimeEvents";
+import { useMailboxActions } from "./hooks/useMailboxActions";
 import { usePaneLayout } from "./hooks/usePaneLayout";
 import { mailQueryKeys } from "./mail-query-keys";
 
@@ -106,6 +107,10 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   const selectedRuntime = runtimeQuery.data?.find((runtime) => runtime.accountId === selectedAccountId);
   const receiving = selectedRuntime?.state === "syncing"
     || !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
+  const mailboxActions = useMailboxActions({
+    accountId: selectedAccountId,
+    onError: setComposeError,
+  });
   const selectAfterRemoval = useCallback((removedMessageId: string) => {
     setSelectedMessageId((current) => current === removedMessageId
       ? nextMessageIdAfterRemoval(visibleMessageIdsRef.current, removedMessageId)
@@ -194,6 +199,13 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           }}
           onReceive={receive}
           receiving={receiving}
+          folderActionBusy={mailboxActions.busy || receiving}
+          onCreateFolder={mailboxActions.createMailbox}
+          onRenameFolder={mailboxActions.renameMailbox}
+          onMoveFolder={mailboxActions.moveMailbox}
+          onDeleteFolder={mailboxActions.deleteMailbox}
+          onMarkFolderAllRead={mailboxActions.markMailboxAllRead}
+          onReorderFolders={mailboxActions.reorderMailboxes}
           onOpenSettings={() => void api.openSettingsWindow().catch((error) => setComposeError(normalizeCommandError(error).code))}
           collapsed={folderPaneCollapsed}
         />

@@ -22,6 +22,7 @@ NextMail 当前版本为 `0.1.0`，目标平台为 Windows 10 22H2+ x64 与 macO
 - 独立富文本写信窗口、三格式草稿、附件、持久化 SMTP 发件、Sent/Drafts APPEND、回复/回复全部/转发。
 - 全局或账户范围的富文本邮件模板与签名库 CRUD、四种写信场景默认模板、单一默认签名与自动插入偏好、受控变量渲染和 Composer 稳定节点。
 - 多账户 Supervisor、公平发件调度、账户级同步策略和文件夹角色映射。
+- 在线 IMAP 文件夹创建、重命名、层级移动、删除和批量全部已读，以及按账户保存在 SQLite 的本地文件夹排序。
 - 全服务器邮件头部优先同步、打开时按需正文、逐封本地可见性、手动正文阶段进度与受限 CID 图片离线阅读。
 - 每封邮件原子落库后通知当前文件夹串行重新读取本地视图；已有本地首屏立即显示，后台同步期间手动收信禁用且 Rust 拒绝重复同步竞态。
 - 当前账户、当前文件夹范围的 SQLite FTS5 本地全文搜索，覆盖主题、地址、预览、纯文本正文和附件名。
@@ -128,9 +129,10 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 - `imap/provider.rs`：`ImapSyncProvider` 具体实现与按操作会话租约。
 - `imap/connection.rs`：TCP/TLS/STARTTLS、登录和传输超时。
 - `imap/session_budget.rs`：账户级有界会话预算。
-- `imap/session.rs`：远端操作、APPEND/替换和单封 FETCH。
+- `imap/path_lock.rs`：账户级 mailbox 路径读写锁；普通协议操作共享读锁，结构变更独占写锁。
+- `imap/session.rs`：邮件与文件夹远端操作、APPEND/替换和单封 FETCH。
 - `imap/parse.rs`：MIME 到领域对象的解析映射。
-- `imap/encoding.rs`：文件夹角色和 modified UTF-7。
+- `imap/encoding.rs`：文件夹角色和 modified UTF-7 双向转换。
 - `imap/timeout.rs`：每次成功收发后重置的读写超时流。
 - `tls.rs`：进程级共享 rustls 配置。
 
@@ -141,10 +143,11 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 - `DraftRepository`
 - `SendJobRepository`
 - `OperationRepository`
+- `MailboxRepository`
 - `MailboxRoleRepository`
 - `CompositionDefinitionRepository`
 
-`MailRepository` 是共享资源门面，不恢复跨文件的上帝类型。同步写入实现位于 `message_sync_repository.rs`，发件任务持久化位于 `draft_repository/send_job_repository.rs`；草稿与发件仍共享同一 SQLx pool 和内容存储。`state.rs` 是组合根，负责注入具体配置 Store、凭据、连接测试、IMAP Provider、Repository Provider、附件打开器与外链打开器。
+`MailRepository` 是共享资源门面，不恢复跨文件的上帝类型。同步写入实现位于 `message_sync_repository.rs`，文件夹上下文/结构投影/本地顺序位于 `mailbox_repository.rs`，发件任务持久化位于 `draft_repository/send_job_repository.rs`；这些窄仓库共享同一 SQLx pool 和内容存储。`state.rs` 是组合根，负责注入具体配置 Store、凭据、连接测试、IMAP Provider、Repository Provider、附件打开器与外链打开器。
 
 ## 6. 前端架构
 
@@ -158,7 +161,7 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 
 外观偏好统一使用 `appearanceQueryKey`。主窗口、设置窗口和写信窗口各自在所属 WebView 的 QueryClient 中读取 Rust 持久化值；写入先取消相同查询并乐观更新 cache，失败时恢复旧值，成功时以 Rust 返回值覆盖。`appearance-preferences-changed` 只把 DTO 写入当前窗口 cache 并应用 DOM 主题，各 WebView 不共享 React 内存状态。
 
-主工作区由 `useMailboxSelection` 管理账户、文件夹、邮件、搜索输入与通知目标选择，`useMailRuntimeEvents` 管理七类邮件运行时/定位事件及查询失效，`usePaneLayout` 管理折叠、宽度钳制、窗口 resize 和标题栏侧栏宽度令牌。Query key 由邮件 key 工厂集中生成：普通列表使用 `['messages', accountId, mailboxId]`，250ms 防抖后的当前文件夹搜索使用 `['messages', accountId, mailboxId, 'search', query]`；邮件事件失效文件夹或账户前缀即可同时刷新相关搜索。账户运行状态事件会立即刷新 runtime Query，使后台同步期间手动收信保持禁用；当前文件夹收到连续 `mailbox-changed` 时按事件顺序串行重新读取，后一封不会取消前一封刷新，也没有前端定时模拟播放。通知点击先由 Rust 核验目标，为仍存在的目标邮件排入已读更新，再通过 `open-mail-location` 切换账户/文件夹并选择消息；失效消息只保留文件夹选择。邮件列表向工作区报告当前可见顺序，删除、归档或移动成功后用纯选择函数优先选中下一封、末尾回退上一封；再次单击当前行会清除选择。右键菜单复用 `src/app/api.ts` 中与阅读器相同的窄命令，不维护第二套后端操作。写信窗口关闭监听按稳定账户/草稿身份只注册一次，通过 ref 读取最新保存函数与编辑状态。Composer Bootstrap 只返回当前账户可见的定义摘要；用户选择定义后由 Rust 使用当前收件人上下文渲染，React 只负责把返回的稳定节点内容交给 Tiptap。
+主工作区由 `useMailboxSelection` 管理账户、文件夹、邮件、搜索输入与通知目标选择，`useMailRuntimeEvents` 管理七类邮件运行时/定位事件及查询失效，`useMailboxActions` 管理文件夹结构 mutation 与 Query 失效，`usePaneLayout` 管理折叠、宽度钳制、窗口 resize 和标题栏侧栏宽度令牌。Query key 由邮件 key 工厂集中生成：普通列表使用 `['messages', accountId, mailboxId]`，250ms 防抖后的当前文件夹搜索使用 `['messages', accountId, mailboxId, 'search', query]`；邮件事件失效文件夹或账户前缀即可同时刷新相关搜索。账户运行状态事件会立即刷新 runtime Query，使后台同步期间手动收信保持禁用；当前文件夹收到连续 `mailbox-changed` 时按事件顺序串行重新读取，后一封不会取消前一封刷新，也没有前端定时模拟播放。通知点击先由 Rust 核验目标，为仍存在的目标邮件排入已读更新，再通过 `open-mail-location` 切换账户/文件夹并选择消息；失效消息只保留文件夹选择。邮件列表向工作区报告当前可见顺序，删除、归档或移动成功后用纯选择函数优先选中下一封、末尾回退上一封；再次单击当前行会清除选择。邮件和文件夹右键菜单都只复用 `src/app/api.ts` 的窄命令，不维护第二套后端操作。写信窗口关闭监听按稳定账户/草稿身份只注册一次，通过 ref 读取最新保存函数与编辑状态。Composer Bootstrap 只返回当前账户可见的定义摘要；用户选择定义后由 Rust 使用当前收件人上下文渲染，React 只负责把返回的稳定节点内容交给 Tiptap。
 
 侧栏顶部账户身份始终打开 Radix 账户菜单，单账户和多账户行为一致；名称和邮箱在固定侧栏宽度内完整换行，头像与菜单箭头保持固定尺寸。账户项之后的分割线提供账户管理入口。账户列表、添加和详情面板由独立 `accounts` 窗口承载，继续使用 `['accounts']`、`['account-runtimes']` 等 Query 失效和 `src/app/api.ts` 窄命令；主窗口不再渲染账户管理弹层。独立设置窗口不维护重复账户类别；移除最后一个账户后，主窗口空状态打开同一个独立管理窗口，不回退到已经完成的数据目录向导。
 
@@ -175,7 +178,8 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 - 账户：发现、连接测试、添加、编辑、重新认证、移除、运行状态、最近账户。
 - 阅读：文件夹、分页邮件、当前文件夹本地搜索、详情、正文、原始 EML 与附件。邮件外链不经过前端 Command；宿主新窗口回调在 Rust 内复验后直接调用系统关联程序。
 - 账户同步设置：手动/1/5/10 分钟自动同步间隔。阶段十二遗留的正文时间与“始终下载非收件箱正文”数据库列为兼容旧数据继续保留，但已不在 DTO、设置 UI 或同步决策中使用；间隔变更只重置 Supervisor 计时，不立即执行同步。
-- IMAP 写操作：已读、星标、移动、复制、删除、归档、角色映射和重试。
+- IMAP 邮件写操作：已读、星标、移动、复制、删除、归档、角色映射和重试。
+- IMAP 文件夹写操作：创建、重命名、层级移动、删除、全部标为已读，以及本地文件夹排序。
 - 写信：打开窗口、草稿 CRUD、普通附件、经校验的选择/粘贴内嵌图片、安全富 HTML 粘贴清洗、远端 Drafts、发件排队和重试。
 - 模板、签名与规则：按全局或账户范围管理富文本定义、四种场景模板规则及单一默认签名偏好，按当前账户渲染定义；账户 ID 在 Rust 内转换为匿名数据槽。
 - 窗口与应用：设置、账户管理、原始邮件窗口，About 和明确退出。
@@ -226,7 +230,7 @@ cache/attachment-open/...
 
 密码只存入系统凭据库，服务名为 `com.taurusxin.nextmail`；配置文件只保存不透明 `credential_ref`。
 
-SQLite 数据格式当前为版本 19。主要表：
+SQLite 数据格式当前为版本 20。主要表：
 
 - `account_slots`、`account_sync_settings`
 - `mailboxes`、`mailbox_role_overrides`
@@ -237,7 +241,7 @@ SQLite 数据格式当前为版本 19。主要表：
 - `mail_templates`、`mail_signatures`、`composition_scene_rules`、`signature_preferences`
 - `pending_operations`
 
-邮件规范记录与远端位置分离，同一邮件可位于多个文件夹。原始 EML 是重新解析来源；正文、附件元数据和 FTS 索引可重建。迁移 0016 曾增加非收件箱正文偏好及动作草稿编辑标记，其中正文偏好列现仅为数据兼容保留；迁移 0017 新增默认签名偏好，并把既有场景签名引用按新建、回复、回复全部、转发顺序收敛成单一默认值；迁移 0018 为匿名账户槽增加通知同步基线，并把已经成功同步过的既有账户标记为就绪；迁移 0019 为每个匿名账户槽增加默认 1 分钟、且只允许手动/1/5/10 分钟的同步间隔。迁移只能新增到 `src-tauri/migrations`，已发布迁移不得修改。
+邮件规范记录与远端位置分离，同一邮件可位于多个文件夹。原始 EML 是重新解析来源；正文、附件元数据和 FTS 索引可重建。迁移 0016 曾增加非收件箱正文偏好及动作草稿编辑标记，其中正文偏好列现仅为数据兼容保留；迁移 0017 新增默认签名偏好，并把既有场景签名引用按新建、回复、回复全部、转发顺序收敛成单一默认值；迁移 0018 为匿名账户槽增加通知同步基线，并把已经成功同步过的既有账户标记为就绪；迁移 0019 为每个匿名账户槽增加默认 1 分钟、且只允许手动/1/5/10 分钟的同步间隔；迁移 0020 为 `mailboxes` 增加可空的 `local_sort_order`，未排序账户继续使用既有角色/名称顺序，首次拖拽后保存完整账户顺序。迁移只能新增到 `src-tauri/migrations`，已发布迁移不得修改。
 
 `message_search` 在数据格式版本 15 的迁移中回填现有邮件，并由数据库触发器随主题/地址/预览、正文纯文本和附件名维护。三字及以上输入使用转义后的字面 trigram FTS 查询；一至两个 Unicode 字符在同一索引存储列上执行受限字面扫描。查询先由 Rust 将公开账户 ID 解析为匿名数据槽，再同时按 `account_slot_id`、`mailbox_id` 和可见邮件位置约束；HTML 标记、原始 EML、凭据和内部路径不进入索引。结果沿用普通邮件列表 DTO、日期游标和时间倒序，不做相关度排序。
 
@@ -245,9 +249,10 @@ SQLite 数据格式当前为版本 19。主要表：
 
 `MailRuntime` 按账户维护一个 Supervisor：
 
-- 所有账户共享两个高层网络操作许可；具体 `AsyncImapProvider` 另为每个账户维护最多 3 条主动 IMAP 会话的预算。完整同步只租用 2 条 worker 会话，始终为正文、附件或持久化待办保留第 3 条容量；每次操作按需连接并在结束后关闭，不跨 Provider 边界暴露或长期缓存 `async-imap::Session`。
+- 所有账户共享两个高层网络操作许可；具体 `AsyncImapProvider` 另为每个账户维护最多 3 条主动 IMAP 会话的预算。完整同步只租用 2 条 worker 会话，始终为正文、附件、文件夹结构操作或持久化待办保留第 3 条容量；每次操作按需连接并在结束后关闭，不跨 Provider 边界暴露或长期缓存 `async-imap::Session`。
 - 完整同步只有四类入口：账户首次设定后启动 Supervisor、应用启动后的首次同步、账户配置的 1/5/10 分钟计时到期，以及用户手动收取；“仅手动”不启动周期计时。
 - 不再使用 Inbox IDLE、无 IDLE 轮询、固定 5 分钟兜底或秒级同步失败重试；失败后等待下一次已配置间隔或用户手动重试。
+- 文件夹 CREATE/RENAME/DELETE 与批量全部已读是显式在线交互操作，不触发新的完整同步入口，也不进入消息待办队列。运行时先读取短生命周期本地上下文，释放数据库访问后租用交互会话，服务器成功后再以事务更新本地投影；不会持有 SQLite 写锁等待网络。Adapter 按账户用弱引用 mailbox 路径读写锁协调协议操作：完整同步、正文、消息待办和 APPEND/草稿替换共享读锁，结构变更/全部已读取写锁，既避免路径与 Flags 竞态，也不把既有读取重新串行化。重命名/层级移动通过 IMAP `RENAME` 同时改写本地父级及其下级路径并保留 mailbox ID，本地排序则完全不修改服务器路径。
 - 首次启动和手动同步显示进度；自动同步静默落库并发送数据变化事件。
 - 可见同步进度携带当前 IMAP 文件夹按服务器层级分隔符提取的末级 Unicode 显示名，侧栏显示“正在同步文件夹 ……”；不会展示完整父级路径，事件也不携带正文、地址或其他邮件内容。
 - 完整同步覆盖服务器全部可选文件夹和 UID，但只按最多 100 个 UID 的网络批次 FETCH 邮件头；两个 worker 把 UID 分成互不重叠的集合。每封头部独立落库后立即发布 `message-arrived`，当前文件夹按 100ms 窗口合并增量 UI 更新，不等待整批完成。

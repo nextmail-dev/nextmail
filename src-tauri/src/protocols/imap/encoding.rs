@@ -67,6 +67,40 @@ pub fn decode_modified_utf7(input: &str) -> String {
     output
 }
 
+pub(super) fn encode_modified_utf7(input: &str) -> String {
+    fn flush_encoded(output: &mut String, encoded: &mut Vec<u8>) {
+        if encoded.is_empty() {
+            return;
+        }
+        let value = STANDARD
+            .encode(encoded.as_slice())
+            .trim_end_matches('=')
+            .replace('/', ",");
+        output.push('&');
+        output.push_str(&value);
+        output.push('-');
+        encoded.clear();
+    }
+
+    let mut output = String::with_capacity(input.len());
+    let mut encoded = Vec::new();
+    for character in input.chars() {
+        if (' '..='~').contains(&character) && character != '&' {
+            flush_encoded(&mut output, &mut encoded);
+            output.push(character);
+        } else if character == '&' {
+            flush_encoded(&mut output, &mut encoded);
+            output.push_str("&-");
+        } else {
+            for unit in character.encode_utf16(&mut [0; 2]) {
+                encoded.extend_from_slice(&unit.to_be_bytes());
+            }
+        }
+    }
+    flush_encoded(&mut output, &mut encoded);
+    output
+}
+
 fn decode_modified_utf7_segment(encoded: &str) -> Option<String> {
     let mut standard = encoded.replace(',', "/");
     while !standard.len().is_multiple_of(4) {
@@ -93,6 +127,14 @@ mod tests {
         assert_eq!(decode_modified_utf7("A&-B"), "A&B");
         assert_eq!(decode_modified_utf7("&U,BTFw-"), "台北");
         assert_eq!(decode_modified_utf7("&ZeVnLIqe-"), "日本語");
+        assert_eq!(encode_modified_utf7("INBOX"), "INBOX");
+        assert_eq!(encode_modified_utf7("A&B"), "A&-B");
+        assert_eq!(encode_modified_utf7("台北"), "&U,BTFw-");
+        assert_eq!(encode_modified_utf7("日本語"), "&ZeVnLIqe-");
+        assert_eq!(
+            decode_modified_utf7(&encode_modified_utf7("项目 & 2026")),
+            "项目 & 2026"
+        );
         assert_eq!(
             mailbox_leaf_display_name("Projects/2026", Some("/")),
             "2026"

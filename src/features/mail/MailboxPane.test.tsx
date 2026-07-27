@@ -163,6 +163,58 @@ describe("MailboxPane draft actions", () => {
     expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
   });
 
+  it("does not capture an ordinary folder click before the long-press threshold", () => {
+    const onSelect = vi.fn();
+    const capturePointer = vi.fn();
+    const originalCapture = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "setPointerCapture",
+    );
+    Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
+      configurable: true,
+      value: capturePointer,
+    });
+    try {
+      const { container } = render(
+        <MailboxPane
+          mailboxes={[{
+            id: "archive",
+            accountId: "account-one",
+            name: "Archive",
+            delimiter: "/",
+            role: "other",
+            selectable: true,
+            totalCount: 1,
+            unreadCount: 0,
+            revision: 1,
+          }]}
+          selectedMailboxId=""
+          onSelect={onSelect}
+          onCompose={vi.fn()}
+          drafts={[]}
+          onOpenDraft={vi.fn()}
+          onDeleteDraft={vi.fn()}
+          onReceive={vi.fn()}
+          receiving={false}
+          onOpenSettings={vi.fn()}
+        />,
+      );
+
+      const folder = within(container).getByRole("button", { name: "Archive" });
+      fireEvent.pointerDown(folder, { button: 0, pointerId: 1, pointerType: "mouse" });
+      expect(capturePointer).not.toHaveBeenCalled();
+      fireEvent.pointerUp(folder, { button: 0, pointerId: 1, pointerType: "mouse" });
+      fireEvent.click(folder);
+      expect(onSelect).toHaveBeenCalledWith("archive");
+    } finally {
+      if (originalCapture) {
+        Object.defineProperty(HTMLElement.prototype, "setPointerCapture", originalCapture);
+      } else {
+        delete (HTMLElement.prototype as Partial<HTMLElement>).setPointerCapture;
+      }
+    }
+  });
+
   it("places receive beside the folder heading and settings at the pane bottom", () => {
     const onReceive = vi.fn();
     const onOpenSettings = vi.fn();
@@ -211,6 +263,43 @@ describe("MailboxPane draft actions", () => {
     );
 
     expect(within(container).getByRole("button", { name: "Receive" })).toBeDisabled();
+  });
+
+  it("offers folder management from the folder context menu", async () => {
+    const onMarkFolderAllRead = vi.fn().mockResolvedValue(undefined);
+    const archive: MailboxSummary = {
+      id: "archive",
+      accountId: "account-one",
+      name: "Archive",
+      delimiter: "/",
+      role: "other",
+      selectable: true,
+      totalCount: 4,
+      unreadCount: 2,
+      revision: 1,
+    };
+    const { container } = render(
+      <MailboxPane
+        mailboxes={[archive]}
+        selectedMailboxId="archive"
+        onSelect={vi.fn()}
+        onCompose={vi.fn()}
+        drafts={[]}
+        onOpenDraft={vi.fn()}
+        onDeleteDraft={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onMarkFolderAllRead={onMarkFolderAllRead}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(within(container).getByRole("button", { name: "Archive" }));
+    expect(await screen.findByRole("menuitem", { name: "New subfolder" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "Rename folder" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "Move folder" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark all as read" }));
+    await waitFor(() => expect(onMarkFolderAllRead).toHaveBeenCalledWith("archive"));
   });
 
   it("shows message progress without exposing folder-count progress", () => {

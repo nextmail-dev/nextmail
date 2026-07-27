@@ -531,6 +531,82 @@ pub async fn list_mailboxes(
 }
 
 #[tauri::command]
+pub async fn create_mailbox(
+    state: State<'_, AppState>,
+    account_id: String,
+    parent_mailbox_id: Option<String>,
+    name: String,
+) -> CommandResult<()> {
+    state
+        .mail
+        .create_mailbox(&account_id, parent_mailbox_id.as_deref(), &name)
+        .await
+}
+
+#[tauri::command]
+pub async fn rename_mailbox(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+    name: String,
+) -> CommandResult<()> {
+    state
+        .mail
+        .rename_mailbox(&account_id, &mailbox_id, &name)
+        .await
+}
+
+#[tauri::command]
+pub async fn move_mailbox(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+    destination_parent_mailbox_id: Option<String>,
+) -> CommandResult<()> {
+    state
+        .mail
+        .move_mailbox(
+            &account_id,
+            &mailbox_id,
+            destination_parent_mailbox_id.as_deref(),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn delete_mailbox(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+) -> CommandResult<()> {
+    state.mail.delete_mailbox(&account_id, &mailbox_id).await
+}
+
+#[tauri::command]
+pub async fn mark_mailbox_all_read(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+) -> CommandResult<()> {
+    state
+        .mail
+        .mark_mailbox_all_read(&account_id, &mailbox_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn reorder_mailboxes(
+    state: State<'_, AppState>,
+    account_id: String,
+    ordered_mailbox_ids: Vec<String>,
+) -> CommandResult<()> {
+    state
+        .mail
+        .reorder_mailboxes(&account_id, &ordered_mailbox_ids)
+        .await
+}
+
+#[tauri::command]
 pub async fn list_messages(
     state: State<'_, AppState>,
     account_id: String,
