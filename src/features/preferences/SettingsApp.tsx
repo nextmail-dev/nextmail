@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { api, normalizeCommandError } from "@/app/api";
 import { useAppearancePreferences, useUpdateAppearancePreferences } from "@/app/appearance";
 import type { AccountSummary, AppearancePreferences, LanguagePreference, ReadingPreferences, ThemePreference } from "@/app/types";
+import { useRevealWindowWhenReady } from "@/app/windowReady";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -72,6 +73,9 @@ export function SettingsApp() {
     mutationFn: api.setReadingPreferences,
     onSuccess: (preferences) => queryClient.setQueryData(["reading-preferences"], preferences),
   });
+  useRevealWindowWhenReady(
+    !preferencesQuery.isPending && !readingPreferencesQuery.isPending && !accountsQuery.isPending,
+  );
 
   function updatePreferences(preferences: AppearancePreferences) {
     mutation.mutate(preferences);
@@ -232,6 +236,14 @@ function SettingsContent({
             onCheckedChange={(autoOpenDownloadedAttachments) => onReadingChange({ ...readingPreferences, autoOpenDownloadedAttachments })}
           />
           <Text className="pl-[28px] text-xs">{t("settings.autoOpenDownloadedAttachmentsDescription")}</Text>
+        </Stack>
+        <Stack className="rounded-lg bg-muted/60 p-5" gap="sm">
+          <Checkbox
+            checked={readingPreferences.autoLoadMoreMessages}
+            label={t("settings.autoLoadMoreMessages")}
+            onCheckedChange={(autoLoadMoreMessages) => onReadingChange({ ...readingPreferences, autoLoadMoreMessages })}
+          />
+          <Text className="pl-[28px] text-xs">{t("settings.autoLoadMoreMessagesDescription")}</Text>
         </Stack>
         {error ? (
           <Alert tone="danger" title={t("errors.title")}>

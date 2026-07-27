@@ -16,9 +16,9 @@ use std::{
 use crate::core::{
     AccountManagementDetail, AccountRemovalImpact, AccountRuntimeState, AccountRuntimeSummary,
     CommandError, CommandResult, ImapAccountConfig, ImapSyncProvider, MailSyncSink, MailboxRole,
-    MailboxSummary, MessageDetail, MessageListPage, NewMailCandidate, NotificationNavigationTarget,
-    PendingOperationKind, RemoteOperation, RemoteOperationKind, SyncInterval, SyncPhase,
-    SyncProgress,
+    MailboxSummary, MessageDetail, MessageListPage, NewMailCandidate, NotificationDisplayMode,
+    NotificationNavigationTarget, PendingOperationKind, RemoteOperation, RemoteOperationKind,
+    SyncInterval, SyncPhase, SyncProgress,
 };
 use crate::storage::{MailRepository, MailRepositoryProvider, PendingOperationWork};
 use tauri::{AppHandle, Emitter};
@@ -652,8 +652,13 @@ impl MailRuntime {
         let Ok(preferences) = self.service.get_notification_preferences() else {
             return;
         };
-        for candidate in eligible_new_mail_candidates(&preferences, account_id, candidates) {
-            if let Err(error) = self.app.emit("new-mail-candidate", &candidate) {
+        let candidates = limit_notification_batch(
+            &preferences.display_mode,
+            preferences.max_stacked,
+            eligible_new_mail_candidates(&preferences, account_id, candidates),
+        );
+        for candidate in &candidates {
+            if let Err(error) = self.app.emit("new-mail-candidate", candidate) {
                 tracing::warn!(
                     %account_id,
                     message_id = %candidate.message_id,
@@ -661,8 +666,8 @@ impl MailRuntime {
                     "new mail candidate event failed"
                 );
             }
-            self.notifications.present(candidate, &preferences);
         }
+        self.notifications.present_batch(candidates, &preferences);
     }
 
     fn runtime_state_is(&self, account_id: &str, expected: AccountRuntimeState) -> bool {
@@ -756,6 +761,20 @@ impl MailRuntime {
             tracing::warn!(%account_id, ?error, "sync progress event failed");
         }
     }
+}
+
+fn limit_notification_batch(
+    display_mode: &NotificationDisplayMode,
+    max_stacked: u8,
+    candidates: Vec<NewMailCandidate>,
+) -> Vec<NewMailCandidate> {
+    let limit = if *display_mode == NotificationDisplayMode::Replace {
+        1
+    } else {
+        usize::from(max_stacked).max(1)
+    };
+    let skip = candidates.len().saturating_sub(limit);
+    candidates.into_iter().skip(skip).collect()
 }
 
 fn required_destination(work: &PendingOperationWork) -> CommandResult<&str> {
@@ -896,5 +915,34 @@ mod tests {
             vec![candidate("inbox", "four", true)],
         )
         .is_empty());
+    }
+
+    #[test]
+    fn notification_batches_keep_only_the_newest_visible_candidates() {
+        let candidate = |id: &str| NewMailCandidate {
+            account_id: "account".to_owned(),
+            mailbox_id: "inbox".to_owned(),
+            message_id: id.to_owned(),
+            sender_name: None,
+            sender_email: "sender@example.com".to_owned(),
+            subject: id.to_owned(),
+        };
+        let candidates = vec![
+            candidate("one"),
+            candidate("two"),
+            candidate("three"),
+            candidate("four"),
+        ];
+        let stacked =
+            limit_notification_batch(&NotificationDisplayMode::Stacked, 2, candidates.clone());
+        assert_eq!(
+            stacked
+                .iter()
+                .map(|candidate| candidate.message_id.as_str())
+                .collect::<Vec<_>>(),
+            ["three", "four"]
+        );
+        let replace = limit_notification_batch(&NotificationDisplayMode::Replace, 10, candidates);
+        assert_eq!(replace[0].message_id, "four");
     }
 }

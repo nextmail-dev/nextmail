@@ -8,6 +8,7 @@ import { api, normalizeCommandError } from "@/app/api";
 import { useAppearancePreferences } from "@/app/appearance";
 import { reportCaughtError } from "@/app/errorReporting";
 import type { NewMailNotification } from "@/app/types";
+import { useRevealWindowWhenReady } from "@/app/windowReady";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { IconTile } from "@/components/ui/icon-tile";
@@ -25,7 +26,7 @@ export function NotificationApp({ notificationId }: { notificationId: string }) 
   const [bridgeReady, setBridgeReady] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  useAppearancePreferences();
+  const appearance = useAppearancePreferences();
 
   useEffect(() => {
     let disposed = false;
@@ -58,6 +59,10 @@ export function NotificationApp({ notificationId }: { notificationId: string }) 
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
   });
+  useRevealWindowWhenReady(
+    bridgeReady && !appearance.isPending && !notificationQuery.isPending,
+    false,
+  );
 
   function activate() {
     if (pending) return;

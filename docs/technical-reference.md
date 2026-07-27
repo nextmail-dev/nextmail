@@ -151,7 +151,7 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 
 ## 6. 前端架构
 
-入口根据 URL 查询参数选择主窗口、写信窗口、设置窗口、账户管理窗口、原始邮件窗口或按需加载的通知窗口。设置、账户管理、原始邮件和 Composer 继续按窗口动态加载；设置数据未就绪时使用覆盖整个 WebView 的中性加载层，不提前露出标题栏左右背景接缝。`src/app/api.ts` 是统一 IPC 客户端，业务组件不直接调用裸 `invoke`。`src/app/types.ts` 与 Rust DTO 保持 camelCase 序列化契约。
+入口根据 URL 查询参数选择主窗口、写信窗口、设置窗口、账户管理窗口、原始邮件窗口或按需加载的通知窗口。设置、账户管理、原始邮件、Composer 和通知窗口继续按窗口动态加载；Rust 隐藏创建 WebView，React 完成代码块加载和首批 Query 后才显示，Query 失败时显示错误状态，普通独立窗口的 React 错误边界也会主动显示，不再把中间加载动画暴露给用户。`src/app/api.ts` 是统一 IPC 客户端，业务组件不直接调用裸 `invoke`。`src/app/types.ts` 与 Rust DTO 保持 camelCase 序列化契约。
 
 读取模型使用 TanStack Query；Rust 事件只触发精确 key 或账户级前缀失效，不直接推送邮件正文。邮件详情 key 固定为：
 
@@ -161,7 +161,7 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 
 外观偏好统一使用 `appearanceQueryKey`。主窗口、设置窗口和写信窗口各自在所属 WebView 的 QueryClient 中读取 Rust 持久化值；写入先取消相同查询并乐观更新 cache，失败时恢复旧值，成功时以 Rust 返回值覆盖。`appearance-preferences-changed` 只把 DTO 写入当前窗口 cache 并应用 DOM 主题，各 WebView 不共享 React 内存状态。
 
-主工作区由 `useMailboxSelection` 管理账户、文件夹、邮件、搜索输入与通知目标选择，`useMailRuntimeEvents` 管理七类邮件运行时/定位事件及查询失效，`useMailboxActions` 管理文件夹结构 mutation 与 Query 失效，`usePaneLayout` 管理折叠、宽度钳制、窗口 resize 和标题栏侧栏宽度令牌。Query key 由邮件 key 工厂集中生成：普通列表使用 `['messages', accountId, mailboxId]`，250ms 防抖后的当前文件夹搜索使用 `['messages', accountId, mailboxId, 'search', query]`；邮件事件失效文件夹或账户前缀即可同时刷新相关搜索。账户运行状态事件会立即刷新 runtime Query，使后台同步期间手动收信保持禁用；当前文件夹收到连续 `mailbox-changed` 时按事件顺序串行重新读取，后一封不会取消前一封刷新，也没有前端定时模拟播放。通知点击先由 Rust 核验目标，为仍存在的目标邮件排入已读更新，再通过 `open-mail-location` 切换账户/文件夹并选择消息；失效消息只保留文件夹选择。邮件列表向工作区报告当前可见顺序，删除、归档或移动成功后用纯选择函数优先选中下一封、末尾回退上一封；再次单击当前行会清除选择。邮件和文件夹右键菜单都只复用 `src/app/api.ts` 的窄命令，不维护第二套后端操作。写信窗口关闭监听按稳定账户/草稿身份只注册一次，通过 ref 读取最新保存函数与编辑状态。Composer Bootstrap 只返回当前账户可见的定义摘要；用户选择定义后由 Rust 使用当前收件人上下文渲染，React 只负责把返回的稳定节点内容交给 Tiptap。
+主工作区由 `useMailboxSelection` 管理账户、文件夹、邮件、搜索输入与通知目标选择，`useMailRuntimeEvents` 管理七类邮件运行时/定位事件及查询失效，`useMailboxActions` 管理文件夹结构 mutation 与 Query 失效，`usePaneLayout` 管理折叠、宽度钳制、窗口 resize 和标题栏侧栏宽度令牌。Query key 由邮件 key 工厂集中生成：普通列表使用 `['messages', accountId, mailboxId]`，250ms 防抖后的当前文件夹搜索使用 `['messages', accountId, mailboxId, 'search', query]`；邮件事件失效文件夹或账户前缀即可同时刷新相关搜索。账户运行状态事件会立即刷新 runtime Query，使后台同步期间手动收信保持禁用；当前文件夹收到连续 `mailbox-changed` 时按事件顺序串行重新读取，后一封不会取消前一封刷新，也没有前端定时模拟播放。通知点击先由 Rust 核验目标，为仍存在的目标邮件排入已读更新，再通过 `open-mail-location` 切换账户/文件夹并选择消息；失效消息只保留文件夹选择。邮件列表向工作区报告当前可见顺序，删除、归档或移动成功后用纯选择函数优先选中下一封、末尾回退上一封；再次单击当前行会清除选择。普通列表和搜索都使用相同的 50 封游标分页；设备级阅读偏好默认允许在自绘滚动视口接近底部时调用 TanStack Query `fetchNextPage`，关闭后恢复显式“加载更多”按钮。邮件和文件夹右键菜单都只复用 `src/app/api.ts` 的窄命令，不维护第二套后端操作。写信窗口关闭监听按稳定账户/草稿身份只注册一次，通过 ref 读取最新保存函数与编辑状态。Composer Bootstrap 只返回当前账户可见的定义摘要；用户选择定义后由 Rust 使用当前收件人上下文渲染，React 只负责把返回的稳定节点内容交给 Tiptap。
 
 侧栏顶部账户身份始终打开 Radix 账户菜单，单账户和多账户行为一致；名称和邮箱在固定侧栏宽度内完整换行，头像与菜单箭头保持固定尺寸。账户项之后的分割线提供账户管理入口。账户列表、添加和详情面板由独立 `accounts` 窗口承载，继续使用 `['accounts']`、`['account-runtimes']` 等 Query 失效和 `src/app/api.ts` 窄命令；主窗口不再渲染账户管理弹层。独立设置窗口不维护重复账户类别；移除最后一个账户后，主窗口空状态打开同一个独立管理窗口，不回退到已经完成的数据目录向导。
 
@@ -225,7 +225,7 @@ cache/attachment-open/...
 - `bootstrap.json`：当前数据目录和首次启动状态。
 - `accounts.json`：服务器、认证类型、匿名数据槽映射、最近账户和待清理凭据引用。
 - `preferences.json`：主题、语言和主题色。
-- `reading-preferences.json`：远程图片和附件打开偏好。
+- `reading-preferences.json`：远程图片、附件打开和邮件列表自动分页偏好。
 - `notification-preferences.json`：全局、账户和文件夹通知开关，以及层叠/覆盖、最多层叠数量和展示时间；只保存公开 ID。
 
 密码只存入系统凭据库，服务名为 `com.taurusxin.nextmail`；配置文件只保存不透明 `credential_ref`。
@@ -241,7 +241,7 @@ SQLite 数据格式当前为版本 20。主要表：
 - `mail_templates`、`mail_signatures`、`composition_scene_rules`、`signature_preferences`
 - `pending_operations`
 
-邮件规范记录与远端位置分离，同一邮件可位于多个文件夹。原始 EML 是重新解析来源；正文、附件元数据和 FTS 索引可重建。迁移 0016 曾增加非收件箱正文偏好及动作草稿编辑标记，其中正文偏好列现仅为数据兼容保留；迁移 0017 新增默认签名偏好，并把既有场景签名引用按新建、回复、回复全部、转发顺序收敛成单一默认值；迁移 0018 为匿名账户槽增加通知同步基线，并把已经成功同步过的既有账户标记为就绪；迁移 0019 为每个匿名账户槽增加默认 1 分钟、且只允许手动/1/5/10 分钟的同步间隔；迁移 0020 为 `mailboxes` 增加可空的 `local_sort_order`，未排序账户继续使用既有角色/名称顺序，首次拖拽后保存完整账户顺序。迁移只能新增到 `src-tauri/migrations`，已发布迁移不得修改。
+邮件规范记录与远端位置分离，同一邮件可位于多个文件夹。原始 EML 是重新解析来源；正文、附件元数据和 FTS 索引可重建。迁移 0016 曾增加非收件箱正文偏好及动作草稿编辑标记，其中正文偏好列现仅为数据兼容保留；迁移 0017 新增默认签名偏好，并把既有场景签名引用按新建、回复、回复全部、转发顺序收敛成单一默认值；迁移 0018 为匿名账户槽增加通知同步基线，并把已经成功同步过的既有账户标记为就绪；迁移 0019 为每个匿名账户槽增加默认 1 分钟、且只允许手动/1/5/10 分钟的同步间隔；迁移 0020 为 `mailboxes` 增加可空的 `local_sort_order`，未排序账户继续使用既有角色/名称顺序，首次拖拽后保存完整账户顺序；迁移 0021 失效旧安全 HTML 缓存，使标准 CID/data 图片策略从本地原始 EML 离线重建；迁移 0022 将数据格式升级至 22，再次失效已由实机应用 0021 的缓存，使误标为 `application/octet-stream` 的 CID 图片通过文件魔数兼容重建，并在同一事务移除已成功内联的重复附件元数据。迁移只能新增到 `src-tauri/migrations`，已发布迁移不得修改。
 
 `message_search` 在数据格式版本 15 的迁移中回填现有邮件，并由数据库触发器随主题/地址/预览、正文纯文本和附件名维护。三字及以上输入使用转义后的字面 trigram FTS 查询；一至两个 Unicode 字符在同一索引存储列上执行受限字面扫描。查询先由 Rust 将公开账户 ID 解析为匿名数据槽，再同时按 `account_slot_id`、`mailbox_id` 和可见邮件位置约束；HTML 标记、原始 EML、凭据和内部路径不进入索引。结果沿用普通邮件列表 DTO、日期游标和时间倒序，不做相关度排序。
 
@@ -291,13 +291,14 @@ SQLite 数据格式当前为版本 20。主要表：
 - CSS `url()`、`@import`、`@font-face`、其他 at-rule、未知函数、固定遮罩、动画和变换继续移除；背景、字体或列表资源不能绕过远程内容默认阻止。
 - 阅读器 iframe 的 sandbox 只有 `allow-popups`，不含 scripts/forms/same-origin/top-navigation。该 token 只让用户点击到达主 WebView 的新窗口回调；宿主始终拒绝应用内窗口创建。
 - 远程图片默认由 iframe CSP 阻止，用户可单次显示或启用设备级自动加载；加载使用 `no-referrer`。
-- 已收原始 MIME 中被 HTML `cid:` 实际引用、类型为 PNG/JPEG/GIF/WebP、单项不超过 25MB 且单封累计不超过 100MB 的图片在 Rust 清洗时转换为内存 data URL；只有进入最终正文的 part 才从附件区排除。文档 CSP 仍为 `img-src data:`，未引用、超限或不支持的 part 仍作为附件。
+- 已收原始 MIME 中被 HTML `cid:` 实际引用、类型为 PNG/JPEG/GIF/WebP、单项不超过 25MB 且单封累计不超过 100MB 的图片在 Rust 清洗时转换为内存 data URL。CID URL 按 RFC 2392 解码 `%hh` 并与完整 MIME part 集合的规范化 `Content-ID` 匹配，不依赖 `Content-Disposition` 分类；错误声明为 `application/octet-stream` 的 part 只有在解码字节文件魔数可确认上述图片格式时才兼容内联，不信任扩展名。只有进入最终正文的 part 才从附件区排除，未引用、超限、不支持或文件魔数不匹配的 part 仍作为附件。
+- 邮件自身的 `data:image` 只接受通过 media type、编码、文件魔数和共享大小预算验证的 PNG/JPEG/GIF/WebP；SVG、HTML、未知类型、格式错误和超限内容继续移除。文档 CSP 仍为 `img-src data:`，不会因此获得脚本、同源、本地文件或额外网络权限。
 - HTML 清洗版本升级后，正文请求先按账户槽读取本地原始 EML，并在 blocking worker 重新解析、清洗后事务写回；只有原始 EML 缺失或不可解析时才通过 IMAP 重新获取，因此缓存迁移不强制破坏离线重建能力。
 - 回复/转发优先从账户隔离的本地原始 EML 解析 HTML part；原文缺失时回退到已缓存的安全 HTML/纯文本，不为打开 Composer 强制联网。compose 专用清洗继续移除脚本、事件、表单、嵌入内容、危险 URL 和 CSS 网络资源，将安全内嵌样式表限定到 `data-nextmail-original-message` 范围。引用原文不再进入 ProseMirror 表格 schema，而以 `sourceHtml` 原子节点保留并在 `sandbox=""`、`no-referrer`、仅 data URL 图片 CSP 的 iframe 中预览；HTML 源码编辑保存时由 Rust 再清洗正文与节点属性。
 - 数据格式版本 13 为草稿附件增加 `content_id`/`is_inline`。本地原始 MIME 中实际被 HTML `cid:` 引用的 PNG/JPEG/GIF/WebP 与用户选择/粘贴图片进入现有 SHA-256 `attachments/` 内容存储；前端只得到不透明 ID、CID 和内存 data URL 预览。图片通过 `src/app/api.ts` 的窄 Command 进入 Rust，验证 MIME、文件魔数、单项 25MB 与总计 100MB 上限。富 HTML 粘贴先由 Rust 保留安全结构、class/ID、行内样式和样式表，再把选择器限定到 `data-nextmail-pasted-html` 容器；未经清洗的剪贴板 HTML 不进入 Composer DOM。远程 `http(s)` 图片不显示占位卡片、不被编辑器静默下载，地址仍随安全 HTML 保存。
 - `http`、`https`、`mailto` 经 Rust 规范化后直接保留为 `href`，固定使用 `_blank` 与 `noopener noreferrer`。相对路径、本机文件、用户信息、反斜线、控制字符、双向文本控制符、危险或未知 scheme 均移除。
 - 主窗口 `on_new_window` 对点击目标再次执行同一 Rust 校验，安全目标交给 `state.rs` 注入的系统浏览器/邮件程序打开器，并始终返回 `Deny`；React 没有链接事件、确认 UI 或接受任意 URL 的 IPC。`no-referrer` 保持不变。
-- 阅读器不再向邮件文档注入统一字体/行高、16px 内边距、任意断词或图片/表格最大宽度，避免覆盖作者固定宽度和居中布局；阅读栏只在 iframe 宿主外保留 12px 左右留白。迁移 0011 作为可能已应用的原型保持不可变，0012 删除临时链接表并失效旧缓存；迁移 0014 为受限 `nth-*()` 保真再次失效旧 HTML 缓存，0015 新增本地搜索，0016 增加第十二阶段设置与草稿标记。
+- 阅读器不再向邮件文档注入统一字体/行高、16px 内边距、任意断词或图片/表格最大宽度，避免覆盖作者固定宽度和居中布局；阅读页以标题和单一浅边框容器组织基本信息、操作、正文与固定宽度彩色类型附件卡片，iframe 宿主只保留 12px 左右留白。迁移 0011 作为可能已应用的原型保持不可变，0012 删除临时链接表并失效旧缓存；迁移 0014 为受限 `nth-*()` 保真再次失效旧 HTML 缓存，0015 新增本地搜索，0016 增加第十二阶段设置与草稿标记，0021 为标准 CID 与受限 data 图片再次失效旧 HTML 缓存，0022 为阿里云式 octet-stream CID 兼容再次失效已应用缓存。
 - 第十阶段共享语料持续覆盖样式保真和主动内容边界。ADR 0008 已接受并根据第三、四批实机反馈修订；直接外链、传统布局、受限 `nth-*()` flex 表格、Composer 原始 HTML、源码沙箱与 CID 缓存已于 2026-07-21 通过 Windows WebView2 手动验收。ADR 0009 记录 Composer 边界；macOS 未执行。
 - 已收附件按账户槽验证归属；高风险扩展名只在文件管理器显示，不自动执行。
 

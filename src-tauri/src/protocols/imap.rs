@@ -555,7 +555,7 @@ mod tests {
             "Content-Type: multipart/related; boundary=nextmail\r\n\r\n",
             "--nextmail\r\n",
             "Content-Type: text/html; charset=utf-8\r\n\r\n",
-            "<p>Logo <img src=\"cid:logo@example.test\"></p>\r\n",
+            "<p>Logo <img src=\"CID:logo%40example.test\"></p>\r\n",
             "--nextmail\r\n",
             "Content-Type: image/png; name=logo.png\r\n",
             "Content-Disposition: attachment; filename=logo.png\r\n",
@@ -575,11 +575,118 @@ mod tests {
         )
         .unwrap();
 
-        assert!(message
-            .safe_html
-            .expect("safe HTML")
-            .contains("data:image/png;base64,aW1hZ2U="));
+        let safe_html = message.safe_html.expect("safe HTML");
+        assert!(
+            safe_html.contains("data:image/png;base64,aW1hZ2U="),
+            "unexpected safe HTML: {safe_html}"
+        );
         assert!(message.attachments.is_empty());
+    }
+
+    #[test]
+    fn embeds_aliyun_style_content_ids_without_listing_them_as_attachments() {
+        let raw = concat!(
+            "From: sender@example.com\r\n",
+            "To: reader@example.com\r\n",
+            "Subject: Inline image\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/related; boundary=nextmail\r\n\r\n",
+            "--nextmail\r\n",
+            "Content-Type: text/html; charset=utf-8\r\n\r\n",
+            "<img src=\"cid:__aliyun178512290634140581\">\r\n",
+            "--nextmail\r\n",
+            "Content-Type: application/octet-stream\r\n",
+            "Content-Disposition: attachment; filename=image.png\r\n",
+            "Content-ID: <__aliyun178512290634140581>\r\n",
+            "Content-Transfer-Encoding: base64\r\n\r\n",
+            "iVBORw0KGgo=\r\n",
+            "--nextmail--\r\n"
+        );
+        let message = parse_message(
+            1,
+            1,
+            raw.len() as u64,
+            1,
+            [Flag::Seen].into_iter(),
+            raw.as_bytes(),
+            Some(raw.as_bytes().to_vec()),
+        )
+        .unwrap();
+
+        let safe_html = message.safe_html.expect("safe HTML");
+        assert!(
+            safe_html.contains("data:image/png;base64,iVBORw0KGgo="),
+            "unexpected safe HTML: {safe_html}"
+        );
+        assert!(message.attachments.is_empty());
+    }
+
+    #[test]
+    fn leaves_non_image_octet_stream_cid_parts_as_attachments() {
+        let raw = concat!(
+            "From: sender@example.com\r\n",
+            "To: reader@example.com\r\n",
+            "Subject: Invalid inline image\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/related; boundary=nextmail\r\n\r\n",
+            "--nextmail\r\n",
+            "Content-Type: text/html; charset=utf-8\r\n\r\n",
+            "<img src=\"cid:__aliyun178512290634140581\">\r\n",
+            "--nextmail\r\n",
+            "Content-Type: application/octet-stream\r\n",
+            "Content-Disposition: inline; filename=image.png\r\n",
+            "Content-ID: <__aliyun178512290634140581>\r\n",
+            "Content-Transfer-Encoding: base64\r\n\r\n",
+            "bm90LWEtcG5n\r\n",
+            "--nextmail--\r\n"
+        );
+        let message = parse_message(
+            1,
+            1,
+            raw.len() as u64,
+            1,
+            [Flag::Seen].into_iter(),
+            raw.as_bytes(),
+            Some(raw.as_bytes().to_vec()),
+        )
+        .unwrap();
+
+        assert!(!message.safe_html.expect("safe HTML").contains("data:image"));
+        assert_eq!(message.attachments.len(), 1);
+    }
+
+    #[test]
+    fn leaves_unreferenced_content_id_parts_in_the_attachment_list() {
+        let raw = concat!(
+            "From: sender@example.com\r\n",
+            "To: reader@example.com\r\n",
+            "Subject: Unreferenced image\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/related; boundary=nextmail\r\n\r\n",
+            "--nextmail\r\n",
+            "Content-Type: text/html; charset=utf-8\r\n\r\n",
+            "<p>No inline image reference</p>\r\n",
+            "--nextmail\r\n",
+            "Content-Type: image/png; name=logo.png\r\n",
+            "Content-Disposition: attachment; filename=logo.png\r\n",
+            "Content-ID: <logo@example.test>\r\n",
+            "Content-Transfer-Encoding: base64\r\n\r\n",
+            "aW1hZ2U=\r\n",
+            "--nextmail--\r\n"
+        );
+        let message = parse_message(
+            1,
+            1,
+            raw.len() as u64,
+            1,
+            [Flag::Seen].into_iter(),
+            raw.as_bytes(),
+            Some(raw.as_bytes().to_vec()),
+        )
+        .unwrap();
+
+        assert_eq!(message.attachments.len(), 1);
+        assert_eq!(message.attachments[0].file_name, "logo.png");
     }
 
     #[test]

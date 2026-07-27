@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { api, normalizeCommandError } from "@/app/api";
 import { useAppearancePreferences } from "@/app/appearance";
 import { reportCaughtError } from "@/app/errorReporting";
+import { useRevealWindowWhenReady } from "@/app/windowReady";
 import type {
   ComposerBootstrap,
   DraftAttachmentSummary,
@@ -46,6 +47,7 @@ export function ComposerApp({ accountId, draftId }: ComposerAppProps) {
     queryKey: ["composer", accountId, draftId],
     queryFn: () => api.getComposerBootstrap(accountId, draftId),
   });
+  useRevealWindowWhenReady(!preferences.isPending && !bootstrap.isPending);
 
   if (preferences.isPending || bootstrap.isPending) {
     return <AppShell className="grid place-items-center"><Spinner size={24} /></AppShell>;
@@ -251,7 +253,6 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     cc: addRecipientInput(cc, ccInput).addresses,
     bcc: addRecipientInput(bcc, bccInput).addresses,
   });
-
   function recipientValue(kind: RecipientKind) {
     if (kind === "to") return { addresses: to, input: toInput };
     if (kind === "cc") return { addresses: cc, input: ccInput };

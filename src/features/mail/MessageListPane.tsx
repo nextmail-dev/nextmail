@@ -14,8 +14,8 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { forwardRef, useEffect, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { forwardRef, useEffect, type HTMLAttributes, type ReactElement, type ReactNode, type UIEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -73,6 +73,10 @@ export function MessageListPane({
   const queryClient = useQueryClient();
   const normalizedSearch = searchQuery.trim();
   const debouncedSearch = useDebouncedValue(normalizedSearch, 250);
+  const readingPreferences = useQuery({
+    queryKey: ["reading-preferences"],
+    queryFn: api.getReadingPreferences,
+  });
   const query = useInfiniteQuery({
     queryKey: debouncedSearch
       ? mailQueryKeys.messageSearch(accountId, mailboxId, debouncedSearch)
@@ -121,6 +125,15 @@ export function MessageListPane({
     ? mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`)
     : t("mail.messages");
   const actionError = operation.error ?? composeOperation.error ?? editDraftOperation.error;
+  const autoLoadMore = readingPreferences.data?.autoLoadMoreMessages ?? true;
+
+  function loadNextPageNearEnd(event: UIEvent<HTMLDivElement>) {
+    if (!autoLoadMore || !query.hasNextPage || query.isFetchingNextPage) return;
+    const viewport = event.currentTarget;
+    if (viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 160) {
+      void query.fetchNextPage();
+    }
+  }
 
   return (
     <Stack className="min-h-0 flex-1 bg-card" gap="none">
@@ -146,6 +159,7 @@ export function MessageListPane({
           className="min-h-0 flex-1"
           viewportClassName="pr-4"
           trackClassName="right-2 w-3"
+          onViewportScroll={loadNextPageNearEnd}
         >
           {items.map((message) => (
             <MessageActionsContextMenu
@@ -173,10 +187,12 @@ export function MessageListPane({
               />
             </MessageActionsContextMenu>
           ))}
-          {query.hasNextPage ? (
+          {query.hasNextPage && !autoLoadMore ? (
             <Button variant="ghost" className="mx-auto my-3" loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>
               {t("mail.loadMore")}
             </Button>
+          ) : query.isFetchingNextPage ? (
+            <span className="mx-auto my-3"><Spinner size={18} /></span>
           ) : null}
         </OverlayScrollArea>
       ) : query.isPending ? (

@@ -10,7 +10,9 @@ import { NotificationApp, formatNotificationSender } from "./NotificationApp";
 const { listenMock } = vi.hoisted(() => ({ listenMock: vi.fn() }));
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }));
-vi.mock("@/app/appearance", () => ({ useAppearancePreferences: vi.fn() }));
+vi.mock("@/app/appearance", () => ({
+  useAppearancePreferences: vi.fn(() => ({ isPending: false })),
+}));
 vi.mock("@/app/api", () => ({
   api: {
     getNewMailNotification: vi.fn(),

@@ -357,6 +357,9 @@ impl ComposerRuntime {
     async fn show_composer_window(&self, account_id: &str, draft_id: &str) -> CommandResult<()> {
         let label = format!("composer-{draft_id}");
         if let Some(window) = self.app.get_webview_window(&label) {
+            if !window.is_visible().unwrap_or(false) {
+                return Ok(());
+            }
             window
                 .show()
                 .and_then(|_| window.set_focus())
@@ -383,12 +386,8 @@ impl ComposerRuntime {
         let builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true);
-        let window = builder
+        builder
             .build()
-            .map_err(|_| CommandError::new("composer.window_create_failed"))?;
-        window
-            .show()
-            .and_then(|_| window.set_focus())
             .map_err(|_| CommandError::new("composer.window_create_failed"))?;
         Ok(())
     }

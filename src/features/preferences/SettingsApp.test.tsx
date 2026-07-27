@@ -50,6 +50,7 @@ vi.mock("@/app/api", () => ({
     getReadingPreferences: vi.fn().mockResolvedValue({
       autoLoadRemoteImages: false,
       autoOpenDownloadedAttachments: true,
+      autoLoadMoreMessages: true,
     }),
     setAppearancePreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
     setReadingPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
@@ -101,6 +102,8 @@ describe("SettingsApp", () => {
     expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
     expect(screen.getByText("Open attachments after downloading")).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox")[1]).toBeChecked();
+    expect(screen.getByText("Load more messages at the end of the list")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")[2]).toBeChecked();
   });
 
   it("offers an accessible theme-color palette instead of a select", async () => {

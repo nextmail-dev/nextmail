@@ -11,6 +11,7 @@ vi.mock("@/app/api", () => ({
   api: {
     listMessages: vi.fn(),
     searchMessages: vi.fn(),
+    getReadingPreferences: vi.fn(),
     setMessageRead: vi.fn(),
     setMessageFlagged: vi.fn(),
     openMessageActionComposer: vi.fn(),
@@ -48,6 +49,11 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.listMessages).mockResolvedValue({ items: [], nextCursor: null });
+  vi.mocked(api.getReadingPreferences).mockResolvedValue({
+    autoLoadRemoteImages: false,
+    autoOpenDownloadedAttachments: true,
+    autoLoadMoreMessages: true,
+  });
   vi.mocked(api.searchMessages).mockResolvedValue({
     items: [serverResult],
     nextCursor: null,
@@ -126,5 +132,46 @@ describe("MessageListPane", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Alice.*Server-side result/i }));
     expect(onSelect).toHaveBeenCalledWith("");
+  });
+
+  it("loads the next page automatically near the bottom when the reading preference is enabled", async () => {
+    vi.mocked(api.listMessages)
+      .mockResolvedValueOnce({ items: [serverResult], nextCursor: "next-page" })
+      .mockResolvedValueOnce({
+        items: [{ ...serverResult, id: "message-two", subject: "Second page" }],
+        nextCursor: null,
+      });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane
+          accountId="account-one"
+          mailboxId="inbox"
+          mailboxes={[]}
+          selectedMessageId=""
+          onSelect={vi.fn()}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessageRemoved={vi.fn()}
+          searchQuery=""
+          onSearchChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("Server-side result");
+    const viewport = container.querySelector(".native-scrollbar-hidden") as HTMLDivElement;
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 900 },
+      scrollTop: { configurable: true, value: 380, writable: true },
+    });
+    fireEvent.scroll(viewport);
+
+    await waitFor(() => expect(api.listMessages).toHaveBeenCalledWith(
+      "account-one", "inbox", "next-page", 50,
+    ));
+    expect(await screen.findByText("Second page")).toBeInTheDocument();
   });
 });

@@ -70,6 +70,7 @@ impl Default for AppearancePreferences {
 pub struct ReadingPreferences {
     pub auto_load_remote_images: bool,
     pub auto_open_downloaded_attachments: bool,
+    pub auto_load_more_messages: bool,
 }
 
 impl Default for ReadingPreferences {
@@ -77,6 +78,7 @@ impl Default for ReadingPreferences {
         Self {
             auto_load_remote_images: false,
             auto_open_downloaded_attachments: true,
+            auto_load_more_messages: true,
         }
     }
 }

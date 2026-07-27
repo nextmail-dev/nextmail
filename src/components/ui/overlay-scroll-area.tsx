@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type UIEvent as ReactUIEvent,
 } from "react";
 
 import { cn } from "@/lib/utils";
@@ -16,6 +17,7 @@ interface OverlayScrollAreaProps {
   className?: string;
   contentClassName?: string;
   intrinsic?: boolean;
+  onViewportScroll?: (event: ReactUIEvent<HTMLDivElement>) => void;
   style?: CSSProperties;
   trackClassName?: string;
   viewportClassName?: string;
@@ -42,6 +44,7 @@ export function OverlayScrollArea({
   className,
   contentClassName,
   intrinsic = false,
+  onViewportScroll,
   style,
   trackClassName,
   viewportClassName,
@@ -91,8 +94,9 @@ export function OverlayScrollArea({
     measure();
   }, [children, measure]);
 
-  function handleScroll() {
+  function handleScroll(event: ReactUIEvent<HTMLDivElement>) {
     measure();
+    onViewportScroll?.(event);
   }
 
   function handleThumbPointerDown(event: ReactPointerEvent<HTMLDivElement>) {

@@ -201,6 +201,7 @@ impl SyncSinkRepository {
         plain_text: Option<&str>,
         safe_html: Option<&str>,
         remote_images_blocked: bool,
+        inline_content_ids: &[String],
     ) -> CommandResult<()> {
         let mut transaction = self
             .pool
@@ -233,6 +234,14 @@ impl SyncSinkRepository {
         .execute(&mut *transaction)
         .await
         .map_err(map_storage_err("storage.message_body_write_failed"))?;
+        for content_id in inline_content_ids {
+            sqlx::query("DELETE FROM attachments WHERE message_id = ? AND lower(content_id) = ?")
+                .bind(message_id)
+                .bind(content_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(map_storage_err("storage.message_body_write_failed"))?;
+        }
         transaction
             .commit()
             .await
@@ -1190,6 +1199,103 @@ mod tests {
         );
     }
 
+    async fn assert_html_cache_invalidation_migration(
+        migration: &'static str,
+        initial_version: &str,
+        expected_version: &str,
+    ) {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE messages(
+                id TEXT PRIMARY KEY,
+                body_availability TEXT NOT NULL,
+                remote_images_blocked INTEGER NOT NULL,
+                revision INTEGER NOT NULL
+             );
+                 CREATE TABLE message_bodies(
+                    message_id TEXT PRIMARY KEY,
+                    plain_text TEXT,
+                    safe_html TEXT
+                 );
+                 CREATE TABLE schema_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 INSERT INTO messages VALUES ('html', 'available', 1, 9);
+                 INSERT INTO messages VALUES ('plain', 'available', 0, 4);
+                 INSERT INTO message_bodies VALUES ('html', 'fallback', '<img>');
+                 INSERT INTO message_bodies VALUES ('plain', 'plain only', NULL);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO schema_metadata(key, value) VALUES ('data_format_version', ?)")
+            .bind(initial_version)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+
+        assert_eq!(
+            sqlx::query_as::<_, (String, i64, i64)>(
+                "SELECT body_availability, remote_images_blocked, revision FROM messages WHERE id = 'html'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            ("missing".to_owned(), 0, 10)
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM message_bodies WHERE message_id = 'html'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT plain_text FROM message_bodies WHERE message_id = 'plain'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "plain only"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM schema_metadata WHERE key = 'data_format_version'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            expected_version
+        );
+    }
+
+    #[tokio::test]
+    async fn inline_image_policy_migration_invalidates_only_cached_html() {
+        assert_html_cache_invalidation_migration(
+            include_str!("../../migrations/0021_inline_image_fidelity.sql"),
+            "20",
+            "21",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn octet_stream_cid_policy_migration_invalidates_only_cached_html() {
+        assert_html_cache_invalidation_migration(
+            include_str!("../../migrations/0022_octet_stream_cid_fidelity.sql"),
+            "21",
+            "22",
+        )
+        .await;
+    }
+
     #[tokio::test]
     async fn local_search_migration_backfills_existing_searchable_content() {
         let pool = SqlitePoolOptions::new()
@@ -1270,9 +1376,17 @@ mod tests {
     #[tokio::test]
     async fn rebuilt_message_bodies_are_written_atomically_with_account_isolation() {
         let (_directory, repository, mailbox) = repository_with_mailbox(1).await;
+        let mut remote = remote_message(1, 1, "Cached");
+        remote.attachments = vec![crate::core::RemoteAttachment {
+            part_index: 0,
+            file_name: "inline.png".to_owned(),
+            content_type: "image/png".to_owned(),
+            size: 128,
+            content_id: Some("Logo@Example.Test".to_owned()),
+        }];
         repository
             .sync_sink()
-            .upsert_message("slot", &mailbox.id, &remote_message(1, 1, "Cached"))
+            .upsert_message("slot", &mailbox.id, &remote)
             .await
             .unwrap();
         let message = repository
@@ -1291,6 +1405,7 @@ mod tests {
                 Some("wrong account"),
                 Some("<p>wrong account</p>"),
                 false,
+                &[],
             )
             .await
             .unwrap_err();
@@ -1304,6 +1419,7 @@ mod tests {
                 Some("offline body"),
                 Some("<p>offline body</p>"),
                 true,
+                &["logo@example.test".to_owned()],
             )
             .await
             .unwrap();
@@ -1313,6 +1429,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(detail.plain_text.as_deref(), Some("offline body"));
+        assert!(detail.attachments.is_empty());
         assert_eq!(detail.safe_html.as_deref(), Some("<p>offline body</p>"));
         assert!(detail.remote_images_blocked);
         assert_eq!(detail.body_availability, ContentAvailability::Available);
@@ -1501,6 +1618,7 @@ mod tests {
                 Some("replacement searchable content"),
                 None,
                 false,
+                &[],
             )
             .await
             .unwrap();
@@ -1553,7 +1671,7 @@ mod tests {
             .fetch_one(&repository.pool)
             .await
             .unwrap(),
-            "20"
+            "22"
         );
     }
 

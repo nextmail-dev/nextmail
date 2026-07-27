@@ -55,72 +55,86 @@ impl NotificationRuntime {
         }
     }
 
-    pub fn present(
+    pub fn present_batch(
         self: &Arc<Self>,
-        candidate: NewMailCandidate,
+        candidates: Vec<NewMailCandidate>,
         preferences: &NotificationPreferences,
     ) {
-        let Ok(account) = self.service.account_record(&candidate.account_id) else {
+        if candidates.is_empty() {
             return;
-        };
-        let notification = NewMailNotification {
-            id: Uuid::new_v4().to_string(),
-            account_id: candidate.account_id,
-            account_name: account.display_name,
-            account_email: account.email,
-            mailbox_id: candidate.mailbox_id,
-            message_id: candidate.message_id,
-            sender_name: candidate.sender_name,
-            sender_email: candidate.sender_email,
-            subject: candidate.subject,
-        };
+        }
         let max_visible = self.max_visible(preferences.max_stacked);
-        let result = self
-            .state()
-            .present(notification, &preferences.display_mode, max_visible);
+        let limit = if preferences.display_mode == NotificationDisplayMode::Replace {
+            1
+        } else {
+            max_visible
+        };
+        let skip = candidates.len().saturating_sub(limit);
+        let notifications = candidates
+            .into_iter()
+            .skip(skip)
+            .filter_map(|candidate| {
+                let account = self.service.account_record(&candidate.account_id).ok()?;
+                Some(NewMailNotification {
+                    id: Uuid::new_v4().to_string(),
+                    account_id: candidate.account_id,
+                    account_name: account.display_name,
+                    account_email: account.email,
+                    mailbox_id: candidate.mailbox_id,
+                    message_id: candidate.message_id,
+                    sender_name: candidate.sender_name,
+                    sender_email: candidate.sender_email,
+                    subject: candidate.subject,
+                })
+            })
+            .collect::<Vec<_>>();
+        let results = {
+            let mut state = self.state();
+            notifications
+                .into_iter()
+                .map(|notification| {
+                    state.present(notification, &preferences.display_mode, max_visible)
+                })
+                .collect::<Vec<_>>()
+        };
+        self.destroy_ids(
+            results
+                .iter()
+                .flat_map(|result| result.evicted_ids.iter().cloned())
+                .collect(),
+        );
 
-        self.destroy_ids(result.evicted_ids);
-        if let Err(error) = self.ensure_window(&result.notification) {
-            tracing::error!(
-                notification_id = %result.notification.id,
-                code = %error.code,
-                "notification window setup failed"
-            );
-            self.remove_without_destroy(&result.notification.id);
-            return;
-        }
-        if let Err(error) = self.app.emit_to(
-            notification_window_label(&result.notification.id),
-            "notification-content-changed",
-            &result.notification,
-        ) {
-            tracing::warn!(
-                notification_id = %result.notification.id,
-                ?error,
-                "notification content event failed"
-            );
-        }
-        self.reflow();
-        if let Some(window) = self
-            .app
-            .get_webview_window(&notification_window_label(&result.notification.id))
-        {
-            if let Err(error) = window.show() {
+        let duration = Duration::from_secs(u64::from(preferences.display_duration_seconds));
+        for result in results {
+            if let Err(error) = self.ensure_window(&result.notification) {
+                tracing::error!(
+                    notification_id = %result.notification.id,
+                    code = %error.code,
+                    "notification window setup failed"
+                );
+                self.remove_without_destroy(&result.notification.id);
+                continue;
+            }
+            if let Err(error) = self.app.emit_to(
+                notification_window_label(&result.notification.id),
+                "notification-content-changed",
+                &result.notification,
+            ) {
                 tracing::warn!(
                     notification_id = %result.notification.id,
                     ?error,
-                    "notification window show failed"
+                    "notification content event failed"
                 );
             }
-        }
 
-        let runtime = Arc::clone(self);
-        let notification_id = result.notification.id;
-        let duration = Duration::from_secs(u64::from(preferences.display_duration_seconds));
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(duration).await;
-            runtime.expire(&notification_id, result.generation);
-        });
+            let runtime = Arc::clone(self);
+            let notification_id = result.notification.id;
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(duration).await;
+                runtime.expire(&notification_id, result.generation);
+            });
+        }
+        self.reflow();
     }
 
     pub fn bootstrap_for_window(

@@ -1,4 +1,4 @@
-# ADR 0011：已收邮件 CID 图片的本地内联边界
+# ADR 0011：已收邮件本地内联图片边界
 
 状态：已接受
 
@@ -13,9 +13,10 @@ NextMail 的阅读器此前会移除 `cid:`，并把 `mail-parser` 返回的全�
 ## 决策
 
 - Rust 从当前账户隔离、已经下载的原始 MIME 中解析 HTML 与附件 part；不由 React 解析 MIME，也不把路径或内容哈希交给前端。
-- 只有 HTML 包含对应 `cid:`、part 有可规范化 `Content-ID`、类型为 PNG/JPEG/GIF/WebP、单项不超过 25 MB 且单封累计不超过 100 MB 时，才把解码字节转换为内存 `data:` URL。
+- 只有 HTML 包含对应 `cid:`、part 有可规范化 `Content-ID`、类型为 PNG/JPEG/GIF/WebP、单项不超过 25 MB 且单封累计不超过 100 MB 时，才把解码字节转换为内存 `data:` URL。`cid:` 按 RFC 2392 对 URL 部分执行一次 `%hh` 解码，再与完整 MIME part 集合的 Content-ID 索引匹配，不依赖解析器对 `Content-Disposition` 的附件/inline 分类。
+- 邮件 HTML 自带的 `data:image` 只有在 media type、base64/百分号编码、解码后文件魔数和共享大小预算全部通过时保留；允许 PNG/JPEG/GIF/WebP，拒绝 SVG、HTML、未知类型、错误编码和超限内容。
 - 转换后的 URL 在既有 Rust HTML 白名单清洗期间替换 `img src`，最终文档 CSP 仍只有 `img-src data:`；不新增脚本、同源、表单、顶层导航、任意文件或网络权限。
-- 只有真正进入清洗结果的 CID part 才从普通附件摘要排除。未引用、超限、类型不受支持或无法安全解析的 part 继续作为附件，不静默丢失。
+- 只有真正进入清洗结果的 CID part 才从普通附件摘要排除。声明为 PNG/JPEG/GIF/WebP 的 part 沿用受限内联规则；被错误声明为 `application/octet-stream` 的 CID part 只有在解码字节文件魔数可确认上述四种图片类型时才兼容内联，不信任文件名。未引用、超限、类型不受支持、文件魔数不匹配或无法安全解析的 part 继续作为附件，不静默丢失；从本地 EML 重建正文时，正文和重复附件投影在同一 SQLite 事务更新。
 - 数据库仍以原始 EML 为重建来源，不把展开后的图片另存进 `safe_html` 之外的新资源目录；Composer 的受管 CID 附件与发件边界继续由 ADR 0009 管理。
 
 ## 影响
@@ -27,6 +28,7 @@ NextMail 的阅读器此前会移除 `cid:`，并把 `mail-parser` 返回的全�
 
 ## 验证门禁
 
-- MIME 回归覆盖 `Content-Disposition: attachment` 但被 HTML `cid:` 引用的图片，并断言正文 data URL 存在、普通附件摘要不存在。
+- MIME 回归覆盖 `Content-Disposition: inline`、`attachment` 和缺失 disposition，以及 `%hh` CID、大小写差异、未引用 Content-ID、阿里云式 `application/octet-stream` 图片、伪装图片和嵌套 multipart，并断言正文 data URL 与附件投影正确。
+- HTML 回归覆盖合法 raster data URL、错误文件魔数、SVG、错误编码和大小预算。
 - 既有主动内容、CSP、sandbox、远程资源和账户隔离回归必须继续通过。
 - Windows WebView2 与 macOS WKWebView 的最终显示分别实机验收；未经执行不宣称对应平台通过。

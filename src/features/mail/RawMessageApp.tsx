@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
+import { useRevealWindowWhenReady } from "@/app/windowReady";
 import { Alert } from "@/components/ui/alert";
 import { AppShell, Page, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
@@ -30,6 +31,7 @@ export function RawMessageApp({ accountId, messageId }: RawMessageLocation) {
     queryKey: ["raw-message", location.accountId, location.messageId],
     queryFn: () => api.requestRawMessage(location.accountId, location.messageId),
   });
+  useRevealWindowWhenReady(!rawQuery.isPending);
 
   if (rawQuery.isPending) {
     return <AppShell className="grid place-items-center bg-card"><Spinner size={24} /></AppShell>;

@@ -38,6 +38,7 @@ vi.mock("@/app/api", () => ({
     getReadingPreferences: vi.fn().mockResolvedValue({
       autoLoadRemoteImages: false,
       autoOpenDownloadedAttachments: false,
+      autoLoadMoreMessages: true,
     }),
     requestAttachment: vi.fn().mockResolvedValue({
       id: "attachment-one",

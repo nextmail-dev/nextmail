@@ -390,6 +390,9 @@ pub async fn open_settings_window(app: AppHandle) -> CommandResult<()> {
     tokio::task::yield_now().await;
 
     if let Some(window) = app.get_webview_window("settings") {
+        if !window.is_visible().unwrap_or(false) {
+            return Ok(());
+        }
         window
             .show()
             .and_then(|_| window.set_focus())
@@ -414,12 +417,8 @@ pub async fn open_settings_window(app: AppHandle) -> CommandResult<()> {
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    let window = builder
+    builder
         .build()
-        .map_err(|_| crate::error::CommandError::new("settings.window_create_failed"))?;
-    window
-        .show()
-        .and_then(|_| window.set_focus())
         .map_err(|_| crate::error::CommandError::new("settings.window_create_failed"))?;
     Ok(())
 }
@@ -429,6 +428,9 @@ pub async fn open_account_management_window(app: AppHandle) -> CommandResult<()>
     tokio::task::yield_now().await;
 
     if let Some(window) = app.get_webview_window("accounts") {
+        if !window.is_visible().unwrap_or(false) {
+            return Ok(());
+        }
         window
             .show()
             .and_then(|_| window.set_focus())
@@ -453,12 +455,8 @@ pub async fn open_account_management_window(app: AppHandle) -> CommandResult<()>
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    let window = builder
+    builder
         .build()
-        .map_err(|_| crate::error::CommandError::new("accounts.window_create_failed"))?;
-    window
-        .show()
-        .and_then(|_| window.set_focus())
         .map_err(|_| crate::error::CommandError::new("accounts.window_create_failed"))?;
     Ok(())
 }
@@ -488,10 +486,12 @@ pub async fn open_raw_message_window(
         window
             .emit("raw-message-location-changed", &location)
             .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
-        window
-            .show()
-            .and_then(|_| window.set_focus())
-            .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
+        if window.is_visible().unwrap_or(false) {
+            window
+                .show()
+                .and_then(|_| window.set_focus())
+                .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
+        }
         return Ok(());
     }
 
@@ -512,12 +512,8 @@ pub async fn open_raw_message_window(
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    let window = builder
+    builder
         .build()
-        .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
-    window
-        .show()
-        .and_then(|_| window.set_focus())
         .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
     Ok(())
 }

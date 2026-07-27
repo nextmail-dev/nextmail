@@ -141,6 +141,12 @@ class WindowContentBoundary extends Component<
       `react.error-boundary.${this.props.kind}`,
       new Error(`${error.message}\n${info.componentStack ?? ""}`),
     );
+    if (this.props.kind !== "main" && "__TAURI_INTERNALS__" in globalThis) {
+      const appWindow = getCurrentWindow();
+      void appWindow.show()
+        .then(() => appWindow.setFocus())
+        .catch((revealError) => reportCaughtError("window.reveal-error-state", revealError));
+    }
   }
 
   private closeWindow = () => {

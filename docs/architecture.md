@@ -22,10 +22,10 @@ Rust 代码只使用 `src-tauri` 下的单一 Cargo package，避免仓库根目
 - Windows 主窗口和动态创建的写信/设置/账户管理/原始邮件窗口关闭系统 decorations，由 React 标题栏提供拖动、最小化、最大化和关闭按钮。
 - macOS 保留系统 decorations，使用 `Overlay` 标题栏和系统默认定位的原生交通灯；React 只提供可拖动内容区，不伪造窗口按钮或硬编码交通灯坐标。
 - 自绘标题栏使用紧凑高度；Windows 窗口按钮和 macOS 交通灯只保留满足拖动与原生操作所需的最小安全空间。站内通知通过根节点 Portal 渲染在标题栏下方，避免被工作区裁剪或窗口拖动层遮挡。
-- `main`、`composer-*`、`settings`、`accounts`、`raw-message` 和 `notification-*` 使用独立 Capability。普通窗口控制只开放启动拖动、最小化、切换最大化、关闭及需要释放单例 WebView 的销毁；写信窗口因发送成功需要绕过关闭拦截，同样保留 `allow-destroy`。通知窗口只开放 Tauri 事件监听/卸载，不获得文件、网络、数据库、对话框、Shell、系统 opener 或任意建窗权限；业务交互限于与自身 label 绑定的 Bootstrap、关闭、激活命令和宿主定向事件。
-- 设置、账户管理和原始邮件分别使用单例 `settings`、`accounts`、`raw-message` WebView。重复打开只聚焦已有窗口；原始邮件复用时仅发送公开账户/邮件 ID，窗口重新通过稳定 Command 读取原始 EML，不在事件中传正文。偏好变化由 Rust 持久化后发布窄事件，各窗口把 DTO 写入各自的 TanStack Query cache 并更新主题和语言，不共享 React 内存状态。外观写入使用乐观 cache 更新，失败时恢复旧值。
+- `main`、`composer-*`、`settings`、`accounts`、`raw-message` 和 `notification-*` 使用独立 Capability。普通独立窗口控制只开放启动拖动、最小化、切换最大化、关闭、就绪后的自身显示/聚焦及需要释放单例 WebView 的销毁；写信窗口因发送成功需要绕过关闭拦截，同样保留 `allow-destroy`。通知窗口只开放 Tauri 事件监听/卸载与就绪后的自身显示，不获得聚焦、文件、网络、数据库、对话框、Shell、系统 opener 或任意建窗权限；业务交互限于与自身 label 绑定的 Bootstrap、关闭、激活命令和宿主定向事件。
+- 设置、账户管理和原始邮件分别使用单例 `settings`、`accounts`、`raw-message` WebView。重复打开只聚焦已有窗口；原始邮件复用时仅发送公开账户/邮件 ID，窗口重新通过稳定 Command 读取原始 EML，不在事件中传正文。动态窗口先隐藏创建，React 完成懒加载和首批 Query 后通过窄窗口控制能力显示；错误边界同样会显示，从而避免把加载占位暴露给用户或在失败时留下永久隐藏窗口。偏好变化由 Rust 持久化后发布窄事件，各窗口把 DTO 写入各自的 TanStack Query cache 并更新主题和语言，不共享 React 内存状态。外观写入使用乐观 cache 更新，失败时恢复旧值。
 - 尺寸、位置和最大化状态由 Rust 侧 Tauri 官方 `window-state` 插件写入系统应用配置目录，不进入可迁移邮件数据集。`main`、`settings`、`accounts`、`raw-message` 和 `composer` 各类状态分开；动态写信标签通过插件 label mapper 汇总到 `composer`。临时 `notification-*` 标签由 filter 排除，不进入状态文件。普通窗口无历史状态时居中，有历史状态时在隐藏创建后恢复并显示，前端无需窗口状态 IPC 或插件权限。
-- `NotificationRuntime` 在 Rust 侧拥有窗口队列、超时和位置事实。候选只在同步成功后进入运行时；窗口按主窗口所在显示器的物理工作区与 DPI 从右下角向上层叠，覆盖模式复用同一窗口并用 generation 使旧超时失效。窗口完成定位后才显示，不主动抢焦点，也不进入任务栏。
+- `NotificationRuntime` 在 Rust 侧拥有窗口队列、超时和位置事实。候选只在同步成功后进入运行时；同一同步批次先按展示模式裁剪，层叠只保留最后 `X` 封、覆盖只保留最后一封，再统一创建和排布，避免高速淘汰造成闪动。窗口按主窗口所在显示器的物理工作区与 DPI 从右下角向上层叠，覆盖模式复用同一窗口并用 generation 使旧超时失效。通知 React 完成 Bootstrap 后才显示，不主动抢焦点，也不进入任务栏。
 
 ### Rust 模块拆分策略
 
@@ -149,7 +149,7 @@ UI 使用操作系统原生字体栈，不再随 Vite 打包字体。Windows 使
 - “立即显示”或设备级“自动加载远程图片”只把当前 iframe 的图片 CSP 扩为 `data: http: https:`；sandbox 仍不启用 scripts、forms、same-origin 或 top-navigation，并使用 `no-referrer`。自动加载默认关闭，设置界面说明打开跟踪风险。
 - Tauri 顶层 CSP 允许图片协议只是为 iframe 的显式选择提供上限；默认阻止由邮件文档自身更严格的 CSP 执行。
 - 阅读 iframe 不继承应用 DOM 样式。NextMail 根据有效主题在 iframe 元素和内部文档设置 `color-scheme`，并注入不带 `!important` 的浅色或灰黑深色兜底；无明确样式的正文获得可读配色，邮件作者在页面、类或行内明确设置的颜色和背景按正常层叠优先。完整 HTML 的 `<body style>` 在清洗前转换为带固定标记的内部正文容器，经相同 CSS 过滤后保留页面级行内配色；该容器不增加脚本或 IPC 能力。正文实际引用的受限本地 CID 图片由 Rust 转为 data URL 并受 `img-src data:` 约束；远程样式资源仍未实现。
-- HTML 清洗策略升级时通过嵌入式迁移失效旧 HTML 正文缓存。迁移 0011 是未通过实机验收的链接映射原型且因 SQLx 校验不可修改；0012 删除临时表并失效旧 `safe_html`，0013 扩展草稿内嵌图片，0014 为安全选择器保真失效缓存，0015 回填本地搜索，0016 增加账户正文偏好与动作草稿生命周期标记，0017 新增签名偏好并收敛旧场景签名引用，0018 为账户增加通知同步基线，0019 增加每账户同步间隔。当前数据格式版本 20 的迁移 0020 增加按账户文件夹本地顺序；这些迁移不复制签名正文，也不把通知内容持久化。正文请求先按账户槽读取本地原始 EML，在不持有 SQLite 写锁的 blocking worker 中重新解析/清洗，再以单个事务写回正文与消息可用状态及索引；只有本地原文缺失或不可解析时才通过 IMAP 获取。
+- HTML 清洗策略升级时通过嵌入式迁移失效旧 HTML 正文缓存。迁移 0011 是未通过实机验收的链接映射原型且因 SQLx 校验不可修改；0012 删除临时表并失效旧 `safe_html`，0013 扩展草稿内嵌图片，0014 为安全选择器保真失效缓存，0015 回填本地搜索，0016 增加账户正文偏好与动作草稿生命周期标记，0017 新增签名偏好并收敛旧场景签名引用，0018 为账户增加通知同步基线，0019 增加每账户同步间隔，0020 增加按账户文件夹本地顺序，0021 为标准 CID 与受限 data 图片失效旧安全正文缓存。当前数据格式版本 22 的迁移 0022 为已应用 0021 的实机数据再次失效缓存，使误标为 `application/octet-stream`、但文件魔数可确认格式的 CID 图片重新解析；这些迁移不复制签名正文，也不把通知内容持久化。正文请求先按账户槽读取本地原始 EML，在不持有 SQLite 写锁的 blocking worker 中重新解析/清洗，再以单个事务写回正文、消息可用状态和已确认内联图片的附件投影；只有本地原文缺失或不可解析时才通过 IMAP 获取。
 - Composer 不接收未经处理的邮件 HTML。回复/转发创建时优先在 blocking worker 中从账户槽内的原始 EML 提取 HTML part，缺失时回退到现有安全正文；compose 清洗器沿用主动内容与 URL/CSS 边界，并把保留的内嵌样式表重写到原文容器作用域。引用原文以 `sourceHtml` 原子节点保留，不进入会规范化表格的 ProseMirror schema；富文本视图和 HTML 源码实时预览都使用 `sandbox=""`、`no-referrer`、无脚本/表单/同源/导航权限的 iframe。原文 iframe 根据安全 HTML 的文本、表格行和可用内嵌图片估算无上限展开高度，关闭内部滚动并由外层 Composer 统一滚动；不会为读取 `scrollHeight` 放开脚本或同源。源码可由 CodeMirror 编辑，保存时 Rust 再清洗 HTML 与原文节点属性。
 - 原始 MIME 中被 HTML `cid:` 引用的安全图片和用户粘贴图片写入既有内容寻址 `attachments/` 存储，`draft_attachments` 只记录 CID/inline 元数据。前端不读取文件系统路径或内容哈希，只使用 Rust 返回的内存 data URL 预览；持久化 HTML 使用 `cid:`，发件 MIME 使用 `multipart/related`。远程 `http(s)` 图片既不显示占位卡片也不在 Composer 中静默下载，仍受现有远程内容隐私策略约束。
 - `testdata/mail-rendering/` 是 Rust/前端共享的正式保真与主动内容语料，包含合成的 `nth-child()` flex 发票表格。ADR 0008 保留不透明 origin，sandbox 仅为受宿主拦截的用户链接点击增加 `allow-popups`；不增加脚本、表单、same-origin、顶层导航、前端通用网络或通用 opener 权限。

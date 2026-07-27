@@ -90,6 +90,7 @@ impl MailRuntime {
                         body.plain_text.as_deref(),
                         body.safe_html.as_deref(),
                         body.remote_images_blocked,
+                        &body.inline_content_ids,
                     )
                     .await?;
                 if emit_progress {
