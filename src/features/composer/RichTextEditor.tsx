@@ -18,6 +18,8 @@ import {
   Palette,
   Highlighter,
   ImagePlus,
+  Link2,
+  Unlink,
 } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -25,7 +27,8 @@ import { useTranslation } from "react-i18next";
 
 import type { DraftAttachmentSummary, DraftContent } from "@/app/types";
 import { Button } from "@/components/ui/button";
-import { Inline, Page } from "@/components/ui/layout";
+import { TextField } from "@/components/ui/input";
+import { Form, Inline, Page } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SelectField } from "@/components/ui/select";
 import {
@@ -52,6 +55,7 @@ import {
   EmailBlock,
   EmailFont,
   EmailFormattingAttributes,
+  EmailInlineBlock,
   EmailSpan,
   EmailStylesheet,
   EmailTable,
@@ -68,6 +72,11 @@ const BASE_COMPOSER_EXTENSIONS: Extensions = [
       openOnClick: false,
       autolink: false,
       linkOnPaste: false,
+      enableClickSelection: true,
+      HTMLAttributes: {
+        target: "_blank",
+        rel: "noopener noreferrer",
+      },
     },
     trailingNode: {
       notAfter: ["nextmailOriginalMessage"],
@@ -78,6 +87,7 @@ const BASE_COMPOSER_EXTENSIONS: Extensions = [
   EmailFormattingAttributes,
   EmailSpan,
   EmailStylesheet,
+  EmailInlineBlock,
   EmailBlock,
   EmailFont,
   EmailTable,
@@ -92,14 +102,23 @@ const BASE_COMPOSER_EXTENSIONS: Extensions = [
 
 interface RichTextEditorProps {
   initialJson: string;
+  initialHtml?: string;
   disabled?: boolean;
   ariaLabel?: string;
   className?: string;
   onChange: (content: DraftContent) => void;
   onCompositionChange?: (selection: CompositionNodeSelection) => void;
   inlineImages?: DraftAttachmentSummary[];
-  onAddInlineImage?: (file: File) => Promise<DraftAttachmentSummary>;
+  onAddInlineImage?: (file: File) => Promise<RichTextInlineImage>;
   onSanitizeHtml?: (html: string) => Promise<string>;
+}
+
+export interface RichTextInlineImage {
+  fileName: string;
+  contentType: string;
+  size: number;
+  contentId: string | null;
+  previewDataUrl: string | null;
 }
 
 export interface CompositionNodeSelection {
@@ -115,6 +134,7 @@ export interface RichTextEditorHandle {
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor(
   {
     initialJson,
+    initialHtml,
     disabled,
     ariaLabel,
     className,
@@ -146,7 +166,12 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     ),
   ], [t]);
   const [sourceMode, setSourceMode] = useState(false);
-  const [sourceHtml, setSourceHtml] = useState("");
+  const [sourceHtml, setSourceHtml] = useState(initialHtml ?? "");
+  const sourceInitializedRef = useRef(initialHtml !== undefined);
+  const preserveExactSourceRef = useRef(initialHtml !== undefined);
+  const [linkEditorOpen, setLinkEditorOpen] = useState(false);
+  const [linkHref, setLinkHref] = useState("");
+  const [linkError, setLinkError] = useState("");
   const editor = useEditor({
     extensions,
     content: hydrateInlineImagePreviews(parseDocument(initialJson), previewMap),
@@ -162,6 +187,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         const plainText = clipboard?.getData("text/plain") ?? "";
         const images = clipboardImageFiles(clipboard);
         if (disabledRef.current || (!html && !images.length)) return false;
+        preserveExactSourceRef.current = false;
         event.preventDefault();
         const currentEditor = editorInstanceRef.current;
         if (currentEditor) void insertClipboardContent(
@@ -174,8 +200,23 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         );
         return true;
       },
+      handleDOMEvents: {
+        beforeinput: () => {
+          if (!disabledRef.current) preserveExactSourceRef.current = false;
+          return false;
+        },
+        drop: () => {
+          if (!disabledRef.current) preserveExactSourceRef.current = false;
+          return false;
+        },
+        paste: () => {
+          if (!disabledRef.current) preserveExactSourceRef.current = false;
+          return false;
+        },
+      },
     },
     onUpdate: ({ editor: current }) => {
+      if (preserveExactSourceRef.current) return;
       const content = serializeEditor(current);
       setSourceHtml(content.html);
       onChange(content);
@@ -185,18 +226,24 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   editorInstanceRef.current = editor;
 
   useImperativeHandle(ref, () => ({
-    replaceTemplate: (definitionId, content) => replaceCompositionNode(
-      editor,
-      "nextmailTemplate",
-      definitionId,
-      content,
-    ),
-    replaceSignature: (definitionId, content) => replaceCompositionNode(
-      editor,
-      "nextmailSignature",
-      definitionId,
-      content,
-    ),
+    replaceTemplate: (definitionId, content) => {
+      preserveExactSourceRef.current = false;
+      return replaceCompositionNode(
+        editor,
+        "nextmailTemplate",
+        definitionId,
+        content,
+      );
+    },
+    replaceSignature: (definitionId, content) => {
+      preserveExactSourceRef.current = false;
+      return replaceCompositionNode(
+        editor,
+        "nextmailSignature",
+        definitionId,
+        content,
+      );
+    },
   }), [editor]);
 
   useEffect(() => {
@@ -204,11 +251,17 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   }, [disabled, editor]);
 
   useEffect(() => {
-    if (editor && !sourceHtml) setSourceHtml(serializeEditor(editor).html);
-  }, [editor, sourceHtml]);
+    if (!editor || sourceInitializedRef.current) return;
+    setSourceHtml(serializeEditor(editor).html);
+    sourceInitializedRef.current = true;
+  }, [editor]);
 
   if (!editor) return null;
   const richDisabled = disabled || sourceMode;
+  const commitRichEdit = (callback: () => void) => {
+    preserveExactSourceRef.current = false;
+    callback();
+  };
   const action = (label: string, active: boolean, onClick: () => void, icon: ReactNode) => (
     <Button
       type="button"
@@ -217,7 +270,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       aria-label={label}
       title={label}
       disabled={richDisabled}
-      onClick={onClick}
+      onClick={() => commitRichEdit(onClick)}
     >
       {icon}
     </Button>
@@ -235,12 +288,45 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     onCompositionChange?.(compositionSelection(persisted));
   };
   const toggleSourceMode = () => {
-    if (!sourceMode) setSourceHtml(serializeEditor(editor).html);
-    else editor.commands.setContent(
+    if (sourceMode) editor.commands.setContent(
       hydrateInlineImagePreviews(documentFromHtml(sourceHtml, extensions), previewMap),
       { emitUpdate: false },
     );
+    setLinkEditorOpen(false);
     setSourceMode((value) => !value);
+  };
+  const openLinkEditor = () => {
+    const href = editor.getAttributes("link").href;
+    setLinkHref(typeof href === "string" ? href : "");
+    setLinkError("");
+    setLinkEditorOpen(true);
+  };
+  const applyLink = () => {
+    const normalized = normalizeComposerLinkTarget(linkHref);
+    if (!normalized) {
+      setLinkError(t("composer.invalidLink"));
+      return;
+    }
+    preserveExactSourceRef.current = false;
+    const chain = editor.chain().focus();
+    if (editor.isActive("link")) chain.extendMarkRange("link");
+    if (editor.state.selection.empty && !editor.isActive("link")) {
+      chain.insertContent({
+        type: "text",
+        text: normalized,
+        marks: [{ type: "link", attrs: { href: normalized } }],
+      }).run();
+    } else {
+      chain.setLink({ href: normalized }).run();
+    }
+    setLinkEditorOpen(false);
+    setLinkError("");
+  };
+  const removeLink = () => {
+    preserveExactSourceRef.current = false;
+    editor.chain().focus().extendMarkRange("link").unsetLink().run();
+    setLinkEditorOpen(false);
+    setLinkError("");
   };
 
   return (
@@ -261,8 +347,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           ]}
           disabled={richDisabled}
           onValueChange={(value) => value === "default"
-            ? editor.chain().focus().unsetFontFamily().run()
-            : editor.chain().focus().setFontFamily(value).run()}
+            ? commitRichEdit(() => { editor.chain().focus().unsetFontFamily().run(); })
+            : commitRichEdit(() => { editor.chain().focus().setFontFamily(value).run(); })}
         />
         <SelectField
           compact
@@ -281,21 +367,27 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           ]}
           disabled={richDisabled}
           onValueChange={(value) => value === "default"
-            ? editor.chain().focus().unsetFontSize().run()
-            : editor.chain().focus().setFontSize(value).run()}
+            ? commitRichEdit(() => { editor.chain().focus().unsetFontSize().run(); })
+            : commitRichEdit(() => { editor.chain().focus().setFontSize(value).run(); })}
         />
         <ColorMenu
           label={t("composer.textColor")}
           icon={<Palette size={16} />}
           disabled={richDisabled}
-          onSelect={(value) => value ? editor.chain().focus().setColor(value).run() : editor.chain().focus().unsetColor().run()}
+          onSelect={(value) => commitRichEdit(() => {
+            if (value) editor.chain().focus().setColor(value).run();
+            else editor.chain().focus().unsetColor().run();
+          })}
         />
         <ColorMenu
           label={t("composer.backgroundColor")}
           icon={<Highlighter size={16} />}
           disabled={richDisabled}
           background
-          onSelect={(value) => value ? editor.chain().focus().setBackgroundColor(value).run() : editor.chain().focus().unsetBackgroundColor().run()}
+          onSelect={(value) => commitRichEdit(() => {
+            if (value) editor.chain().focus().setBackgroundColor(value).run();
+            else editor.chain().focus().unsetBackgroundColor().run();
+          })}
         />
         <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
         {action(t("composer.bold"), editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), <Bold size={16} />)}
@@ -306,6 +398,19 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         {action(t("composer.bulletList"), editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run(), <List size={16} />)}
         {action(t("composer.numberedList"), editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), <ListOrdered size={16} />)}
         {action(t("composer.quote"), editor.isActive("blockquote"), () => editor.chain().focus().toggleBlockquote().run(), <Quote size={16} />)}
+        <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+        {action(t("composer.link"), editor.isActive("link"), openLinkEditor, <Link2 size={16} />)}
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label={t("composer.removeLink")}
+          title={t("composer.removeLink")}
+          disabled={richDisabled || !editor.isActive("link")}
+          onClick={removeLink}
+        >
+          <Unlink size={16} />
+        </Button>
         <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
         {onAddInlineImage ? (
           <>
@@ -347,6 +452,46 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           <Code2 size={16} />
         </Button>
       </Inline>
+      {linkEditorOpen && !sourceMode ? (
+        <Form
+          className="flex shrink-0 items-end gap-2 border-t border-border bg-card px-3 py-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            applyLink();
+          }}
+        >
+          <TextField
+            className="max-w-xl"
+            label={t("composer.linkUrl")}
+            placeholder={t("composer.linkUrlPlaceholder")}
+            value={linkHref}
+            error={linkError}
+            autoFocus
+            disabled={disabled}
+            onChange={(event) => {
+              setLinkHref(event.target.value);
+              setLinkError("");
+            }}
+          />
+          {editor.isActive("link") ? (
+            <Button type="button" variant="ghost" disabled={disabled} onClick={removeLink}>
+              {t("composer.removeLink")}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={disabled}
+            onClick={() => {
+              setLinkEditorOpen(false);
+              setLinkError("");
+            }}
+          >
+            {t("common.cancel")}
+          </Button>
+          <Button type="submit" disabled={disabled}>{t("composer.applyLink")}</Button>
+        </Form>
+      ) : null}
       {sourceMode ? (
         <Page className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-border overflow-hidden">
           <Page className="flex min-h-0 flex-col overflow-hidden">
@@ -438,7 +583,7 @@ async function insertClipboardContent(
   html: string,
   plainText: string,
   files: File[],
-  addInlineImage?: (file: File) => Promise<DraftAttachmentSummary>,
+  addInlineImage?: (file: File) => Promise<RichTextInlineImage>,
   sanitizeHtml?: (html: string) => Promise<string>,
 ) {
   let remainingFiles = files;
@@ -464,7 +609,7 @@ async function insertClipboardContent(
 async function cacheInlineImagesInHtml(
   html: string,
   files: File[],
-  addInlineImage: (file: File) => Promise<DraftAttachmentSummary>,
+  addInlineImage: (file: File) => Promise<RichTextInlineImage>,
 ) {
   const matches = Array.from(html.matchAll(/(\s+src\s*=\s*)(["'])([^"']*)\2/gi));
   const remainingFiles = [...files];
@@ -479,9 +624,14 @@ async function cacheInlineImagesInHtml(
     if (file) {
       try {
         const attachment = await addInlineImage(file);
-        if (attachment.contentId && attachment.previewDataUrl) {
-          replacement = `${match[1]}${match[2]}cid:${escapeHtmlAttribute(attachment.contentId)}${match[2]}`
-            + ` data-nextmail-preview-src="${escapeHtmlAttribute(attachment.previewDataUrl)}"`;
+        const source = attachment.contentId
+          ? `cid:${attachment.contentId}`
+          : attachment.previewDataUrl;
+        if (source) {
+          replacement = `${match[1]}${match[2]}${escapeHtmlAttribute(source)}${match[2]}`;
+          if (attachment.contentId && attachment.previewDataUrl) {
+            replacement += ` data-nextmail-preview-src="${escapeHtmlAttribute(attachment.previewDataUrl)}"`;
+          }
         }
       } catch {
         // Keep the sanitized source when one clipboard image cannot be cached.
@@ -497,23 +647,26 @@ async function cacheInlineImagesInHtml(
 async function insertCachedImages(
   editor: Editor,
   files: File[],
-  addInlineImage: (file: File) => Promise<DraftAttachmentSummary>,
+  addInlineImage: (file: File) => Promise<RichTextInlineImage>,
 ) {
   for (const file of files) {
-    let attachment: DraftAttachmentSummary;
+    let attachment: RichTextInlineImage;
     try {
       attachment = await addInlineImage(file);
     } catch {
       continue;
     }
-    if (!attachment.contentId || !attachment.previewDataUrl) continue;
+    const source = attachment.contentId
+      ? `cid:${attachment.contentId}`
+      : attachment.previewDataUrl;
+    if (!source) continue;
     editor.chain().focus().insertContent({
       type: "nextmailImage",
       attrs: {
-        src: `cid:${attachment.contentId}`,
+        src: source,
         contentId: attachment.contentId,
         previewSrc: attachment.previewDataUrl,
-        alt: file.name,
+        alt: attachment.fileName || file.name,
       },
     }).run();
   }
@@ -540,6 +693,83 @@ function escapeHtmlAttribute(value: string) {
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+export function normalizeComposerLinkTarget(candidate: string) {
+  const trimmed = candidate.trim();
+  if (
+    !trimmed
+    || new TextEncoder().encode(trimmed).length > 16 * 1024
+    || trimmed.includes("\\")
+    || containsConfusingCharacters(trimmed)
+    || containsPercentEncodedConfusingCharacters(trimmed)
+  ) {
+    return null;
+  }
+  const input = trimmed.startsWith("//") ? `https:${trimmed}` : trimmed;
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    return null;
+  }
+  if (url.protocol === "http:" || url.protocol === "https:") {
+    if (!url.hostname || url.username || url.password) return null;
+  } else if (url.protocol === "mailto:") {
+    if (!url.pathname.trim() || url.host) return null;
+  } else {
+    return null;
+  }
+  const target = url.toString();
+  return new TextEncoder().encode(target).length <= 16 * 1024
+    && !containsConfusingCharacters(target)
+    ? target
+    : null;
+}
+
+function containsConfusingCharacters(value: string) {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f
+      || (codePoint >= 0x7f && codePoint <= 0x9f)
+      || codePoint === 0x061c
+      || codePoint === 0x200e
+      || codePoint === 0x200f
+      || (codePoint >= 0x202a && codePoint <= 0x202e)
+      || (codePoint >= 0x2066 && codePoint <= 0x2069);
+  });
+}
+
+function containsPercentEncodedConfusingCharacters(value: string) {
+  const bytes = Array.from(new TextEncoder().encode(value));
+  const decoded: number[] = [];
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (
+      bytes[index] === 0x25
+      && index + 2 < bytes.length
+      && isHexByte(bytes[index + 1])
+      && isHexByte(bytes[index + 2])
+    ) {
+      decoded.push(Number.parseInt(String.fromCharCode(bytes[index + 1], bytes[index + 2]), 16));
+      index += 2;
+    } else {
+      decoded.push(bytes[index]);
+    }
+  }
+  if (decoded.some((byte) => byte <= 0x1f || byte === 0x7f)) return true;
+  try {
+    return containsConfusingCharacters(
+      new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(decoded)),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isHexByte(value: number) {
+  return (value >= 0x30 && value <= 0x39)
+    || (value >= 0x41 && value <= 0x46)
+    || (value >= 0x61 && value <= 0x66);
 }
 
 function parseDocument(value: string): JSONContent {

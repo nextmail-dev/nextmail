@@ -32,6 +32,7 @@ import {
   type CompositionNodeSelection,
   type RichTextEditorHandle,
 } from "./RichTextEditor";
+import { fileToBase64 } from "./fileToBase64";
 import { AddressTag, RecipientField } from "./RecipientField";
 import { addRecipientInput, formatAddress } from "./recipient-utils";
 
@@ -545,6 +546,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         <RichTextEditor
           ref={editorRef}
           initialJson={draft.content.editorJson}
+          initialHtml={draft.content.html}
           disabled={!editable}
           inlineImages={attachments}
           onAddInlineImage={addInlineImage}
@@ -609,20 +611,6 @@ function formatBytes(bytes: number) {
 }
 
 type RecipientKind = "to" | "cc" | "bcc";
-
-function fileToBase64(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("image read failed"));
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      const separator = result.indexOf(",");
-      if (separator < 0) reject(new Error("image encoding failed"));
-      else resolve(result.slice(separator + 1));
-    };
-    reader.readAsDataURL(file);
-  });
-}
 
 function compositionSelection(editorJson: string): CompositionNodeSelection {
   try {

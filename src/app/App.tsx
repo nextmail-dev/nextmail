@@ -38,6 +38,10 @@ const AccountManagementApp = lazy(() =>
 const RawMessageApp = lazy(() =>
   import("@/features/mail/RawMessageApp").then((module) => ({ default: module.RawMessageApp })),
 );
+const CompositionDefinitionEditorApp = lazy(() =>
+  import("@/features/preferences/CompositionDefinitionEditorApp")
+    .then((module) => ({ default: module.CompositionDefinitionEditorApp })),
+);
 const NotificationApp = lazy(() =>
   import("@/features/notifications/NotificationApp").then((module) => ({ default: module.NotificationApp })),
 );
@@ -54,11 +58,14 @@ export function App() {
   const settings = params.get("window") === "settings";
   const accountManagement = params.get("window") === "accounts";
   const rawMessage = params.get("window") === "raw-message";
+  const definitionEditor = params.get("window") === "definition";
   const notification = params.get("window") === "notification";
   const notificationId = params.get("notificationId") ?? "";
   const accountId = params.get("accountId") ?? "";
   const messageId = params.get("messageId") ?? "";
   const draftId = params.get("draftId") ?? "";
+  const definitionKind = params.get("kind");
+  const definitionId = params.get("definitionId");
   if (notification && notificationId) {
     return (
       <QueryClientProvider client={queryClient}>
@@ -77,6 +84,8 @@ export function App() {
         ? "accounts"
         : rawMessage
           ? "raw-message"
+          : definitionEditor
+            ? "definition"
           : "main";
   const windowContent = composer && accountId && draftId
     ? <ComposerApp accountId={accountId} draftId={draftId} />
@@ -86,6 +95,14 @@ export function App() {
         ? <AccountManagementApp />
         : rawMessage && accountId && messageId
           ? <RawMessageApp accountId={accountId} messageId={messageId} />
+          : definitionEditor && (definitionKind === "template" || definitionKind === "signature")
+            ? (
+                <CompositionDefinitionEditorApp
+                  accountId={accountId || null}
+                  kind={definitionKind}
+                  definitionId={definitionId}
+                />
+              )
           : <AppContent />;
   return (
     <QueryClientProvider client={queryClient}>
@@ -117,6 +134,8 @@ function WindowFrame({ kind, children }: { kind: WindowKind; children: ReactNode
       ? t("accounts.title")
       : kind === "raw-message"
         ? t("mail.sourceTitle")
+        : kind === "definition"
+          ? t("compositionLibrary.editorWindowTitle")
         : "NextMail";
   return (
     <>
@@ -151,7 +170,7 @@ class WindowContentBoundary extends Component<
 
   private closeWindow = () => {
     const appWindow = getCurrentWindow();
-    void (["settings", "accounts", "raw-message"].includes(this.props.kind)
+    void (["settings", "accounts", "raw-message", "definition"].includes(this.props.kind)
       ? appWindow.destroy()
       : appWindow.close());
   };

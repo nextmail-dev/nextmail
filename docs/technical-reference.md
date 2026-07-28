@@ -1,6 +1,6 @@
 # NextMail 当前技术参考
 
-更新时间：2026-07-26
+更新时间：2026-07-28
 
 本文描述仓库当前检出代码的技术状态；尚在等待手动验收的批次会单独标明。阶段进度和后续范围见 `iterations/`，历史变更见 `changes/`，长期架构理由见 `adr/`。
 
@@ -230,7 +230,7 @@ cache/attachment-open/...
 
 密码只存入系统凭据库，服务名为 `com.taurusxin.nextmail`；配置文件只保存不透明 `credential_ref`。
 
-SQLite 数据格式当前为版本 20。主要表：
+SQLite 数据格式当前为版本 22。主要表：
 
 - `account_slots`、`account_sync_settings`
 - `mailboxes`、`mailbox_role_overrides`
@@ -270,7 +270,9 @@ SQLite 数据格式当前为版本 20。主要表：
 
 变量白名单为 `sender_name`、`sender_email`、`recipient_name`、`recipient_email`、`date`。定义保存时拒绝未知变量；插入时缺少收件人姓名等上下文会返回稳定错误。Rust 分别渲染主题、Tiptap 文本节点、HTML 和纯文本：HTML 变量值进行实体转义，主题移除换行，日期按当前界面语言使用本机日期。
 
-设置窗口“写信”分类提供范围切换、四种默认模板规则、签名列表、默认标记、“设为默认”和“自动为邮件选择默认签名”；定义编辑弹窗按窗口可用高度伸展，名称/主题字段不参与纵向伸展，长正文通过不占主体宽度的统一自绘覆盖滑块滚动。Composer 可显式选择当前账户可见的全局/账户定义；模板与签名分别写入 `nextmailTemplate` / `nextmailSignature` 块节点，并把定义 ID 同步到 HTML 的 `data-nextmail-*-id` 属性。签名节点只保留稳定语义边界，不附带引用线、底色、内边距或圆角。切换只替换同类节点，用户删除签名后保存和重开不会自动恢复。初始新建或回复/转发创建时才解析场景模板和签名偏好；关闭自动插入后仍可在 Composer 手动选择签名，远端既有草稿不重新套用默认值。回复动作另使用 `nextmailReply` 与 `nextmailOriginalMessage` 固定边界，默认顺序为回复区、空行、默认签名、原始邮件头与正文；模板只进入回复区，签名始终插在原文前。普通撰写内容由 Tiptap 编辑，引用原文以原始安全 HTML 为权威内容并在无权限 iframe 预览；CodeMirror 6 提供完整 HTML 源码与实时预览双栏，三格式保存后进入既有远端 Drafts 与 MIME 流程。
+设置窗口“写信”分类提供范围切换、四种默认模板规则、签名列表、默认标记、“设为默认”和“自动为邮件选择默认签名”；新增/编辑定义会打开可记忆大小和位置的独立富文本窗口，设置窗口只通过稳定 IPC 请求打开，并由最小 `composition-definitions-changed` 事件失效对应 Query。独立窗口自行按公开账户 ID 和定义 ID 加载、保存，名称/主题保持内容高度，长正文通过不占主体宽度的统一自绘覆盖滑块滚动。Composer 可显式选择当前账户可见的全局/账户定义；模板与签名分别写入 `nextmailTemplate` / `nextmailSignature` 块节点，并把定义 ID 同步到 HTML 的 `data-nextmail-*-id` 属性。签名节点只保留稳定语义边界，不附带引用线、底色、内边距或圆角。切换只替换同类节点，用户删除签名后保存和重开不会自动恢复。初始新建或回复/转发创建时才解析场景模板和签名偏好；关闭自动插入后仍可在 Composer 手动选择签名，远端既有草稿不重新套用默认值。回复动作另使用 `nextmailReply` 与 `nextmailOriginalMessage` 固定边界，默认顺序为回复区、空行、默认签名、原始邮件头与正文；模板只进入回复区，签名始终插在原文前。
+
+Composer、签名和模板共用 Tiptap 的结构化 WYSIWYG 与 CodeMirror 6 HTML/预览双栏。`DraftContent.html` 是源码模式的权威文本：只进入、修改、退出源码不会先经 `editor.getHTML()` 重写，因此根级裸文本和源码格式不会无故获得 `<p>`；从源码返回 WYSIWYG 只构建可编辑投影，后续真的发生可视化编辑时才按受支持 schema 重新序列化。编辑 schema 额外保留纯内联 `div`，以及安全 HTML 中图片的 class、ID、style、width/height、对齐、边框和旧式间距属性；画布不再用响应式 CSS 覆盖作者图片尺寸。该边界不承诺任意未知或无效 HTML 经 WYSIWYG 编辑仍逐字无损，保存仍进入既有 Rust 再清洗、远端 Drafts 与 MIME 流程。共用工具栏可设置、更新和移除链接；前端先按与 Rust 相同的 `http`/`https`/`mailto`、无凭据、无控制字符规则校验，编辑器内不直接打开链接。
 
 草稿保存 `editor_json`、`html` 与 `plain_text`，使用 revision 做乐观并发控制。Composer 把发件人显示为只读地址标签；To/Cc/Bcc 在空格、回车、逗号、分号或失焦时即时校验并生成标签，空输入退格会把末尾标签恢复为可编辑文本。未提交输入不会因 800ms 自动保存定时器而延迟变成标签；存在输入时暂停自动保存，并在发送或关闭前最终校验、提交，无效地址阻止发送与关闭。完全空白草稿可以条件删除；回复/回复全部/转发还带持久化“未编辑可丢弃”标记，只有用户实际保存后才保留并同步 Drafts。远端导入草稿与普通非空草稿不使用该标记。
 
@@ -295,7 +297,8 @@ SQLite 数据格式当前为版本 20。主要表：
 - 邮件自身的 `data:image` 只接受通过 media type、编码、文件魔数和共享大小预算验证的 PNG/JPEG/GIF/WebP；SVG、HTML、未知类型、格式错误和超限内容继续移除。文档 CSP 仍为 `img-src data:`，不会因此获得脚本、同源、本地文件或额外网络权限。
 - HTML 清洗版本升级后，正文请求先按账户槽读取本地原始 EML，并在 blocking worker 重新解析、清洗后事务写回；只有原始 EML 缺失或不可解析时才通过 IMAP 重新获取，因此缓存迁移不强制破坏离线重建能力。
 - 回复/转发优先从账户隔离的本地原始 EML 解析 HTML part；原文缺失时回退到已缓存的安全 HTML/纯文本，不为打开 Composer 强制联网。compose 专用清洗继续移除脚本、事件、表单、嵌入内容、危险 URL 和 CSS 网络资源，将安全内嵌样式表限定到 `data-nextmail-original-message` 范围。引用原文不再进入 ProseMirror 表格 schema，而以 `sourceHtml` 原子节点保留并在 `sandbox=""`、`no-referrer`、仅 data URL 图片 CSP 的 iframe 中预览；HTML 源码编辑保存时由 Rust 再清洗正文与节点属性。
-- 数据格式版本 13 为草稿附件增加 `content_id`/`is_inline`。本地原始 MIME 中实际被 HTML `cid:` 引用的 PNG/JPEG/GIF/WebP 与用户选择/粘贴图片进入现有 SHA-256 `attachments/` 内容存储；前端只得到不透明 ID、CID 和内存 data URL 预览。图片通过 `src/app/api.ts` 的窄 Command 进入 Rust，验证 MIME、文件魔数、单项 25MB 与总计 100MB 上限。富 HTML 粘贴先由 Rust 保留安全结构、class/ID、行内样式和样式表，再把选择器限定到 `data-nextmail-pasted-html` 容器；未经清洗的剪贴板 HTML 不进入 Composer DOM。远程 `http(s)` 图片不显示占位卡片、不被编辑器静默下载，地址仍随安全 HTML 保存。
+- 数据格式版本 13 为草稿附件增加 `content_id`/`is_inline`。本地原始 MIME 中实际被 HTML `cid:` 引用的 PNG/JPEG/GIF/WebP 与用户选择/粘贴图片进入现有 SHA-256 `attachments/` 内容存储；前端只得到不透明 ID、CID 和内存 data URL 预览。图片通过 `src/app/api.ts` 的窄 Command 进入 Rust，验证 MIME、文件魔数、单项 25MB 与总计 100MB 上限。富 HTML 粘贴先由 Rust 保留安全结构、class/ID、行内样式和样式表，再把选择器限定到 `data-nextmail-pasted-html` 容器；未经清洗的剪贴板 HTML 不进入 Composer DOM。远程 `http(s)` 图片不显示占位卡片、不被编辑器静默下载，地址仍随安全 HTML 保存。HTML 源码保真与图片尺寸呈现只调整前端编辑投影，不放宽这里的附件、图片、CSS 或 Rust 清洗边界。
+- 签名/模板没有草稿附件归属，插图不伪造无法持久化的 CID。独立定义窗口通过窄 Command 将本地文件交给 Rust，前端先以 3 MiB 限制避免读取超大文件，Rust 再验证 PNG/JPEG/GIF/WebP 声明、文件魔数和同一大小上限，返回受限 data URL 作为定义 HTML/JSON 的可持久化内容；保存时仍受每种定义内容 5 MB 与 `sanitize_composer_document` 约束。Composer 自身继续使用附件内容存储和 CID，不改为 data URL。
 - `http`、`https`、`mailto` 经 Rust 规范化后直接保留为 `href`，固定使用 `_blank` 与 `noopener noreferrer`。相对路径、本机文件、用户信息、反斜线、控制字符、双向文本控制符、危险或未知 scheme 均移除。
 - 主窗口 `on_new_window` 对点击目标再次执行同一 Rust 校验，安全目标交给 `state.rs` 注入的系统浏览器/邮件程序打开器，并始终返回 `Deny`；React 没有链接事件、确认 UI 或接受任意 URL 的 IPC。`no-referrer` 保持不变。
 - 阅读器不再向邮件文档注入统一字体/行高、16px 内边距、任意断词或图片/表格最大宽度，避免覆盖作者固定宽度和居中布局；阅读页以标题和单一浅边框容器组织基本信息、操作、正文与固定宽度彩色类型附件卡片，iframe 宿主只保留 12px 左右留白。迁移 0011 作为可能已应用的原型保持不可变，0012 删除临时链接表并失效旧缓存；迁移 0014 为受限 `nth-*()` 保真再次失效旧 HTML 缓存，0015 新增本地搜索，0016 增加第十二阶段设置与草稿标记，0021 为标准 CID 与受限 data 图片再次失效旧 HTML 缓存，0022 为阿里云式 octet-stream CID 兼容再次失效已应用缓存。

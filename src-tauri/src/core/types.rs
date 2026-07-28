@@ -657,6 +657,15 @@ pub struct DraftAttachmentSummary {
     pub preview_data_url: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedInlineImage {
+    pub file_name: String,
+    pub content_type: String,
+    pub size: u64,
+    pub data_url: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftDetail {

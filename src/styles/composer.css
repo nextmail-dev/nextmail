@@ -101,6 +101,5 @@
 }
 
 .nextmail-editor-content .nextmail-email-image {
-  max-width: 100%;
-  height: auto;
+  display: inline-block;
 }

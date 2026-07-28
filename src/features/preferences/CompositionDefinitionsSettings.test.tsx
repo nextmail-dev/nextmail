@@ -5,8 +5,14 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { api } from "@/app/api";
 import i18n from "@/app/i18n";
-import type { DraftContent, MailSignature, MailTemplate } from "@/app/types";
+import type { MailSignature, MailTemplate } from "@/app/types";
 import { CompositionDefinitionsSettings } from "./CompositionDefinitionsSettings";
+
+const { listenMock } = vi.hoisted(() => ({
+  listenMock: vi.fn().mockResolvedValue(vi.fn()),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({ listen: listenMock }));
 
 vi.mock("@/app/api", () => ({
   api: {
@@ -18,6 +24,7 @@ vi.mock("@/app/api", () => ({
     listMailSignatures: vi.fn(),
     listMailTemplates: vi.fn(),
     listCompositionSceneRules: vi.fn(),
+    openCompositionDefinitionEditor: vi.fn(),
     saveCompositionSceneRule: vi.fn(),
     saveSignaturePreferences: vi.fn(),
     updateMailSignature: vi.fn(),
@@ -28,21 +35,6 @@ vi.mock("@/app/api", () => ({
     params: {},
     retryable: false,
   })),
-}));
-
-vi.mock("@/features/composer/RichTextEditor", () => ({
-  RichTextEditor: ({ onChange }: { onChange: (content: DraftContent) => void }) => (
-    <button
-      type="button"
-      onClick={() => onChange({
-        editorJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Reusable body"}]}]}',
-        html: "<p>Reusable body</p>",
-        plainText: "Reusable body",
-      })}
-    >
-      Change rich text
-    </button>
-  ),
 }));
 
 const accounts = [
@@ -114,6 +106,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.listMailTemplates).mockResolvedValue([]);
   vi.mocked(api.listMailSignatures).mockResolvedValue([]);
+  vi.mocked(api.openCompositionDefinitionEditor).mockResolvedValue(undefined);
   vi.mocked(api.getSignaturePreferences).mockResolvedValue({
     defaultSignatureId: null,
     autoInsert: true,
@@ -139,47 +132,35 @@ beforeEach(() => {
     inherited: false,
     revision: 2,
   }));
-  vi.mocked(api.createMailTemplate).mockImplementation(async (_accountId, draft) => ({
-    id: "template-new",
-    scope: "global",
-    accountId: null,
-    revision: 1,
-    updatedAt: 1,
-    ...draft,
-  }));
   vi.mocked(api.deleteMailTemplate).mockResolvedValue(undefined);
 });
 
 afterEach(cleanup);
 
 describe("CompositionDefinitionsSettings", () => {
-  it("keeps definition fields content-sized so the editor receives the remaining height", async () => {
+  it("opens a new signature in the independent rich-text editor window", async () => {
     renderSettings();
 
     fireEvent.click(await screen.findByRole("button", { name: "Add signature" }));
-    const name = screen.getByRole("textbox", { name: "Name" });
 
-    expect(name.parentElement?.parentElement).toHaveClass("flex-none");
+    await waitFor(() => expect(api.openCompositionDefinitionEditor).toHaveBeenCalledWith(
+      null,
+      "signature",
+      null,
+    ));
   });
 
-  it("creates a rich-text template in the explicit global scope", async () => {
+  it("opens an existing template in the independent rich-text editor window", async () => {
+    vi.mocked(api.listMailTemplates).mockResolvedValue([existingTemplate]);
     renderSettings();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Add template" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Welcome" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Subject" }), { target: { value: "Hello" } });
-    fireEvent.click(screen.getByRole("button", { name: "Change rich text" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
 
-    await waitFor(() => expect(api.createMailTemplate).toHaveBeenCalledWith(null, {
-      name: "Welcome",
-      subject: "Hello",
-      content: {
-        editorJson: '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Reusable body"}]}]}',
-        html: "<p>Reusable body</p>",
-        plainText: "Reusable body",
-      },
-    }));
+    await waitFor(() => expect(api.openCompositionDefinitionEditor).toHaveBeenCalledWith(
+      null,
+      "template",
+      existingTemplate.id,
+    ));
   });
 
   it("reloads both libraries when the user selects an account scope", async () => {

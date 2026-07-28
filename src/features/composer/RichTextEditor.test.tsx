@@ -4,7 +4,11 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import i18n from "@/app/i18n";
 import type { DraftContent } from "@/app/types";
-import { RichTextEditor, type RichTextEditorHandle } from "./RichTextEditor";
+import {
+  normalizeComposerLinkTarget,
+  RichTextEditor,
+  type RichTextEditorHandle,
+} from "./RichTextEditor";
 
 const EMPTY = '{"type":"doc","content":[{"type":"paragraph"}]}';
 
@@ -195,6 +199,41 @@ describe("RichTextEditor composition nodes", () => {
     });
   });
 
+  it("inserts a prepared reusable-definition image as a persistent data source", async () => {
+    const onChange = vi.fn<(content: DraftContent) => void>();
+    const onAddInlineImage = vi.fn(async () => ({
+      fileName: "signature-logo.png",
+      contentType: "image/png",
+      size: 12,
+      contentId: null,
+      previewDataUrl: "data:image/png;base64,aW1hZ2U=",
+    }));
+    const { container } = render(
+      <RichTextEditor
+        initialJson={EMPTY}
+        onChange={onChange}
+        onAddInlineImage={onAddInlineImage}
+      />,
+    );
+    const input = await waitFor(() => {
+      const value = container.querySelector<HTMLInputElement>('input[type="file"]');
+      expect(value).not.toBeNull();
+      return value as HTMLInputElement;
+    });
+    const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "signature-logo.png", {
+      type: "image/png",
+    });
+    fireEvent.change(input, { target: { files: [image] } });
+
+    await waitFor(() => expect(onAddInlineImage).toHaveBeenCalledWith(image));
+    await waitFor(() => {
+      const content = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(content?.html).toContain('src="data:image/png;base64,aW1hZ2U="');
+      expect(content?.editorJson).toContain("data:image/png;base64,aW1hZ2U=");
+      expect(content?.editorJson).not.toContain("previewSrc");
+    });
+  });
+
   it("imports sanitized clipboard HTML with scoped styles and editable structure", async () => {
     const onChange = vi.fn<(content: DraftContent) => void>();
     const onAddInlineImage = vi.fn(async () => ({
@@ -249,6 +288,127 @@ describe("RichTextEditor composition nodes", () => {
       expect(content?.editorJson).not.toContain("data:image/png");
       expect(content?.plainText).toContain("Styled paste");
     });
+  });
+
+  it("keeps the persisted HTML source exact until the rich editor is actually changed", async () => {
+    const exactHtml = 'Bare text <span style="font-size:19px">without a paragraph wrapper</span>';
+    render(
+      <RichTextEditor
+        initialJson={EMPTY}
+        initialHtml={exactHtml}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "HTML source" }));
+    const source = await screen.findByRole("textbox", { name: "HTML source" });
+    expect(source.textContent).toBe(exactHtml);
+
+    fireEvent.click(screen.getByRole("button", { name: "HTML source" }));
+    fireEvent.click(screen.getByRole("button", { name: "HTML source" }));
+    expect(await screen.findByRole("textbox", { name: "HTML source" })).toHaveTextContent(exactHtml);
+  });
+
+  it("preserves inline div structure and image dimensions during rich serialization", async () => {
+    const ref = createRef<RichTextEditorHandle>();
+    const onChange = vi.fn<(content: DraftContent) => void>();
+    const initialJson = JSON.stringify({
+      type: "doc",
+      content: [{
+        type: "emailInlineBlock",
+        attrs: {
+          emailClass: "email-line",
+          emailId: "line-one",
+          emailStyle: "text-align: center",
+        },
+        content: [
+          { type: "text", text: "Inline div" },
+          {
+            type: "nextmailImage",
+            attrs: {
+              src: "data:image/png;base64,aW1hZ2U=",
+              alt: "Sized",
+              width: "72",
+              height: "36",
+              emailStyle: "vertical-align: bottom; width: 72px; height: 36px",
+              emailClass: "mail-logo",
+              emailId: "logo-one",
+              align: "bottom",
+              border: "0",
+              hspace: "4",
+              vspace: "2",
+            },
+          },
+        ],
+      }],
+    });
+    const { container } = render(
+      <RichTextEditor ref={ref} initialJson={initialJson} onChange={onChange} />,
+    );
+    await waitFor(() => expect(ref.current).not.toBeNull());
+
+    const image = container.querySelector<HTMLImageElement>(".nextmail-email-image");
+    expect(image).toHaveAttribute("width", "72");
+    expect(image).toHaveAttribute("height", "36");
+    expect(image).toHaveAttribute("hspace", "4");
+    expect(image).toHaveStyle({ width: "72px", height: "36px", verticalAlign: "bottom" });
+
+    act(() => {
+      expect(ref.current?.replaceSignature("signature-one", definition("Regards"))).toBe(true);
+    });
+    await waitFor(() => {
+      const content = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(content?.html).toMatch(
+        /<div style="text-align: center;?" class="email-line" id="line-one">Inline div/,
+      );
+      expect(content?.html).not.toContain("<div><p>Inline div");
+      expect(content?.html).toContain('width="72"');
+      expect(content?.html).toContain('height="36"');
+      expect(content?.html).toContain('class="mail-logo"');
+    });
+  });
+
+  it("inserts a validated link at an empty selection", async () => {
+    const onChange = vi.fn<(content: DraftContent) => void>();
+    render(<RichTextEditor initialJson={EMPTY} onChange={onChange} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Insert or edit link" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Link address" }), {
+      target: { value: " HTTPS://Example.COM:443/news " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply link" }));
+
+    await waitFor(() => {
+      const content = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(content?.html).toContain(
+        '<a target="_blank" rel="noopener noreferrer" href="https://example.com/news">https://example.com/news</a>',
+      );
+    });
+  });
+});
+
+describe("normalizeComposerLinkTarget", () => {
+  it("normalizes supported links and rejects active, credentialed, or confusing targets", () => {
+    expect(normalizeComposerLinkTarget(" HTTPS://Example.COM:443/news ")).toBe(
+      "https://example.com/news",
+    );
+    expect(normalizeComposerLinkTarget("//example.com/news")).toBe("https://example.com/news");
+    expect(normalizeComposerLinkTarget("mailto:reader@example.com?subject=Hello")).toBe(
+      "mailto:reader@example.com?subject=Hello",
+    );
+
+    for (const target of [
+      "javascript:alert(1)",
+      "data:text/html,hello",
+      "file:///C:/secret.txt",
+      "https://user:secret@example.com/",
+      "https://example.com\\@attacker.invalid/",
+      "https://example.com/%0d%0aHeader:value",
+      "https://example.com/\u202emoc.live",
+      "mailto:",
+    ]) {
+      expect(normalizeComposerLinkTarget(target), target).toBeNull();
+    }
   });
 });
 

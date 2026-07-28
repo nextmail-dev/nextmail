@@ -27,6 +27,7 @@ import type {
   DraftRecipientFields,
   SendJobSummary,
   PendingOperationSummary,
+  PreparedInlineImage,
   MailboxRole,
   MessageComposeAction,
   ReadingPreferences,
@@ -109,6 +110,13 @@ export const api = {
   openAccountManagementWindow: () => invoke<void>("open_account_management_window"),
   openRawMessageWindow: (accountId: string, messageId: string) =>
     invoke<void>("open_raw_message_window", { accountId, messageId }),
+  openCompositionDefinitionEditor: (
+    accountId: string | null,
+    kind: "template" | "signature",
+    definitionId: string | null,
+  ) => invoke<void>("open_composition_definition_editor_window", {
+    accountId, kind, definitionId,
+  }),
   listMailboxes: (accountId: string) =>
     invoke<MailboxSummary[]>("list_mailboxes", { accountId }),
   createMailbox: (accountId: string, parentMailboxId: string | null, name: string) =>
@@ -275,6 +283,13 @@ export const api = {
   }),
   sanitizeRichTextPaste: (html: string) =>
     invoke<string>("sanitize_rich_text_paste", { html }),
+  prepareCompositionDefinitionImage: (
+    fileName: string,
+    contentType: string,
+    contentBase64: string,
+  ) => invoke<PreparedInlineImage>("prepare_composition_definition_image", {
+    fileName, contentType, contentBase64,
+  }),
   removeDraftAttachment: (accountId: string, draftId: string, attachmentId: string) =>
     invoke<void>("remove_draft_attachment", { accountId, draftId, attachmentId }),
   discardEmptyDraft: (accountId: string, draftId: string) =>

@@ -30,6 +30,8 @@ pub fn run() {
                 .map_label(|label| {
                     if label.starts_with("composer-") {
                         "composer"
+                    } else if label.starts_with("definition-") {
+                        "definition"
                     } else {
                         label
                     }
@@ -78,6 +80,7 @@ pub fn run() {
             commands::open_settings_window,
             commands::open_account_management_window,
             commands::open_raw_message_window,
+            commands::open_composition_definition_editor_window,
             commands::list_mailboxes,
             commands::create_mailbox,
             commands::rename_mailbox,
@@ -129,6 +132,7 @@ pub fn run() {
             commands::save_draft,
             commands::add_draft_attachments,
             commands::add_draft_inline_image,
+            commands::prepare_composition_definition_image,
             commands::sanitize_rich_text_paste,
             commands::remove_draft_attachment,
             commands::discard_empty_draft,

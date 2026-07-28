@@ -8,6 +8,39 @@ import {
 
 const ORIGINAL_SCOPE = "[data-nextmail-original-message]";
 const PASTED_SCOPE = "[data-nextmail-pasted-html]";
+const GENERIC_EMAIL_DIV =
+  "div:not([data-nextmail-reply]):not([data-nextmail-original-message]):not([data-nextmail-template-id]):not([data-nextmail-signature-id])";
+const BLOCK_CONTENT_TAGS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "details",
+  "dialog",
+  "div",
+  "dl",
+  "fieldset",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hr",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "style",
+  "table",
+  "ul",
+]);
 
 function safeComposerStylesheet(value: unknown) {
   if (typeof value !== "string" || value.length > 256 * 1024) return "";
@@ -58,6 +91,7 @@ export const EmailFormattingAttributes = Extension.create({
         "bulletList",
         "orderedList",
         "listItem",
+        "emailInlineBlock",
         "emailBlock",
         "table",
         "tableRow",
@@ -80,6 +114,26 @@ export const EmailFormattingAttributes = Extension.create({
   },
 });
 
+export const EmailInlineBlock = Node.create({
+  name: "emailInlineBlock",
+  group: "block",
+  content: "inline*",
+  parseHTML() {
+    return [{
+      tag: GENERIC_EMAIL_DIV,
+      priority: 110,
+      getAttrs: (element) => element instanceof HTMLElement
+        && !Array.from(element.children)
+          .some((child) => BLOCK_CONTENT_TAGS.has(child.tagName.toLocaleLowerCase()))
+        ? {}
+        : false,
+    }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", HTMLAttributes, 0];
+  },
+});
+
 export const EmailBlock = Node.create({
   name: "emailBlock",
   group: "block",
@@ -97,7 +151,7 @@ export const EmailBlock = Node.create({
   },
   parseHTML() {
     return [{
-      tag: "div:not([data-nextmail-reply]):not([data-nextmail-original-message]):not([data-nextmail-template-id]):not([data-nextmail-signature-id])",
+      tag: GENERIC_EMAIL_DIV,
     }];
   },
   renderHTML({ HTMLAttributes }) {
@@ -202,6 +256,12 @@ export const NextMailImage = Node.create({
       width: { default: null },
       height: { default: null },
       emailStyle: preservedAttribute("style"),
+      emailClass: preservedAttribute("class", "emailClass"),
+      emailId: preservedAttribute("id", "emailId"),
+      align: preservedAttribute("align"),
+      border: preservedAttribute("border"),
+      hspace: preservedAttribute("hspace"),
+      vspace: preservedAttribute("vspace"),
     };
   },
   parseHTML() {
@@ -221,7 +281,6 @@ export const NextMailImage = Node.create({
   addNodeView() {
     return ({ node }) => {
       const dom = document.createElement("img");
-      dom.className = "nextmail-email-image";
       dom.contentEditable = "false";
       const update = (current: typeof node) => {
         const preview = typeof current.attrs.previewSrc === "string"
@@ -237,9 +296,28 @@ export const NextMailImage = Node.create({
           dom.hidden = true;
         }
         dom.alt = typeof current.attrs.alt === "string" ? current.attrs.alt : "";
-        for (const attribute of ["title", "width", "height"] as const) {
+        const emailClass = typeof current.attrs.emailClass === "string"
+          ? current.attrs.emailClass.trim()
+          : "";
+        dom.className = ["nextmail-email-image", emailClass].filter(Boolean).join(" ");
+        if (typeof current.attrs.emailId === "string" && current.attrs.emailId) {
+          dom.id = current.attrs.emailId;
+        } else {
+          dom.removeAttribute("id");
+        }
+        for (const attribute of [
+          "title",
+          "width",
+          "height",
+          "align",
+          "border",
+          "hspace",
+          "vspace",
+        ] as const) {
           const value = current.attrs[attribute];
-          if (typeof value === "string" && value) dom.setAttribute(attribute, value);
+          if ((typeof value === "string" || typeof value === "number") && `${value}`) {
+            dom.setAttribute(attribute, `${value}`);
+          }
           else dom.removeAttribute(attribute);
         }
         dom.style.cssText = typeof current.attrs.emailStyle === "string"

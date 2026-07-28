@@ -1,0 +1,135 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { api } from "@/app/api";
+import i18n from "@/app/i18n";
+import type { DraftContent } from "@/app/types";
+import { CompositionDefinitionEditorApp } from "./CompositionDefinitionEditorApp";
+
+vi.mock("@/app/windowReady", () => ({ useRevealWindowWhenReady: vi.fn() }));
+
+vi.mock("@/app/api", () => ({
+  api: {
+    createMailSignature: vi.fn(),
+    createMailTemplate: vi.fn(),
+    listMailSignatures: vi.fn(),
+    listMailTemplates: vi.fn(),
+    prepareCompositionDefinitionImage: vi.fn(),
+    sanitizeRichTextPaste: vi.fn(),
+    updateMailSignature: vi.fn(),
+    updateMailTemplate: vi.fn(),
+  },
+  normalizeCommandError: vi.fn(() => ({
+    code: "common.unexpected_error",
+    params: {},
+    retryable: false,
+  })),
+}));
+
+vi.mock("@/features/composer/RichTextEditor", () => ({
+  RichTextEditor: ({
+    onChange,
+    onAddInlineImage,
+  }: {
+    onChange: (content: DraftContent) => void;
+    onAddInlineImage?: (file: File) => Promise<{ previewDataUrl: string | null }>;
+  }) => (
+    <button
+      type="button"
+      onClick={async () => {
+        const image = await onAddInlineImage?.(new File(
+          [new Uint8Array([0x89, 0x50, 0x4e, 0x47])],
+          "logo.png",
+          { type: "image/png" },
+        ));
+        const source = image?.previewDataUrl ?? "";
+        onChange({
+          editorJson: JSON.stringify({
+            type: "doc",
+            content: [{ type: "paragraph", content: [{
+              type: "nextmailImage",
+              attrs: { src: source },
+            }] }],
+          }),
+          html: `<p><img src="${source}"></p>`,
+          plainText: "",
+        });
+      }}
+    >
+      Insert embedded image
+    </button>
+  ),
+}));
+
+function renderEditor(kind: "template" | "signature", definitionId: string | null = null) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+  const Wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return render(
+    <CompositionDefinitionEditorApp
+      accountId={null}
+      kind={kind}
+      definitionId={definitionId}
+    />,
+    { wrapper: Wrapper },
+  );
+}
+
+beforeAll(async () => {
+  await i18n.changeLanguage("en-US");
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(api.listMailTemplates).mockResolvedValue([]);
+  vi.mocked(api.listMailSignatures).mockResolvedValue([]);
+  vi.mocked(api.prepareCompositionDefinitionImage).mockResolvedValue({
+    fileName: "logo.png",
+    contentType: "image/png",
+    size: 4,
+    dataUrl: "data:image/png;base64,iVBORw==",
+  });
+  vi.mocked(api.createMailSignature).mockImplementation(async (_accountId, draft) => ({
+    id: "signature-new",
+    scope: "global",
+    accountId: null,
+    revision: 1,
+    updatedAt: 1,
+    ...draft,
+  }));
+});
+
+afterEach(cleanup);
+
+describe("CompositionDefinitionEditorApp", () => {
+  it("inserts a validated embedded image and saves it in a new signature", async () => {
+    renderEditor("signature");
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Logo signature" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Insert embedded image" }));
+
+    await waitFor(() => expect(api.prepareCompositionDefinitionImage).toHaveBeenCalledWith(
+      "logo.png",
+      "image/png",
+      "iVBORw==",
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(api.createMailSignature).toHaveBeenCalledWith(null, {
+      name: "Logo signature",
+      content: expect.objectContaining({
+        html: '<p><img src="data:image/png;base64,iVBORw=="></p>',
+      }),
+    }));
+  });
+});

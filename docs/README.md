@@ -25,6 +25,7 @@
 - `iterations/0017-ui-visual-and-window-experience.md`：第十七阶段统一覆盖式自绘滚动条、独立账户/原文窗口与工作区视觉体验修正。
 - `iterations/0018-imap-folder-management-and-local-ordering.md`：第十八阶段 IMAP 文件夹创建、重命名、移动、删除、全部已读与本地拖拽排序计划。
 - `iterations/0019-mail-reading-optimization.md`：第十九阶段阅读页结构、附件卡片、CID/data 图片、自动分页、批量通知与验收记录。
+- `iterations/0020-rich-text-editor-fidelity.md`：第二十阶段共用富文本编辑器可编辑性、独立定义窗口、受限插图、HTML 往返保真、邮件样式与链接能力。
 - `changes/`：按实施批次记录已经发生的功能和架构变动。
 - `changes/0005-message-and-mailbox-encoding.md`：邮件多字符集、IMAP 文件夹名和旧缓存重建说明。
 - `changes/0006-rfc2047-robustness.md`：完整 RFC 2047 encoded-word、安全降级和回归语料。
@@ -77,6 +78,7 @@
 - `changes/0053-ui-visual-and-window-experience.md`：统一覆盖式自绘滚动条、账户管理/原始邮件独立窗口与第十七阶段视觉体验修正。
 - `changes/0054-imap-folder-management-and-local-ordering.md`：第十八阶段 IMAP 文件夹管理、在线结构投影与本地拖拽排序。
 - `changes/0055-mail-reading-optimization.md`：第十九阶段阅读页、标准 CID/受限 data 图片、自动分页、批量通知与窗口就绪显示优化。
+- `changes/0056-rich-text-editor-fidelity-and-links.md`：第二十阶段签名/模板独立编辑窗口与插图、HTML 源码保真、图片尺寸渲染与链接工具。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。

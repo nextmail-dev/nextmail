@@ -10,7 +10,7 @@ use crate::{
         DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem, DraftRecipientFields,
         MailSignature, MailSignatureDraft, MailTemplate, MailTemplateDraft, MailboxRole,
         MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage, NewMailNotification,
-        NotificationPreferences, PendingOperationSummary, ReadingPreferences,
+        NotificationPreferences, PendingOperationSummary, PreparedInlineImage, ReadingPreferences,
         RenderedMailSignature, RenderedMailTemplate, SendJobSummary, SignaturePreferences,
         SignaturePreferencesDraft, SyncInterval, SyncProgress,
     },
@@ -519,6 +519,80 @@ pub async fn open_raw_message_window(
 }
 
 #[tauri::command]
+pub async fn open_composition_definition_editor_window(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    account_id: Option<String>,
+    kind: String,
+    definition_id: Option<String>,
+) -> CommandResult<()> {
+    tokio::task::yield_now().await;
+    if let Some(value) = account_id.as_deref() {
+        uuid::Uuid::parse_str(value)
+            .map_err(|_| crate::error::CommandError::new("account.not_found"))?;
+    }
+    if let Some(value) = definition_id.as_deref() {
+        uuid::Uuid::parse_str(value)
+            .map_err(|_| crate::error::CommandError::new("definition.not_found"))?;
+    }
+    let exists = match kind.as_str() {
+        "template" => state
+            .composer
+            .list_mail_templates(account_id.as_deref())
+            .await?
+            .into_iter()
+            .any(|value| definition_id.as_deref().is_some_and(|id| value.id == id)),
+        "signature" => state
+            .composer
+            .list_mail_signatures(account_id.as_deref())
+            .await?
+            .into_iter()
+            .any(|value| definition_id.as_deref().is_some_and(|id| value.id == id)),
+        _ => return Err(crate::error::CommandError::new("definition.kind_invalid")),
+    };
+    if definition_id.is_some() && !exists {
+        return Err(crate::error::CommandError::new("definition.not_found"));
+    }
+    let scope = account_id.as_deref().unwrap_or("global");
+    let target = definition_id.as_deref().unwrap_or("new");
+    let label = format!("definition-{kind}-{scope}-{target}");
+    if let Some(window) = app.get_webview_window(&label) {
+        if window.is_visible().unwrap_or(false) {
+            window
+                .show()
+                .and_then(|_| window.set_focus())
+                .map_err(|_| crate::error::CommandError::new("definition.window_create_failed"))?;
+        }
+        return Ok(());
+    }
+    let mut url = format!("index.html?window=definition&kind={kind}");
+    if let Some(value) = account_id.as_deref() {
+        url.push_str("&accountId=");
+        url.push_str(value);
+    }
+    if let Some(value) = definition_id.as_deref() {
+        url.push_str("&definitionId=");
+        url.push_str(value);
+    }
+    let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
+        .title("NextMail Rich Text Editor")
+        .inner_size(1040.0, 800.0)
+        .min_inner_size(800.0, 600.0)
+        .center()
+        .visible(false);
+    #[cfg(target_os = "windows")]
+    let builder = builder.decorations(false);
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+    builder
+        .build()
+        .map_err(|_| crate::error::CommandError::new("definition.window_create_failed"))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn list_mailboxes(
     state: State<'_, AppState>,
     account_id: String,
@@ -938,24 +1012,28 @@ pub async fn list_mail_templates(
 #[tauri::command]
 pub async fn create_mail_template(
     state: State<'_, AppState>,
+    app: AppHandle,
     account_id: Option<String>,
     draft: MailTemplateDraft,
 ) -> CommandResult<MailTemplate> {
-    state
+    let template = state
         .composer
         .create_mail_template(account_id.as_deref(), draft)
-        .await
+        .await?;
+    emit_composition_definitions_changed(&app, account_id, "template");
+    Ok(template)
 }
 
 #[tauri::command]
 pub async fn update_mail_template(
     state: State<'_, AppState>,
+    app: AppHandle,
     account_id: Option<String>,
     template_id: String,
     draft: MailTemplateDraft,
     expected_revision: u64,
 ) -> CommandResult<MailTemplate> {
-    state
+    let template = state
         .composer
         .update_mail_template(
             account_id.as_deref(),
@@ -963,7 +1041,9 @@ pub async fn update_mail_template(
             draft,
             expected_revision,
         )
-        .await
+        .await?;
+    emit_composition_definitions_changed(&app, account_id, "template");
+    Ok(template)
 }
 
 #[tauri::command]
@@ -993,24 +1073,28 @@ pub async fn list_mail_signatures(
 #[tauri::command]
 pub async fn create_mail_signature(
     state: State<'_, AppState>,
+    app: AppHandle,
     account_id: Option<String>,
     draft: MailSignatureDraft,
 ) -> CommandResult<MailSignature> {
-    state
+    let signature = state
         .composer
         .create_mail_signature(account_id.as_deref(), draft)
-        .await
+        .await?;
+    emit_composition_definitions_changed(&app, account_id, "signature");
+    Ok(signature)
 }
 
 #[tauri::command]
 pub async fn update_mail_signature(
     state: State<'_, AppState>,
+    app: AppHandle,
     account_id: Option<String>,
     signature_id: String,
     draft: MailSignatureDraft,
     expected_revision: u64,
 ) -> CommandResult<MailSignature> {
-    state
+    let signature = state
         .composer
         .update_mail_signature(
             account_id.as_deref(),
@@ -1018,7 +1102,9 @@ pub async fn update_mail_signature(
             draft,
             expected_revision,
         )
-        .await
+        .await?;
+    emit_composition_definitions_changed(&app, account_id, "signature");
+    Ok(signature)
 }
 
 #[tauri::command]
@@ -1171,6 +1257,18 @@ pub fn sanitize_rich_text_paste(state: State<'_, AppState>, html: String) -> Com
 }
 
 #[tauri::command]
+pub fn prepare_composition_definition_image(
+    state: State<'_, AppState>,
+    file_name: String,
+    content_type: String,
+    content_base64: String,
+) -> CommandResult<PreparedInlineImage> {
+    state
+        .composer
+        .prepare_definition_inline_image(file_name, content_type, content_base64)
+}
+
+#[tauri::command]
 pub async fn remove_draft_attachment(
     state: State<'_, AppState>,
     account_id: String,
@@ -1247,6 +1345,18 @@ fn emit_accounts_changed(app: &AppHandle, revision: u64) {
     emit_or_log(app, "accounts-changed", AccountsChangedEvent { revision });
 }
 
+fn emit_composition_definitions_changed(
+    app: &AppHandle,
+    account_id: Option<String>,
+    kind: &'static str,
+) {
+    emit_or_log(
+        app,
+        "composition-definitions-changed",
+        CompositionDefinitionsChangedEvent { account_id, kind },
+    );
+}
+
 fn emit_or_log<S: Serialize + Clone>(app: &AppHandle, event: &'static str, payload: S) {
     if let Err(error) = app.emit(event, payload) {
         tracing::warn!(%event, ?error, "application event emission failed");
@@ -1263,6 +1373,13 @@ struct AccountsChangedEvent {
 #[serde(rename_all = "camelCase")]
 struct AccountRemovingEvent {
     account_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompositionDefinitionsChangedEvent {
+    account_id: Option<String>,
+    kind: &'static str,
 }
 
 #[derive(Clone, Serialize)]

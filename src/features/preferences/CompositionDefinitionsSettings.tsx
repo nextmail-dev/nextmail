@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Pencil, Plus, Signature, Star, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -8,35 +9,18 @@ import type {
   AccountSummary,
   CompositionScene,
   CompositionSceneRule,
-  DraftContent,
   MailSignature,
-  MailSignatureDraft,
   MailTemplate,
-  MailTemplateDraft,
   SignaturePreferences,
 } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Surface } from "@/components/ui/card";
-import { Modal } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Form, Inline, Page, Stack } from "@/components/ui/layout";
+import { Inline, Stack } from "@/components/ui/layout";
 import { SelectField } from "@/components/ui/select";
-import { TextField } from "@/components/ui/input";
 import { Heading, LabelText, Text } from "@/components/ui/typography";
-import { RichTextEditor } from "@/features/composer/RichTextEditor";
-
-const EMPTY_CONTENT: DraftContent = {
-  editorJson: '{"type":"doc","content":[{"type":"paragraph"}]}',
-  html: "<p></p>",
-  plainText: "",
-};
-
-type DefinitionEditorState =
-  | { kind: "template"; value: MailTemplate | null }
-  | { kind: "signature"; value: MailSignature | null }
-  | null;
 
 type PendingDelete = { kind: "template" | "signature"; id: string } | null;
 
@@ -48,8 +32,8 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [scope, setScope] = useState("global");
-  const [editor, setEditor] = useState<DefinitionEditorState>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
+  const [openError, setOpenError] = useState<unknown>(null);
   const accountId = scope === "global" ? null : scope;
   const scopeKey = accountId ?? "global";
   const templatesKey = ["mail-templates", scopeKey] as const;
@@ -136,12 +120,28 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
 
   useEffect(() => {
     setPendingDelete(null);
-    setEditor(null);
+    setOpenError(null);
   }, [scope]);
+
+  useEffect(() => {
+    const unlisten = listen<{ accountId: string | null; kind: "template" | "signature" }>(
+      "composition-definitions-changed",
+      (event) => {
+        const changedScope = event.payload.accountId ?? "global";
+        void queryClient.invalidateQueries({
+          queryKey: [event.payload.kind === "template" ? "mail-templates" : "mail-signatures", changedScope],
+        });
+        if (event.payload.kind === "signature") {
+          void queryClient.invalidateQueries({ queryKey: ["signature-preferences", changedScope] });
+        }
+      },
+    );
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, [queryClient]);
 
   const error = templates.error ?? signatures.error ?? globalTemplates.error
     ?? globalSignatures.error ?? rules.error ?? signaturePreferences.error
-    ?? ruleUpdate.error ?? signaturePreferencesUpdate.error ?? deletion.error;
+    ?? ruleUpdate.error ?? signaturePreferencesUpdate.error ?? deletion.error ?? openError;
   const availableTemplates = accountId
     ? [...(globalTemplates.data ?? []), ...(templates.data ?? [])]
     : templates.data ?? [];
@@ -149,31 +149,16 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
     ? [...(globalSignatures.data ?? []), ...(signatures.data ?? [])]
     : signatures.data ?? [];
 
-  async function saveDefinition(
-    state: Exclude<DefinitionEditorState, null>,
-    name: string,
-    subject: string,
-    content: DraftContent,
+  async function openDefinitionEditor(
+    kind: "template" | "signature",
+    definitionId: string | null,
   ) {
-    if (state.kind === "template") {
-      const draft: MailTemplateDraft = { name, subject, content };
-      if (state.value) {
-        await api.updateMailTemplate(accountId, state.value.id, draft, state.value.revision);
-      } else {
-        await api.createMailTemplate(accountId, draft);
-      }
-      await queryClient.invalidateQueries({ queryKey: templatesKey });
-    } else {
-      const draft: MailSignatureDraft = { name, content };
-      if (state.value) {
-        await api.updateMailSignature(accountId, state.value.id, draft, state.value.revision);
-      } else {
-        await api.createMailSignature(accountId, draft);
-      }
-      await queryClient.invalidateQueries({ queryKey: signaturesKey });
-      await queryClient.invalidateQueries({ queryKey: signaturePreferencesKey });
+    setOpenError(null);
+    try {
+      await api.openCompositionDefinitionEditor(accountId, kind, definitionId);
+    } catch (reason) {
+      setOpenError(reason);
     }
-    setEditor(null);
   }
 
   function requestDelete(kind: "template" | "signature", id: string, revision: number) {
@@ -219,8 +204,8 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
         loading={templates.isPending}
         pendingDelete={pendingDelete}
         deleting={deletion.isPending}
-        onAdd={() => setEditor({ kind: "template", value: null })}
-        onEdit={(value) => setEditor({ kind: "template", value })}
+        onAdd={() => void openDefinitionEditor("template", null)}
+        onEdit={(value) => void openDefinitionEditor("template", value.id)}
         onDelete={(value) => requestDelete("template", value.id, value.revision)}
       />
       <SignaturePreferencesPanel
@@ -243,8 +228,8 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
         loading={signatures.isPending || globalSignatures.isPending}
         pendingDelete={pendingDelete}
         deleting={deletion.isPending}
-        onAdd={() => setEditor({ kind: "signature", value: null })}
-        onEdit={(value) => setEditor({ kind: "signature", value })}
+        onAdd={() => void openDefinitionEditor("signature", null)}
+        onEdit={(value) => void openDefinitionEditor("signature", value.id)}
         onDelete={(value) => requestDelete("signature", value.id, value.revision)}
         canManage={(value) => accountId === null || value.scope === "account"}
         showScope={accountId !== null}
@@ -259,14 +244,6 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
           });
         }}
       />
-      {editor ? (
-        <DefinitionEditor
-          key={`${editor.kind}-${editor.value?.id ?? "new"}`}
-          state={editor}
-          onClose={() => setEditor(null)}
-          onSave={saveDefinition}
-        />
-      ) : null}
     </Stack>
   );
 }
@@ -539,95 +516,5 @@ function DefinitionList<T extends MailTemplate | MailSignature>({
         })}
       </Stack>
     </Stack>
-  );
-}
-
-function DefinitionEditor({
-  state,
-  onClose,
-  onSave,
-}: {
-  state: Exclude<DefinitionEditorState, null>;
-  onClose: () => void;
-  onSave: (
-    state: Exclude<DefinitionEditorState, null>,
-    name: string,
-    subject: string,
-    content: DraftContent,
-  ) => Promise<void>;
-}) {
-  const { t } = useTranslation();
-  const [name, setName] = useState(state.value?.name ?? "");
-  const [subject, setSubject] = useState(state.kind === "template" ? state.value?.subject ?? "" : "");
-  const [content, setContent] = useState(state.value?.content ?? EMPTY_CONTENT);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const label = state.kind === "template" ? t("compositionLibrary.templateContent") : t("compositionLibrary.signatureContent");
-
-  async function submit() {
-    setSaving(true);
-    setError(null);
-    try {
-      await onSave(state, name, subject, content);
-    } catch (reason) {
-      setError(reason);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal
-      open
-      onOpenChange={(open) => { if (!open && !saving) onClose(); }}
-      title={t(`compositionLibrary.${state.value ? "edit" : "new"}${state.kind === "template" ? "Template" : "Signature"}`)}
-      closeLabel={t("common.close")}
-      contentClassName="flex h-[min(760px,calc(100vh-40px))] w-[min(780px,calc(100vw-40px))] flex-col overflow-hidden"
-    >
-      <Form className="mt-5 flex min-h-0 flex-1 flex-col" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-        <Stack className="min-h-0 flex-1" gap="md">
-          <TextField
-            className="flex-none"
-            label={t("compositionLibrary.name")}
-            value={name}
-            maxLength={80}
-            autoFocus
-            onChange={(event) => setName(event.target.value)}
-          />
-          {state.kind === "template" ? (
-            <TextField
-              className="flex-none"
-              label={t("composer.subject")}
-              value={subject}
-              onChange={(event) => setSubject(event.target.value)}
-            />
-          ) : null}
-          <Text className="text-xs">
-            {t("compositionLibrary.variablesHint")}
-          </Text>
-          <Stack className="min-h-0 flex-1" gap="xs">
-            <LabelText>{label}</LabelText>
-            <Page className="min-h-[220px] flex-1 overflow-hidden rounded-lg ring-1 ring-border">
-              <RichTextEditor
-                initialJson={content.editorJson}
-                ariaLabel={label}
-                disabled={saving}
-                onChange={setContent}
-                onSanitizeHtml={api.sanitizeRichTextPaste}
-              />
-            </Page>
-          </Stack>
-          {error ? (
-            <Alert tone="danger" title={t("errors.title")}>
-              {t(`errors.${normalizeCommandError(error).code}`, { defaultValue: t("common.unexpectedError") })}
-            </Alert>
-          ) : null}
-          <Inline className="shrink-0 justify-end">
-            <Button type="button" variant="ghost" disabled={saving} onClick={onClose}>{t("common.cancel")}</Button>
-            <Button type="submit" loading={saving} disabled={!name.trim()}>{t("common.save")}</Button>
-          </Inline>
-        </Stack>
-      </Form>
-    </Modal>
   );
 }

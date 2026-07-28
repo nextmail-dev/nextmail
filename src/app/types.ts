@@ -290,6 +290,13 @@ export interface DraftAttachmentSummary {
   previewDataUrl: string | null;
 }
 
+export interface PreparedInlineImage {
+  fileName: string;
+  contentType: string;
+  size: number;
+  dataUrl: string;
+}
+
 export interface DraftDetail {
   id: string;
   accountId: string;

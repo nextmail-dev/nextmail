@@ -12,7 +12,7 @@ use crate::core::{
     AccountRecord, AccountSummary, CommandError, CommandResult, ComposerBootstrap,
     CompositionDefinitionSummary, CompositionScene, DraftAttachmentSummary, DraftContent,
     DraftDetail, DraftListItem, DraftRecipientFields, DraftStatus, LanguagePreference,
-    MessageAddress, MessageComposeAction,
+    MessageAddress, MessageComposeAction, PreparedInlineImage,
 };
 use crate::storage::{
     MailRepository, PersistImportedDraftRequest, PersistMessageActionDraftRequest, SaveDraftRequest,
@@ -35,6 +35,7 @@ use crate::{
 const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_TOTAL_ATTACHMENT_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_COMPOSER_CONTENT_BYTES: usize = 5_000_000;
+const MAX_DEFINITION_INLINE_IMAGE_BYTES: u64 = 3 * 1024 * 1024;
 
 pub struct ComposerRuntime {
     app: AppHandle,
@@ -486,6 +487,15 @@ impl ComposerRuntime {
         Ok(crate::protocols::sanitize_rich_text_paste(html))
     }
 
+    pub fn prepare_definition_inline_image(
+        &self,
+        file_name: String,
+        content_type: String,
+        content_base64: String,
+    ) -> CommandResult<PreparedInlineImage> {
+        prepare_definition_inline_image(file_name, content_type, content_base64)
+    }
+
     pub async fn add_attachments(
         &self,
         account_id: &str,
@@ -791,6 +801,44 @@ fn valid_image_signature(content_type: &str, bytes: &[u8]) -> bool {
     }
 }
 
+fn prepare_definition_inline_image(
+    file_name: String,
+    content_type: String,
+    content_base64: String,
+) -> CommandResult<PreparedInlineImage> {
+    let content_type = content_type.trim().to_ascii_lowercase();
+    if !matches!(
+        content_type.as_str(),
+        "image/gif" | "image/jpeg" | "image/png" | "image/webp"
+    ) {
+        return Err(CommandError::new("attachment.image_type_unsupported"));
+    }
+    if content_base64.len() as u64 > (MAX_DEFINITION_INLINE_IMAGE_BYTES * 4 / 3) + 8 {
+        return Err(CommandError::new("definition.image_too_large"));
+    }
+    let bytes = STANDARD
+        .decode(content_base64.trim())
+        .map_err(|_| CommandError::new("attachment.image_invalid"))?;
+    if bytes.is_empty() || !valid_image_signature(&content_type, &bytes) {
+        return Err(CommandError::new("attachment.image_invalid"));
+    }
+    if bytes.len() as u64 > MAX_DEFINITION_INLINE_IMAGE_BYTES {
+        return Err(CommandError::new("definition.image_too_large"));
+    }
+    let file_name = file_name.trim();
+    let file_name = if file_name.is_empty() {
+        "inline-image".to_owned()
+    } else {
+        file_name.chars().take(255).collect()
+    };
+    Ok(PreparedInlineImage {
+        file_name,
+        content_type: content_type.clone(),
+        size: bytes.len() as u64,
+        data_url: format!("data:{content_type};base64,{}", STANDARD.encode(bytes)),
+    })
+}
+
 fn sanitize_original_source_nodes(value: &mut serde_json::Value) {
     if value.get("type").and_then(serde_json::Value::as_str) == Some("nextmailOriginalMessage") {
         if let Some(source) = value
@@ -936,8 +984,8 @@ mod tests {
     use std::collections::HashSet;
 
     use super::{
-        add_draft_identity_headers, add_threading_headers, sanitize_draft_content,
-        select_ready_account, valid_image_signature,
+        add_draft_identity_headers, add_threading_headers, prepare_definition_inline_image,
+        sanitize_draft_content, select_ready_account, valid_image_signature,
     };
     use crate::core::DraftContent;
     use crate::storage::DraftThreadingHeaders;
@@ -1027,5 +1075,29 @@ mod tests {
             "image/webp",
             b"RIFF\x04\x00\x00\x00WEBPdata"
         ));
+    }
+
+    #[test]
+    fn reusable_definition_images_are_bounded_and_magic_checked() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let png = b"\x89PNG\r\n\x1a\ncontent";
+        let prepared = prepare_definition_inline_image(
+            "logo.png".into(),
+            "image/png".into(),
+            STANDARD.encode(png),
+        )
+        .unwrap();
+        assert_eq!(prepared.file_name, "logo.png");
+        assert_eq!(prepared.size, png.len() as u64);
+        assert!(prepared.data_url.starts_with("data:image/png;base64,"));
+
+        let error = prepare_definition_inline_image(
+            "logo.png".into(),
+            "image/png".into(),
+            STANDARD.encode(b"<svg></svg>"),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "attachment.image_invalid");
     }
 }
