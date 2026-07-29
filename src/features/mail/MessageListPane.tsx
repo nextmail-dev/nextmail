@@ -41,7 +41,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { Heading, Text } from "@/components/ui/typography";
 import { cn } from "@/lib/utils";
 import { formatMessageListTimestamp } from "./messageDate";
-import { useDebouncedValue } from "./hooks/useDebouncedValue";
 import { mailQueryKeys, messageQueryKeys } from "./mail-query-keys";
 
 interface MessageListPaneProps {
@@ -54,7 +53,9 @@ interface MessageListPaneProps {
   onVisibleMessageIdsChange: (messageIds: string[]) => void;
   onMessageRemoved: (messageId: string) => void;
   searchQuery: string;
+  submittedSearchQuery: string;
   onSearchChange: (value: string) => void;
+  onSearchSubmit: (value: string) => void;
 }
 
 export function MessageListPane({
@@ -67,22 +68,23 @@ export function MessageListPane({
   onVisibleMessageIdsChange,
   onMessageRemoved,
   searchQuery,
+  submittedSearchQuery,
   onSearchChange,
+  onSearchSubmit,
 }: MessageListPaneProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const normalizedSearch = searchQuery.trim();
-  const debouncedSearch = useDebouncedValue(normalizedSearch, 250);
+  const activeSearch = submittedSearchQuery.trim();
   const readingPreferences = useQuery({
     queryKey: ["reading-preferences"],
     queryFn: api.getReadingPreferences,
   });
   const query = useInfiniteQuery({
-    queryKey: debouncedSearch
-      ? mailQueryKeys.messageSearch(accountId, mailboxId, debouncedSearch)
+    queryKey: activeSearch
+      ? mailQueryKeys.messageSearch(accountId, mailboxId, activeSearch)
       : mailQueryKeys.messagesForMailbox(accountId, mailboxId),
-    queryFn: ({ pageParam }) => debouncedSearch
-      ? api.searchMessages(accountId, mailboxId, debouncedSearch, pageParam, 50)
+    queryFn: ({ pageParam }) => activeSearch
+      ? api.searchMessages(accountId, mailboxId, activeSearch, pageParam, 50)
       : api.listMessages(accountId, mailboxId, pageParam, 50),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
@@ -149,8 +151,18 @@ export function MessageListPane({
           value={searchQuery}
           placeholder={t("mail.searchPlaceholder")}
           clearLabel={t("mail.clearSearch")}
+          submitLabel={t("mail.searchCurrentFolder")}
           maxLength={256}
-          onValueChange={onSearchChange}
+          aria-label={t("mail.searchCurrentFolder")}
+          onValueChange={(value) => {
+            onSearchChange(value);
+            if (!value.trim()) onSearchSubmit("");
+          }}
+          onSubmit={() => {
+            const query = searchQuery.trim();
+            onSearchChange(query);
+            onSearchSubmit(query);
+          }}
         />
       </Stack>
       {actionError ? <MessageListError error={actionError} /> : null}
@@ -202,8 +214,8 @@ export function MessageListPane({
       ) : (
         <EmptyState
           icon={<Inbox size={24} />}
-          title={debouncedSearch ? t("mail.noSearchResults") : t("mail.noMessages")}
-          description={debouncedSearch ? t("mail.noSearchResultsDescription") : t("mail.noMessagesDescription")}
+          title={activeSearch ? t("mail.noSearchResults") : t("mail.noMessages")}
+          description={activeSearch ? t("mail.noSearchResultsDescription") : t("mail.noMessagesDescription")}
         />
       )}
     </Stack>

@@ -75,6 +75,7 @@ describe("useMailboxSelection", () => {
     act(() => {
       result.current.setSelectedMessageId("message-two");
       result.current.setSearchQuery("quarterly");
+      result.current.setSubmittedSearchQuery("quarterly");
       result.current.selectAccount("account-one");
     });
 
@@ -83,6 +84,7 @@ describe("useMailboxSelection", () => {
       expect(result.current.selectedMailboxId).toBe("inbox-one");
       expect(result.current.selectedMessageId).toBe("");
       expect(result.current.searchQuery).toBe("");
+      expect(result.current.submittedSearchQuery).toBe("");
     });
     expect(api.setLastSelectedAccount).toHaveBeenCalledWith("account-one");
     expect(onError).not.toHaveBeenCalled();

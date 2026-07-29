@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/app/api";
@@ -63,49 +64,51 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("MessageListPane", () => {
-  it("uses the debounced server search and keeps results matched by indexed body or attachments", async () => {
+  it("waits for the explicit search button before querying indexed body or attachments", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    const { rerender } = render(
+    render(
       <QueryClientProvider client={queryClient}>
-        <MessageListPane
-          accountId="account-one"
-          mailboxId="inbox"
-          mailboxes={[]}
-          selectedMessageId=""
-          onSelect={vi.fn()}
-          onVisibleMessageIdsChange={vi.fn()}
-          onMessageRemoved={vi.fn()}
-          searchQuery=""
-          onSearchChange={vi.fn()}
-        />
+        <ControlledSearchPane />
       </QueryClientProvider>,
     );
     await waitFor(() => expect(api.listMessages).toHaveBeenCalledWith(
       "account-one", "inbox", null, 50,
     ));
 
-    rerender(
-      <QueryClientProvider client={queryClient}>
-        <MessageListPane
-          accountId="account-one"
-          mailboxId="inbox"
-          mailboxes={[]}
-          selectedMessageId=""
-          onSelect={vi.fn()}
-          onVisibleMessageIdsChange={vi.fn()}
-          onMessageRemoved={vi.fn()}
-          searchQuery="annual-report.pdf"
-          onSearchChange={vi.fn()}
-        />
-      </QueryClientProvider>,
-    );
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search this folder" }), {
+      target: { value: "annual-report.pdf" },
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+    expect(api.searchMessages).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Search this folder" }));
 
     await waitFor(() => expect(api.searchMessages).toHaveBeenCalledWith(
       "account-one", "inbox", "annual-report.pdf", null, 50,
     ));
     expect(await screen.findByText("Server-side result")).toBeInTheDocument();
+  });
+
+  it("submits the current search when the search form is submitted from the keyboard", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ControlledSearchPane />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(api.listMessages).toHaveBeenCalled());
+
+    const searchbox = screen.getByRole("searchbox", { name: "Search this folder" });
+    fireEvent.change(searchbox, { target: { value: "quarterly" } });
+    fireEvent.submit(searchbox.closest("form")!);
+
+    await waitFor(() => expect(api.searchMessages).toHaveBeenCalledWith(
+      "account-one", "inbox", "quarterly", null, 50,
+    ));
   });
 
   it("clears the current selection when the selected row is clicked again", async () => {
@@ -125,7 +128,9 @@ describe("MessageListPane", () => {
           onVisibleMessageIdsChange={vi.fn()}
           onMessageRemoved={vi.fn()}
           searchQuery=""
+          submittedSearchQuery=""
           onSearchChange={vi.fn()}
+          onSearchSubmit={vi.fn()}
         />
       </QueryClientProvider>,
     );
@@ -155,7 +160,9 @@ describe("MessageListPane", () => {
           onVisibleMessageIdsChange={vi.fn()}
           onMessageRemoved={vi.fn()}
           searchQuery=""
+          submittedSearchQuery=""
           onSearchChange={vi.fn()}
+          onSearchSubmit={vi.fn()}
         />
       </QueryClientProvider>,
     );
@@ -175,3 +182,23 @@ describe("MessageListPane", () => {
     expect(await screen.findByText("Second page")).toBeInTheDocument();
   });
 });
+
+function ControlledSearchPane() {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [submittedSearchQuery, setSubmittedSearchQuery] = useState("");
+  return (
+    <MessageListPane
+      accountId="account-one"
+      mailboxId="inbox"
+      mailboxes={[]}
+      selectedMessageId=""
+      onSelect={vi.fn()}
+      onVisibleMessageIdsChange={vi.fn()}
+      onMessageRemoved={vi.fn()}
+      searchQuery={searchQuery}
+      submittedSearchQuery={submittedSearchQuery}
+      onSearchChange={setSearchQuery}
+      onSearchSubmit={setSubmittedSearchQuery}
+    />
+  );
+}

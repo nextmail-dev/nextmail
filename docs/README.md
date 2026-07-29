@@ -79,6 +79,7 @@
 - `changes/0054-imap-folder-management-and-local-ordering.md`：第十八阶段 IMAP 文件夹管理、在线结构投影与本地拖拽排序。
 - `changes/0055-mail-reading-optimization.md`：第十九阶段阅读页、标准 CID/受限 data 图片、自动分页、批量通知与窗口就绪显示优化。
 - `changes/0056-rich-text-editor-fidelity-and-links.md`：第二十阶段签名/模板独立编辑窗口与插图、HTML 源码保真、图片尺寸渲染与链接工具。
+- `changes/0057-manual-mail-search-trigger.md`：邮件搜索取消自动防抖提交，改为搜索按钮或 Enter 显式触发。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。

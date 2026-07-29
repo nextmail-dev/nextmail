@@ -54,12 +54,14 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     mailboxesQuery,
     navigateToMailLocation,
     searchQuery,
+    submittedSearchQuery,
     selectAccount,
     selectMailbox,
     selectedAccountId,
     selectedMailboxId,
     selectedMessageId,
     setSearchQuery,
+    setSubmittedSearchQuery,
     setSelectedMessageId,
   } = useMailboxSelection({
     accounts,
@@ -233,7 +235,9 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
             onVisibleMessageIdsChange={handleVisibleMessageIdsChange}
             onMessageRemoved={selectAfterRemoval}
             searchQuery={searchQuery}
+            submittedSearchQuery={submittedSearchQuery}
             onSearchChange={setSearchQuery}
+            onSearchSubmit={setSubmittedSearchQuery}
           />
         </Page>
         <ResizeHandle value={messagePaneWidth} min={310} max={messagePaneMax} onValueChange={setMessagePaneWidth} label={t("mail.resizeMessagePane")} />

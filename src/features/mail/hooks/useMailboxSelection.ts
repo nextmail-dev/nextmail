@@ -24,6 +24,7 @@ export function useMailboxSelection({
   const [selectedMailboxId, setSelectedMailboxId] = useState("");
   const [selectedMessageId, setSelectedMessageId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [submittedSearchQuery, setSubmittedSearchQuery] = useState("");
   const [pendingNavigation, setPendingNavigation] = useState<NotificationNavigationTarget | null>(null);
   const mailboxesQuery = useQuery({
     queryKey: mailQueryKeys.mailboxes(selectedAccountId),
@@ -40,6 +41,7 @@ export function useMailboxSelection({
     setSelectedMailboxId("");
     setSelectedMessageId("");
     setSearchQuery("");
+    setSubmittedSearchQuery("");
   }, [selectedAccountId]);
 
   useEffect(() => {
@@ -53,6 +55,7 @@ export function useMailboxSelection({
       setSelectedMailboxId(requested?.id ?? fallback?.id ?? "");
       setSelectedMessageId(requested ? pending.messageId ?? "" : "");
       setSearchQuery("");
+      setSubmittedSearchQuery("");
       setPendingNavigation(null);
       return;
     }
@@ -75,12 +78,14 @@ export function useMailboxSelection({
     setSelectedMailboxId(mailboxId);
     setSelectedMessageId("");
     setSearchQuery("");
+    setSubmittedSearchQuery("");
   }, []);
 
   const navigateToMailLocation = useCallback((target: NotificationNavigationTarget) => {
     if (!accounts.some((account) => account.id === target.accountId)) return;
     setPendingNavigation(target);
     setSearchQuery("");
+    setSubmittedSearchQuery("");
     setSelectedMessageId("");
     setSelectedAccountId(target.accountId);
     void api.setLastSelectedAccount(target.accountId).catch((error) => {
@@ -92,12 +97,14 @@ export function useMailboxSelection({
     mailboxesQuery,
     navigateToMailLocation,
     searchQuery,
+    submittedSearchQuery,
     selectAccount,
     selectMailbox,
     selectedAccountId,
     selectedMailboxId,
     selectedMessageId,
     setSearchQuery,
+    setSubmittedSearchQuery,
     setSelectedMessageId,
   };
 }
