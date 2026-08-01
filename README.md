@@ -1,71 +1,132 @@
-# NextMail
+<div align="center">
+  <img src="./app-icon.png" width="96" height="96" alt="NextMail icon" />
+  <h1>NextMail</h1>
+  <p><strong>A calm, local-first desktop email client.</strong></p>
+  <p>Fast offline reading, faithful mail rendering, and reliable delivery — without giving your inbox to another cloud.</p>
 
-NextMail 是一个以本地数据为中心的跨平台桌面邮件客户端，使用 Tauri 2、React、TypeScript 与 Rust 构建。
+  <p>
+    English
+    ·
+    <a href="./README_ZH.md">简体中文</a>
+  </p>
 
-项目目前处于早期开发阶段，主要面向 Windows 10 22H2+ 与 macOS 12+。Windows 是当前主要实机验收平台；Linux 不作为深度适配目标。
+  <p>
+    <a href="https://github.com/nextmail-dev/nextmail/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/nextmail-dev/nextmail?display_name=tag&amp;label=release&amp;style=flat-square" /></a>
+    <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&amp;logo=tauri&amp;logoColor=white" />
+    <img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?style=flat-square&amp;logo=react&amp;logoColor=white" />
+    <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&amp;logo=rust&amp;logoColor=white" />
+    <img alt="Windows and macOS" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-4C566A?style=flat-square" />
+  </p>
+</div>
 
-## 当前能力
+> [!IMPORTANT]
+> NextMail is currently a `0.1.0` preview. Windows 10 22H2+ x64 is the primary hands-on validation platform; macOS 12+ is a target platform. Linux packages are built for early testing, but Linux is not yet deeply adapted or validated.
 
-- 多个 IMAP/SMTP 密码账户，支持 TLS、STARTTLS 和显式确认的明文连接。
-- 首次启动数据目录选择、账户自动发现、真实连接验证和系统凭据库。
-- SQLite 离线邮件视图，启动后先展示本地数据，再由后台渐进同步。
-- IMAP IDLE/轮询、增量同步、断线退避和手动收取。
-- 已读、星标、移动、复制、归档和删除的离线操作队列。
-- RFC 2047、MIME 多字符集与 IMAP modified UTF-7 文件夹解析。
-- sandbox iframe 安全 HTML 阅读、远程图片控制、原始 EML 和附件按需下载。
-- 独立富文本写信窗口、草稿、附件、持久化发件队列、Sent/Drafts 同步。
-- 回复、回复全部、转发和多账户切换。
-- 全局或账户范围的富文本邮件模板与签名库管理。
-- 中文/英文、系统/浅色/深色主题、主题色和跨平台窗口壳。
+## Preview
 
-尚未实现模板变量、场景默认规则与 Composer 插入、HTML 阅读与回复体验增强、全文搜索、会话聚合和桌面通知。POP3、OAuth 与自动更新保留为未排期设想。完整状态见 [当前技术参考](docs/technical-reference.md) 与 [总体计划](docs/plans/master-plan.md)。
+<!-- Replace the cells below with real screenshots when they are ready. Suggested files:
+     docs/screenshots/main-workspace.png
+     docs/screenshots/composer.png
+     docs/screenshots/appearance.png
+-->
 
-## 架构摘要
+<table>
+  <tr>
+    <td colspan="2" align="center">
+      <br />
+      <strong>Mail workspace</strong><br />
+      <sub>Screenshot placeholder · main workspace</sub>
+      <br /><br />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <br />
+      <strong>Rich composer</strong><br />
+      <sub>Screenshot placeholder · compose and reply</sub>
+      <br /><br />
+    </td>
+    <td width="50%" align="center">
+      <br />
+      <strong>Light &amp; dark</strong><br />
+      <sub>Screenshot placeholder · themes and accent colors</sub>
+      <br /><br />
+    </td>
+  </tr>
+</table>
 
-```text
-React UI
-   │  Tauri Command / Event（稳定 DTO）
-   ▼
-Application + Runtime
-   ├─ IMAP / SMTP / MIME / HTML Adapters
-   ├─ SQLite Repositories + Content Store
-   ├─ System Credential Store
-   └─ Account Supervisors / Send Worker
-```
+## Highlights
 
-- React 不直接连接 SQLite、邮件服务器、任意文件系统或系统凭据库。
-- 同步先提交 SQLite，再发送只含 ID、状态和修订号的事件让界面刷新。
-- 密码只进入 Windows Credential Manager 或 macOS Keychain。
-- Rust 保持单一 `src-tauri` Cargo package，以内部模块和 ports 维持边界。
-- 邮件 HTML 在 Rust 端清洗，再由无脚本权限的 sandbox iframe 渲染。
+| | |
+| --- | --- |
+| **📬 Multiple accounts**<br />Add, edit, re-authenticate, switch, and safely remove IMAP/SMTP password accounts. | **⚡ Local-first reading**<br />Open the local mailbox immediately, then let background synchronization bring it up to date. |
+| **✍️ Serious composing**<br />Rich text, HTML source, attachments, inline images, templates, signatures, drafts, replies, and forwarding. | **🛡️ Safe, faithful mail**<br />Keep common email layouts and inline images while scripts, forms, unsafe URLs, and remote content stay constrained. |
+| **🔎 Offline search**<br />Search the current account and folder across subjects, addresses, previews, downloaded bodies, and attachment names. | **🗂️ Real folder workflows**<br />Create, rename, move, delete, reorder, and mark IMAP folders read without leaving the desktop app. |
+| **🔁 Durable operations**<br />Reads, stars, moves, copies, deletes, drafts, and outgoing mail survive interruptions through persistent queues. | **🖥️ Desktop-native experience**<br />Dedicated windows, remembered geometry, native credential storage, notifications, bilingual UI, and flexible themes. |
 
-详细设计见 [架构基线](docs/architecture.md)。
+## Designed around the inbox, not the cloud
 
-## 技术栈
+### Local first, network second
 
-- React 19、TypeScript、Vite、TanStack Query、react-i18next。
-- Tailwind CSS 4、Radix Primitives、源码归属的 shadcn 风格组件层。
-- Tiptap/ProseMirror 富文本编辑器。
-- Tauri 2、Tokio、SQLx/SQLite。
-- async-imap、lettre、mail-parser、mail-builder、Ammonia、rustls。
+NextMail treats the local mailbox as the primary reading surface. Existing mail appears before a network round trip, and server work continues in the background. Your chosen data directory remains portable; account passwords stay in the operating system credential store.
 
-## 本地开发
+### Progressive by default
 
-准备 Node.js、pnpm、Rust stable 和对应平台的 Tauri 2 系统依赖。
+Synchronization makes useful content visible as early as possible: headers arrive first and each message becomes readable in the list as it is committed. Bodies are fetched on demand unless full-message synchronization is explicitly enabled for an account.
+
+### Fidelity without surrendering safety
+
+Email is messy HTML, not a normal web page. NextMail preserves the layouts, tables, author styles, CID images, and common legacy attributes that real mail depends on, while Rust-side sanitization and a sandboxed reader keep active content and unapproved remote resources outside the trust boundary.
+
+### Failure is a state, not data loss
+
+Mail changes and outgoing messages are recorded before network execution. Retries reuse durable intent instead of reconstructing it from UI state, and SMTP success is separated from Sent-folder archival so a filing failure cannot send the same message twice.
+
+## What works today
+
+- Password-based IMAP and SMTP accounts with TLS, STARTTLS, auto-discovery, and explicit confirmation for plaintext connections.
+- Header-first synchronization across selectable folders, optional full-message synchronization, on-demand bodies, and offline raw EML recovery.
+- Read/unread, star, move, copy, archive, delete, mark-all-read, folder management, and local sibling ordering.
+- Safe HTML/CSS and plain-text reading, controlled remote images, CID/data images, original EML, attachment download, save, and system open.
+- Local FTS5 search scoped to the current account and folder.
+- Rich composing with Tiptap/ProseMirror and CodeMirror, explicit draft saving, Drafts/Sent synchronization, templates, signatures, and variables.
+- Reply, reply all, and forward with complete original HTML, inline images, attachments, and stable signature placement.
+- Chinese and English UI, system/light/dark appearance, accent colors, dedicated business windows, and NextMail desktop notifications.
+
+For the exact implementation status and current limitations, see the [technical reference](./docs/technical-reference.md).
+
+## Downloads
+
+Version tags build release assets for three desktop platforms on GitHub Actions:
+
+| Platform | Build | Current support status |
+| --- | --- | --- |
+| Windows 10 22H2+ | x64 installers | Primary validation target |
+| macOS 12+ | Universal app for Intel and Apple Silicon | Target platform; ad-hoc signed, not notarized |
+| Linux | x64 bundles from Ubuntu 22.04 | Experimental; no deep adaptation guarantee |
+
+Download available builds from [GitHub Releases](https://github.com/nextmail-dev/nextmail/releases).
+
+> [!WARNING]
+> Preview artifacts do not yet use production Windows code signing or Apple notarization. Your operating system may show an unverified-developer warning. Only download builds from this repository.
+
+## Development
+
+Install Node.js, pnpm, Rust stable, and the [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
 
 ```powershell
 pnpm install
 pnpm tauri dev
 ```
 
-前端验证：
+Run the frontend checks from the repository root:
 
 ```powershell
 pnpm test
 pnpm build
 ```
 
-Rust 验证必须在唯一 crate 中执行：
+Run Rust checks from the single Tauri package:
 
 ```powershell
 Push-Location src-tauri
@@ -75,21 +136,22 @@ cargo clippy --offline --locked --all-targets -- -D warnings
 Pop-Location
 ```
 
-项目使用 pnpm 管理 Node.js 依赖。当前不使用 Python；未来若需要 Python 工具，统一使用 uv。
+Node.js dependencies are managed only with pnpm. The project does not currently use Python; future Python tooling must use uv.
 
-完整环境、测试和交付约定见 [开发指南](docs/development.md)。
+## Documentation
 
-## 文档
+- [Technical reference](./docs/technical-reference.md)
+- [Architecture baseline](./docs/architecture.md)
+- [Development and validation guide](./docs/development.md)
+- [Roadmap](./docs/plans/master-plan.md)
+- [Iteration records](./docs/iterations/)
+- [Architecture decisions](./docs/adr/)
+- [Third-party notices](./docs/third-party-notices.md)
 
-- [文档索引](docs/README.md)
-- [当前技术参考](docs/technical-reference.md)
-- [架构基线](docs/architecture.md)
-- [开发与验证指南](docs/development.md)
-- [总体实施计划](docs/plans/master-plan.md)
-- [阶段实施记录](docs/iterations/)
-- [架构决策记录](docs/adr/)
-- [第三方资源与许可证](docs/third-party-notices.md)
+## Scope
 
-## 开发方式
+NextMail does not currently provide POP3, Google/Microsoft OAuth, a unified inbox, conversation aggregation, cross-account search, a tray application, system notification-center integration, automatic updates, or production signing/notarization. These are not implied by the current preview or release workflow.
 
-NextMail 采用渐进式实施：每个阶段在 `docs/iterations/` 写明范围和当前状态，完成自动验证后由维护者进行桌面实机验收，确认后才提交并规划后续阶段。功能、架构和安全变化必须与代码一起记录在 `docs/`。
+## License
+
+The NextMail Rust package is declared under the MIT license. See [`src-tauri/Cargo.toml`](./src-tauri/Cargo.toml) and the [third-party notices](./docs/third-party-notices.md).

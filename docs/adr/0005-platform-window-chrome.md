@@ -4,6 +4,8 @@
 
 日期：2026-07-13
 
+修订：2026-08-01。窗口集合已扩展到账户管理、模板/签名定义、独立邮件预览、原始邮件和受控通知；普通独立窗口采用隐藏创建、就绪后显示，并由宿主分类保存窗口状态。
+
 ## 背景
 
 NextMail 需要统一的 SaaS 桌面外观和沉浸式侧栏。Windows 系统标题栏会在主内容之外保留不可定制区域；macOS 用户则依赖系统交通灯的位置、行为和辅助功能语义。完全在两个平台伪造相同窗口按钮会损失 macOS 原生体验，也会扩大窗口权限。
@@ -12,10 +14,10 @@ NextMail 需要统一的 SaaS 桌面外观和沉浸式侧栏。Windows 系统标
 
 - Windows 对主窗口和动态 WebView 设置 `decorations: false`，React 标题栏提供拖动、最小化、切换最大化和关闭。
 - macOS 保留 `decorations: true`，使用 `titleBarStyle: Overlay`、隐藏系统标题文本，并保留原生交通灯。React 标题栏避让交通灯，仅提供拖动区域。
-- 主窗口、`composer-*`、`settings`、`accounts`、`raw-message` 和瞬时 `notification-*` 分别使用 Capability。所有窗口只增加必要的窗口控制或事件权限；`composer-*` 因发送成功后必须绕过关闭拦截而保留 destroy，单例业务窗口关闭时同样只销毁自身 WebView。
-- 设置、账户管理和原始邮件分别采用固定标签 `settings`、`accounts`、`raw-message` 的独立单例 WebView。Rust 负责创建或聚焦，前端不获得任意新建窗口权限；原始邮件窗口复用时事件只传账户/邮件 ID，正文仍通过稳定 Command 读取。
+- 主窗口、`composer-*`、`settings`、`accounts`、`definition-*`、`message-preview-*`、`raw-message` 和瞬时 `notification-*` 分别使用 Capability。所有窗口只增加必要的业务 Command、窗口控制或事件权限；`composer-*` 因发送成功后必须绕过关闭拦截而保留 destroy，其他业务窗口同样只能关闭或销毁自身 WebView。
+- 设置、账户管理和原始邮件采用固定标签 `settings`、`accounts`、`raw-message` 的独立单例 WebView；模板/签名定义和邮件预览使用动态标签并映射到稳定窗口状态类别。Rust 负责创建、复用或聚焦，窗口先隐藏，React 完成懒加载和首批 Query 后显示；前端不获得任意新建窗口权限。原始邮件与预览窗口切换目标时事件只传公开账户/文件夹/邮件 ID，正文仍通过稳定 Command 读取。
 - 偏好仍由 Rust 作为持久化事实来源。成功写入后发出只含偏好 DTO 的事件，让各 WebView 失效或更新本地视图。
 
 ## 结果
 
-Windows 获得完整可定制标题栏，macOS 保留原生窗口语义，侧栏可以视觉上贯穿标题区域。代价是必须维护平台配置和自绘按钮的键盘/ARIA 行为，并在 Windows、Intel macOS 和 Apple Silicon macOS 分别验证拖动、缩放与关闭生命周期。当前 Windows 配置已进入用户手动验收，macOS 在实际设备或 Runner 执行前保持“未验证”。
+Windows 获得完整可定制标题栏，macOS 保留原生窗口语义，侧栏可以视觉上贯穿标题区域。代价是必须维护平台配置和自绘按钮的键盘/ARIA 行为，并按新增窗口类型分别验证拖动、缩放、关闭、恢复与标题国际化。阶段十三通知相关案例已在 Windows 10 22H2+ 与 macOS 12+ 验收；之后新增的定义和邮件预览窗口未经对应平台实机执行时不得笼统宣称通过。

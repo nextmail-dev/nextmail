@@ -2,7 +2,7 @@
 
 更新时间：2026-08-01
 
-本文描述仓库当前检出代码的技术状态；尚在等待手动验收的批次会单独标明。阶段进度和后续范围见 `iterations/`，历史变更见 `changes/`，长期架构理由见 `adr/`。
+本文描述仓库当前检出代码的技术状态。第二十一、第二十二阶段已经验收，当前没有后续活动阶段；第二十二阶段的双语项目 README 与 tag 驱动三平台 GitHub Release 自动化范围见 `iterations/0022-project-readme-and-release-automation.md`。阶段进度见 `iterations/`，历史变更见 `changes/`，长期架构理由见 `adr/`，跨会话入口见 `handoff.md`。
 
 ## 1. 产品状态
 
@@ -28,12 +28,13 @@ NextMail 当前版本为 `0.1.0`，目标平台为 Windows 10 22H2+ x64 与 macO
 - 当前账户、当前文件夹范围的 SQLite FTS5 本地全文搜索，覆盖主题、地址、预览、纯文本正文和附件名。
 - 全局/账户/文件夹分层的新邮件通知偏好、首次同步抑制和 NextMail 自有桌面通知窗口；层叠/覆盖、数量、时间及点击定位已在 Windows 10 22H2+ 与 macOS 12+ 验收。
 - 中文与英文、系统/浅色/深色主题、主题色以及 Windows/macOS 窗口壳。
+- `v*` Git tag push 触发的 GitHub Release 工作流，为 Windows x64、macOS Universal 和 Linux x64 构建预览 bundle；三个构建全部成功后才公开 Release。
 
 尚未实现：
 
 - POP3、Google/Microsoft OAuth；当前均为未排期设想。
 - 会话聚合、跨账户搜索、统一收件箱。
-- 托盘、系统通知中心集成、自动更新与正式发布流水线；当前自有通知窗口不进入系统通知历史，也不宣称系统勿扰模式集成。
+- 托盘、系统通知中心集成、自动更新与正式发布硬化；当前自有通知窗口不进入系统通知历史，也不宣称系统勿扰模式集成。现有 tag 工作流不包含 Windows 正式代码签名、Apple Developer 签名/公证或自动更新元数据。
 - 联系人、规则、日历、PGP/S-MIME、EML/MBOX 导入导出。
 
 ## 2. 技术栈
@@ -72,7 +73,7 @@ nextmail/
 │  ├─ styles/                  主题、基础、全局和写信样式
 │  └─ test/                    前端测试初始化
 ├─ src-tauri/
-│  ├─ capabilities/            main/composer/settings/accounts/raw-message/notification 窄权限
+│  ├─ capabilities/            main/composer/settings/accounts/message-preview/raw-message/definition/notification 窄权限
 │  ├─ migrations/              SQLx 嵌入式迁移
 │  └─ src/
 │     ├─ core/                 DTO、稳定错误、ports
@@ -97,13 +98,14 @@ NextMail 使用一个 Tauri 进程：
 - `composer-*`：每个草稿一个独立写信 WebView；可在发送成功时受控销毁。
 - `settings`：单例设置 WebView；重复打开只聚焦现有窗口。
 - `accounts`：单例账户管理 WebView；主窗口账户菜单和无账户空状态只请求 Rust 创建或聚焦。
+- `definition-*`：按模板/签名编辑目标创建的独立富文本 WebView；仅通过稳定定义 Command 和最小事件工作。
 - `message-preview-*`：按规范邮件 ID 复用的独立阅读 WebView；双击邮件或菜单请求由 Rust 核验账户、文件夹和邮件位置后创建。
 - `raw-message`：单例原始邮件 WebView；重复查看时只以账户/邮件 ID 事件切换目标，原始 EML 由窗口通过稳定 Command 读取。
 - `notification-*`：受限的瞬时新邮件窗口；不进入任务栏、不主动抢焦点，也不保存窗口状态。
 
 Windows 关闭 decorations，由 React 绘制拖动区和窗口按钮。macOS 使用 Overlay 标题栏和系统默认交通灯位置，不伪造窗口按钮或硬编码交通灯坐标。主窗口和瞬时通知保留品牌标题 `NextMail`；Composer、设置、账户管理、独立邮件预览、邮件原文及模板/签名编辑窗口的原生标题和 Windows 自绘标题均使用当前中文/英文偏好，语言切换后 Rust 同步更新已打开窗口的原生标题。每类窗口使用独立 Capability；前端没有 Shell、任意网络、任意文件和数据库权限。`message-preview-*` 只获得自身窗口控制和稳定业务 Command；其中的邮件外链继续由 Rust 宿主的新窗口回调复验并交给系统关联程序，外部网页不会在预览 WebView 内加载。
 
-Tauri 官方 `window-state` 插件只在 Rust 宿主注册，保存尺寸、位置与最大化状态到系统应用配置目录。`main`、`settings`、`accounts`、`raw-message`、`composer` 和 `message-preview` 窗口类型分别恢复状态；动态 `composer-*` 与 `message-preview-*` 分别映射到对应公共类别，避免按草稿或邮件 ID 无限累积记录。`notification-*` 由插件 filter 明确排除，不持久化瞬时内容或几何状态。普通窗口创建时先隐藏并居中；有历史状态时插件恢复后显示，没有历史状态时保持居中默认尺寸。React 不读写窗口状态文件，也不获得任意建窗权限。
+Tauri 官方 `window-state` 插件只在 Rust 宿主注册，保存尺寸、位置与最大化状态到系统应用配置目录。`main`、`settings`、`accounts`、`raw-message`、`composer`、`message-preview` 和 `definition` 窗口类型分别恢复状态；动态 `composer-*`、`message-preview-*` 与 `definition-*` 分别映射到对应公共类别，避免按草稿、邮件或定义 ID 无限累积记录。`notification-*` 由插件 filter 明确排除，不持久化瞬时内容或几何状态。普通窗口创建时先隐藏并居中；有历史状态时插件恢复后显示，没有历史状态时保持居中默认尺寸。React 不读写窗口状态文件，也不获得任意建窗权限。
 
 `NotificationRuntime` 由 `state.rs` 注入 `MailRuntime`。候选只在账户同步完整成功后进入调度；窗口按主窗口所在显示器的物理工作区和缩放因子从右下角向上排列，显示器高度不足时钳制实际可见数量。覆盖模式复用同一窗口并以 generation 使旧超时失效，层叠模式达到上限时淘汰最早窗口。偏好改变关闭当前临时通知，账户移除只清理该账户窗口。
 
@@ -152,7 +154,7 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 
 ## 6. 前端架构
 
-入口根据 URL 查询参数选择主窗口、写信窗口、设置窗口、账户管理窗口、独立邮件预览、原始邮件窗口或按需加载的通知窗口。设置、账户管理、独立邮件预览、原始邮件、Composer 和通知窗口继续按窗口动态加载；Rust 隐藏创建 WebView，React 完成代码块加载和首批 Query 后才显示，Query 失败时显示错误状态，普通独立窗口的 React 错误边界也会主动显示，不再把中间加载动画暴露给用户。独立预览先加载文件夹摘要和精确邮件详情，再显示并复用既有 `MessageViewer`。`src/app/api.ts` 是统一 IPC 客户端，业务组件不直接调用裸 `invoke`。`src/app/types.ts` 与 Rust DTO 保持 camelCase 序列化契约。
+入口根据 URL 查询参数选择主窗口、写信窗口、设置窗口、账户管理窗口、模板/签名定义窗口、独立邮件预览、原始邮件窗口或按需加载的通知窗口。设置、账户管理、定义编辑、独立邮件预览、原始邮件、Composer 和通知窗口继续按窗口动态加载；Rust 隐藏创建 WebView，React 完成代码块加载和首批 Query 后才显示，Query 失败时显示错误状态，普通独立窗口的 React 错误边界也会主动显示，不再把中间加载动画暴露给用户。独立预览先加载文件夹摘要和精确邮件详情，再显示并复用既有 `MessageViewer`。`src/app/api.ts` 是统一 IPC 客户端，业务组件不直接调用裸 `invoke`。`src/app/types.ts` 与 Rust DTO 保持 camelCase 序列化契约。
 
 读取模型使用 TanStack Query；Rust 事件只触发精确 key 或账户级前缀失效，不直接推送邮件正文。邮件详情 key 固定为：
 
@@ -183,7 +185,7 @@ Tauri `setup` 创建 `AppState`，并从既有平台窗口配置显式创建带�
 - IMAP 文件夹写操作：创建、重命名、层级移动、删除、全部标为已读，以及本地文件夹排序。
 - 写信：打开窗口、显式保存或丢弃编辑会话、草稿 CRUD、普通附件、经校验的选择/粘贴内嵌图片、安全富 HTML 粘贴清洗、远端 Drafts、发件排队和重试。
 - 模板、签名与规则：按全局或账户范围管理富文本定义、四种场景模板规则及单一默认签名偏好，按当前账户渲染定义；账户 ID 在 Rust 内转换为匿名数据槽。
-- 窗口与应用：设置、账户管理、原始邮件窗口，About 和明确退出。
+- 窗口与应用：设置、账户管理、模板/签名定义、独立邮件预览、原始邮件窗口，About 和明确退出。
 
 完整签名以 `src/app/api.ts` 和 `src-tauri/src/commands/mod.rs` 为准。所有失败统一为：
 
@@ -201,11 +203,13 @@ CommandError { code, params, retryable }
 - `accounts-changed`、`account-removing`
 - `account-runtime-status-changed`
 - `sync-progress`、`sync-failed`
-- `mailbox-changed`、`message-content-changed`、`message-body-progress`
+- `mailbox-changed`、`message-arrived`、`message-content-changed`、`message-body-progress`
 - `pending-operation-changed`
 - `send-job-changed`
 - `new-mail-candidate`
 - `notification-content-changed`、`open-mail-location`
+- `raw-message-location-changed`、`message-preview-location-changed`
+- `composition-definitions-changed`
 
 普通邮件事件仅包含账户、文件夹、消息/任务/操作 ID、状态、阶段进度或修订号；界面收到事件后重新读取本地视图。`message-body-progress` 不携带正文，只描述用户手动请求的准备、下载、处理、更新与完成阶段。`new-mail-candidate` 是 `NotificationRuntime` 的最小输入，只包含公开账户/文件夹/消息 ID、首个发件人姓名和地址及主题。覆盖窗口通过定向 `notification-content-changed` 接收相同最小展示 DTO；点击后 Rust 重新核验本地位置，再定向向主窗口发送不含正文的 `open-mail-location`。这些事件都不包含正文、预览、附件、内部路径、凭据或服务器错误。
 
@@ -231,7 +235,7 @@ cache/attachment-open/...
 
 密码只存入系统凭据库，服务名为 `com.taurusxin.nextmail`；配置文件只保存不透明 `credential_ref`。
 
-SQLite 数据格式当前为版本 22。主要表：
+SQLite 数据格式当前为版本 24。主要表：
 
 - `account_slots`、`account_sync_settings`
 - `mailboxes`、`mailbox_role_overrides`
@@ -309,7 +313,9 @@ Composer、签名和模板共用 Tiptap 的结构化 WYSIWYG 与 CodeMirror 6 HT
 
 ## 12. 当前已知技术债与限制
 
-- 前端尚无 ESLint/Prettier/CI；是否添加 GitHub Actions 需用户单独确认。
+- 当前没有 IMAP IDLE、无 IDLE 轮询或秒级失败重试；新邮件可见性取决于启动、账户周期或手动同步。若未来实现 IDLE，必须作为独立阶段设计长连接重连与现有有界会话预算的共存方式。
+- 会话聚合、跨账户搜索、统一收件箱、托盘、系统通知中心、正式签名/公证和自动更新仍未实现或未排期；tag 工作流只提供预览 Release 构建。
+- 前端尚无 ESLint/Prettier 和分支/PR CI；当前 GitHub Actions 只响应 `v*` tag push，并执行三平台 bundle 与 Release 发布。
 - Vite 主入口压缩后超过 500 kB，写信与设置已动态拆分，但主工作区仍需继续拆包。
 - Rust panic、所有稳定 `CommandError` 构造、IMAP/SQLx 原因链、后台 Supervisor/发件 Worker、关键窗口与事件副作用，以及前端未捕获异常均写入同一按日滚动日志。日志观察边界不记录 `CommandError.params`、凭据、Token、邮件正文或服务器原始响应；仍需通过实机故障案例持续校验诊断覆盖率。
 - Composer 的 CID/粘贴图片内联发件与阅读器受限 CID 图片展示已实现；远程图片代理/缓存、CSS 背景图和 Web Font 仍未实现。远程图片不会因进入 Composer 而静默下载。

@@ -5,7 +5,8 @@
 - `technical-reference.md`：当前已经实现的能力、技术栈、模块、Command/Event、数据、同步、发件、安全与已知限制。
 - `architecture.md`：当前有效的模块、存储、安全、同步、窗口和设计系统边界。
 - `development.md`：环境、命令、测试、渐进交付、代码边界与文档维护规范。
-- `plans/master-plan.md`：产品目标、技术基线、二十一阶段总体路线与未排期设想。
+- `handoff.md`：第二十二阶段期间的当前快照、跨会话接手顺序、关键约束和可复制提示词。
+- `plans/master-plan.md`：产品目标、技术基线、二十二阶段总体路线与未排期设想。
 - `iterations/`：每个实施阶段的范围、当前状态、自动验证与手动验收；后续阶段计划统一在此维护。
 - `iterations/0002-imap-local-reading.md`：第二阶段计划、当前实现结果与待确认差异。
 - `iterations/0003-compose-drafts-smtp.md`：第三阶段写信、草稿与 SMTP 发件实施计划与验收。
@@ -27,6 +28,7 @@
 - `iterations/0019-mail-reading-optimization.md`：第十九阶段阅读页结构、附件卡片、CID/data 图片、自动分页、批量通知与验收记录。
 - `iterations/0020-rich-text-editor-fidelity.md`：第二十阶段共用富文本编辑器可编辑性、独立定义窗口、受限插图、HTML 往返保真、邮件样式与链接能力。
 - `iterations/0021-pre-release-bug-fixes.md`：第二十一阶段首次测试版本发布前的 BMP、草稿生命周期/定向刷新、窗口标题、Composer/回复转发结构、列表与独立预览、外观和可选全文同步修正。
+- `iterations/0022-project-readme-and-release-automation.md`：第二十二阶段中英文项目 README、徽章/截图占位和 tag 驱动三平台 GitHub Release 自动化。
 - `changes/`：按实施批次记录已经发生的功能和架构变动。
 - `changes/0005-message-and-mailbox-encoding.md`：邮件多字符集、IMAP 文件夹名和旧缓存重建说明。
 - `changes/0006-rfc2047-robustness.md`：完整 RFC 2047 encoded-word、安全降级和回归语料。
@@ -82,6 +84,8 @@
 - `changes/0056-rich-text-editor-fidelity-and-links.md`：第二十阶段签名/模板独立编辑窗口与插图、HTML 源码保真、图片尺寸渲染与链接工具。
 - `changes/0057-manual-mail-search-trigger.md`：邮件搜索取消自动防抖提交，改为搜索按钮或 Enter 显式触发。
 - `changes/0058-pre-release-bug-fixes.md`：第 21 阶段 BMP 内联阅读、显式草稿与定向刷新、窗口标题、Composer 预览/回复转发、列表与独立预览、外观、可选全文同步及客户端邮件头修正。
+- `changes/0059-project-state-and-handoff-refresh.md`：当前事实、架构/ADR 修订和跨会话交接文档收敛。
+- `changes/0060-project-readme-and-release-automation.md`：中英文项目展示与仅由版本 tag 触发的三平台预览 Release 工作流。
 - `adr/`：需要长期保留理由的架构与安全决策；提议状态不代表已经实施。
 - `adr/0002-safe-mail-rendering.md`：Rust HTML 清洗、无权限 sandbox iframe 和远程资源默认阻止基线。
 - `adr/0001-cargo-workspace-boundaries.md`：第二阶段引入 Cargo Workspace 的历史决策，现已被 ADR 0006 取代。

@@ -19,12 +19,12 @@ Rust 代码只使用 `src-tauri` 下的单一 Cargo package，避免仓库根目
 
 ### 窗口与 Capability
 
-- Windows 主窗口和动态创建的写信/设置/账户管理/原始邮件窗口关闭系统 decorations，由 React 标题栏提供拖动、最小化、最大化和关闭按钮。
+- Windows 主窗口和动态创建的写信/设置/账户管理/模板与签名定义/独立邮件预览/原始邮件窗口关闭系统 decorations，由 React 标题栏提供拖动、最小化、最大化和关闭按钮。
 - macOS 保留系统 decorations，使用 `Overlay` 标题栏和系统默认定位的原生交通灯；React 只提供可拖动内容区，不伪造窗口按钮或硬编码交通灯坐标。
 - 自绘标题栏使用紧凑高度；Windows 窗口按钮和 macOS 交通灯只保留满足拖动与原生操作所需的最小安全空间。站内通知通过根节点 Portal 渲染在标题栏下方，避免被工作区裁剪或窗口拖动层遮挡。
-- `main`、`composer-*`、`settings`、`accounts`、`message-preview-*`、`raw-message` 和 `notification-*` 使用独立 Capability。普通独立窗口控制只开放启动拖动、最小化、切换最大化、关闭、就绪后的自身显示/聚焦及需要释放 WebView 的销毁；写信窗口因发送成功需要绕过关闭拦截，同样保留 `allow-destroy`。邮件预览只获得自身窗口控制和稳定邮件 Command，不获得文件、网络、数据库、对话框、Shell、系统 opener 或任意建窗权限；其外链仍由宿主回调复验。通知窗口只开放 Tauri 事件监听/卸载与就绪后的自身显示，不获得聚焦或前述高权限；业务交互限于与自身 label 绑定的 Bootstrap、关闭、激活命令和宿主定向事件。
-- 设置、账户管理和原始邮件分别使用单例 `settings`、`accounts`、`raw-message` WebView。独立邮件预览按规范邮件 ID 使用 `message-preview-*` 动态标签，同一邮件重复打开时只聚焦已有窗口或以公开位置事件更新；创建前由 Rust 读取精确详情校验账户、文件夹与邮件归属，并沿用可靠待办标记已读。原始邮件复用时同样只发送公开账户/邮件 ID，窗口重新通过稳定 Command 读取原始 EML，不在事件中传正文。动态窗口先隐藏创建，React 完成懒加载和首批 Query 后通过窄窗口控制能力显示；错误边界同样会显示，从而避免把加载占位暴露给用户或在失败时留下永久隐藏窗口。每个 WebView 的根级 Appearance Bridge 首次读取持久化偏好，后续偏好变化由 Rust 发布窄事件，各窗口把 DTO 写入各自的 TanStack Query cache 并更新主题和语言，不共享 React 内存状态；Rust 同时按窗口 label 更新 Composer、设置、账户管理、独立邮件预览、邮件原文与模板/签名编辑器的原生中文/英文标题，主窗口和瞬时通知保留品牌标题。外观写入使用乐观 cache 更新，失败时恢复旧值。
-- 尺寸、位置和最大化状态由 Rust 侧 Tauri 官方 `window-state` 插件写入系统应用配置目录，不进入可迁移邮件数据集。`main`、`settings`、`accounts`、`raw-message`、`composer` 和 `message-preview` 各类状态分开；动态写信和预览标签通过插件 label mapper 汇总到各自公共类别。临时 `notification-*` 标签由 filter 排除，不进入状态文件。普通窗口无历史状态时居中，有历史状态时在隐藏创建后恢复并显示，前端无需窗口状态 IPC 或插件权限。
+- `main`、`composer-*`、`settings`、`accounts`、`definition-*`、`message-preview-*`、`raw-message` 和 `notification-*` 使用独立 Capability。普通独立窗口控制只开放启动拖动、最小化、切换最大化、关闭、就绪后的自身显示/聚焦及需要释放 WebView 的销毁；写信窗口因发送成功需要绕过关闭拦截，同样保留 `allow-destroy`。定义窗口只获得定义 CRUD、受限插图和自身窗口控制；邮件预览只获得自身窗口控制和稳定邮件 Command。两者均不获得任意文件、网络、数据库、Shell、系统 opener 或任意建窗权限；邮件预览外链仍由宿主回调复验。通知窗口只开放 Tauri 事件监听/卸载与就绪后的自身显示，不获得聚焦或前述高权限；业务交互限于与自身 label 绑定的 Bootstrap、关闭、激活命令和宿主定向事件。
+- 设置、账户管理和原始邮件分别使用单例 `settings`、`accounts`、`raw-message` WebView。模板/签名编辑按定义目标使用 `definition-*` 动态窗口，邮件预览按规范邮件 ID 使用 `message-preview-*` 动态标签；重复打开同一目标只聚焦已有窗口或以最小公开事件更新。预览创建前由 Rust 读取精确详情校验账户、文件夹与邮件归属，并沿用可靠待办标记已读。原始邮件复用时同样只发送公开账户/邮件 ID，窗口重新通过稳定 Command 读取原始 EML，不在事件中传正文。动态窗口先隐藏创建，React 完成懒加载和首批 Query 后通过窄窗口控制能力显示；错误边界同样会显示，从而避免把加载占位暴露给用户或在失败时留下永久隐藏窗口。每个 WebView 的根级 Appearance Bridge 首次读取持久化偏好，后续偏好变化由 Rust 发布窄事件，各窗口把 DTO 写入各自的 TanStack Query cache 并更新主题和语言，不共享 React 内存状态；Rust 同时按窗口 label 更新 Composer、设置、账户管理、独立邮件预览、邮件原文与模板/签名编辑器的原生中文/英文标题，主窗口和瞬时通知保留品牌标题。外观写入使用乐观 cache 更新，失败时恢复旧值。
+- 尺寸、位置和最大化状态由 Rust 侧 Tauri 官方 `window-state` 插件写入系统应用配置目录，不进入可迁移邮件数据集。`main`、`settings`、`accounts`、`raw-message`、`composer`、`message-preview` 和 `definition` 各类状态分开；动态写信、预览与定义标签通过插件 label mapper 汇总到各自公共类别。临时 `notification-*` 标签由 filter 排除，不进入状态文件。普通窗口无历史状态时居中，有历史状态时在隐藏创建后恢复并显示，前端无需窗口状态 IPC 或插件权限。
 - `NotificationRuntime` 在 Rust 侧拥有窗口队列、超时和位置事实。候选只在同步成功后进入运行时；同一同步批次先按展示模式裁剪，层叠只保留最后 `X` 封、覆盖只保留最后一封，再统一创建和排布，避免高速淘汰造成闪动。窗口按主窗口所在显示器的物理工作区与 DPI 从右下角向上层叠，覆盖模式复用同一窗口并用 generation 使旧超时失效。通知 React 完成 Bootstrap 后才显示，不主动抢焦点，也不进入任务栏。
 
 ### Rust 模块拆分策略
@@ -107,6 +107,14 @@ NextMail 不再用多个 Cargo package 表达业务边界，而是在单一 `src
 - 支持 GB2312/GBK/GB18030、Big5、Shift-JIS、EUC-KR、Windows code pages、ISO-8859 系列和 Unicode 编码；未知或畸形 RFC 2047 encoded-word 保留原文并继续解析后续字段，不用系统区域设置猜测。
 - IMAP 远端文件夹名保留线缆原值用于 `EXAMINE` 和结构操作，另生成 modified UTF-7 解码后的 Unicode 显示名，避免显示名反向影响协议定位。创建/重命名时只有用户输入的 Unicode 叶名称在 Adapter 内编码为 modified UTF-7；父路径和服务端分隔符取自本地 mailbox 上下文。服务端返回的层级分隔符随文件夹 DTO 传给界面；文件夹树只按该分隔符连接已存在的父节点，不猜测名称中的 `/`、`.` 等字符。
 - 标准文件夹由 `MailboxRole` 本地化，用户创建的其他文件夹保留服务端名称语义。
+
+## 构建与发布边界
+
+- GitHub 发布工作流只响应 `v*` tag push；普通分支 push、pull request 和手动 dispatch 都不会触发 bundle 或 Release。
+- 三个平台使用同一份 pnpm lockfile 和 `src-tauri/Cargo.lock`，仍从仓库根 Node 项目与唯一 `src-tauri` Cargo package 构建。Windows 和 Linux 产出 x64 bundle；macOS 同时安装 Intel/Apple Silicon Rust target 并生成 Universal bundle。
+- 各平台只把产物上传到同一个草稿 Release；三个矩阵构建全部成功后，独立发布 job 才把草稿转为公开，避免任一平台失败时暴露不完整 Release。
+- 工作流权限限定为读取源码和创建/更新 Release 所需的 `contents: write`。它不接收产品凭据、邮件数据或运行时配置，也不改变 Tauri Command、Capability、存储或安全边界。
+- macOS 只使用 ad-hoc identity `-` 兼容来自网络的 Apple Silicon 构建；Windows 正式代码签名、Apple Developer 签名、公证、自动更新和其他分发渠道仍需未来单独设计，不由当前预览工作流暗示已经完成。
 
 ## 前端设计系统
 

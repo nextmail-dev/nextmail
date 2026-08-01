@@ -1,6 +1,6 @@
 # NextMail 开发与验证指南
 
-更新时间：2026-07-20
+更新时间：2026-08-01
 
 ## 1. 环境
 
@@ -9,7 +9,7 @@
 - Node.js 与 pnpm。
 - Rust stable，目标平台对应的 Tauri 2 系统依赖。
 - Windows：WebView2 与 MSVC 构建工具。
-- macOS：Xcode Command Line Tools；打包、签名和公证尚未进入当前阶段。
+- macOS：Xcode Command Line Tools；本地开发不要求打包，正式 Apple Developer 签名和公证尚未实现。
 
 Node.js 依赖只能使用 pnpm。项目当前不使用 Python；未来若必须引入 Python 工具，依赖与执行环境统一由 uv 管理。
 
@@ -58,6 +58,12 @@ git diff --check
 ```
 
 当前没有根 Cargo Workspace，因此不要运行或在文档中新增 `cargo test --workspace`。正常的 `dist/` 与 `src-tauri/target/` 默认保留，以免每次重建依赖；临时探针、测试数据目录、coverage、日志、截图和测试凭据需要清理。
+
+### GitHub tag 发布
+
+`.github/workflows/release.yml` 只响应 `v*` tag push。工作流使用 pnpm lockfile 和 `src-tauri/Cargo.lock`，并行构建 Windows x64、Ubuntu 22.04 x64 和 macOS Universal bundle；各平台把产物上传到同一个草稿 Release，全部成功后才转为公开 Release。macOS 使用 ad-hoc identity `-` 兼容 Apple Silicon 下载产物，但不等于 Apple Developer 签名或公证；Windows 同样没有正式代码签名。
+
+日常开发和阶段自动验证不得为测试该工作流而创建或推送 tag，也不要在本地运行 Tauri bundle。只有用户明确决定发布时，才由用户提交、推送并创建与应用版本相符的 `v<version>` tag。
 
 ## 4. 渐进式交付约定
 
@@ -114,9 +120,12 @@ Rust：
 
 - `technical-reference.md`：当前实现事实。
 - `architecture.md`：稳定边界和关键设计。
+- `handoff.md`：新会话需要的当前快照、事实优先级、工作约束和可复制提示词。
 - `plans/master-plan.md`：产品阶段顺序。
 - `iterations/`：各阶段范围、非目标、状态、验证与验收；状态使用“规划中”“实施中”“等待手动验收”“已验收”或明确的“未排期”。
 - `changes/`：每次已经发生的功能/架构变化。
 - `adr/`：需要长期保留理由的重大取舍。
 
 代码与文档冲突时，先核对代码和最近 change/ADR，再修正文档；不要用历史计划覆盖已经验收的现状。
+
+新会话接手时，依次阅读 `docs/handoff.md`、`docs/technical-reference.md`、`docs/architecture.md`、`docs/development.md`、`docs/plans/master-plan.md`、最近的 iteration/change 和仍有效 ADR，再检查当前 `git status`、`HEAD` 与实现。当前 SQLite schema metadata 为版本 24；`.nextmail-data.json` 的目录标记格式仍是独立的版本 1，两者不得混淆。第二十一阶段已验收；第二十二阶段状态见 `iterations/0022-project-readme-and-release-automation.md`，不得越过其确认范围。
