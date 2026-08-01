@@ -93,7 +93,7 @@ NextMail 把本地邮箱当作主要阅读界面。已有邮件无需等待网�
 - 回复、回复全部与转发，保留完整原始 HTML、内嵌图片、附件和稳定签名位置。
 - 中文/英文、系统/浅色/深色外观、主题色、独立业务窗口与 NextMail 自有桌面通知。
 
-准确的实现状态与当前限制见[技术参考](./docs/technical-reference.md)。
+准确的实现细节、工程约定与当前限制见[项目开发手册](./docs/project.md)。
 
 ## 下载
 
@@ -140,10 +140,7 @@ Node.js 依赖只使用 pnpm 管理。项目目前不使用 Python；未来若�
 
 ## 项目文档
 
-- [当前技术参考](./docs/technical-reference.md)
-- [架构基线](./docs/architecture.md)
-- [开发与验证指南](./docs/development.md)
-- [总体实施计划](./docs/plans/master-plan.md)
+- [项目开发手册](./docs/project.md)
 - [阶段实施记录](./docs/iterations/)
 - [架构决策记录](./docs/adr/)
 - [第三方资源与许可证](./docs/third-party-notices.md)

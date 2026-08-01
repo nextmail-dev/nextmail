@@ -40,7 +40,7 @@
 1. 核对现有 README、项目版本、Tauri bundle 配置、许可证与仓库元数据。
 2. 参考目标项目的信息层级，完成中英文 README、徽章和截图占位。
 3. 依据 Tauri 与 GitHub 官方发布建议新增 tag-only 三平台 Release workflow。
-4. 检查 YAML、Markdown 链接、现有配置兼容性和补丁格式，更新本阶段与 change 记录。
+4. 检查 YAML、Markdown 链接、现有配置兼容性和补丁格式，更新本阶段变更摘要。
 
 ## 自动验证
 
@@ -62,3 +62,7 @@
 ## 验收门禁
 
 自动验证已经完成；用户已于 2026-08-01 明确要求提交、推送并发布 `v0.1.0`，本阶段验收通过。线上三平台 bundle 与 Release 结果由 `v0.1.0` tag 推送后的 GitHub Actions 继续验证。
+
+## 迭代变更摘要
+
+- 0060：重写中英文项目展示，增加 flat-square 徽章、截图占位和仅由版本 tag 触发的三平台预览 Release 工作流。

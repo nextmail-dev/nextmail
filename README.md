@@ -93,7 +93,7 @@ Mail changes and outgoing messages are recorded before network execution. Retrie
 - Reply, reply all, and forward with complete original HTML, inline images, attachments, and stable signature placement.
 - Chinese and English UI, system/light/dark appearance, accent colors, dedicated business windows, and NextMail desktop notifications.
 
-For the exact implementation status and current limitations, see the [technical reference](./docs/technical-reference.md).
+For exact implementation details, engineering conventions, and current limitations, see the [project development guide](./docs/project.md).
 
 ## Downloads
 
@@ -140,10 +140,7 @@ Node.js dependencies are managed only with pnpm. The project does not currently 
 
 ## Documentation
 
-- [Technical reference](./docs/technical-reference.md)
-- [Architecture baseline](./docs/architecture.md)
-- [Development and validation guide](./docs/development.md)
-- [Roadmap](./docs/plans/master-plan.md)
+- [Project development guide](./docs/project.md)
 - [Iteration records](./docs/iterations/)
 - [Architecture decisions](./docs/adr/)
 - [Third-party notices](./docs/third-party-notices.md)

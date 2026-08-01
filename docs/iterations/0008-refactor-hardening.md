@@ -43,7 +43,7 @@
 - 存储：多附件批量写入成功；强制附件 INSERT 失败时四张相关表均无残留；reconcile 删除无待办位置并保留活动待办位置。
 - TLS：相同缓存重复取得同一 `Arc<ClientConfig>`，加载器只调用一次。
 - IMAP：UID 批次格式测试覆盖单次 FETCH 的 UID 集合构造。
-- 完整的 TypeScript、Vitest、Rust test、fmt 与 Clippy 结果写入 `changes/0028-refactor-p0-hardening.md`。
+- 完整的 TypeScript、Vitest、Rust test、fmt 与 Clippy 检查均已通过。
 
 ## 手动验收
 
@@ -124,3 +124,10 @@
 5. 多账户切换后不保留上一账户的文件夹、邮件选择或事件结果。
 
 验收结果：2026-07-20 用户完成 Windows 实机验证并确认通过，P1 前端结构批次完成。
+
+## 迭代变更摘要
+
+- 0028：完成邮件详情刷新、SQLite 原子写入、TLS 缓存和 IMAP 批量正文热路径硬化。
+- 0029：完成 Rust application/ports/Repository 分层和运行时注入。
+- 0031：收敛外观 Query、Composer 关闭监听和主工作区 hooks。
+- 0032：整理后续产品方向；历史路线不构成当前自动排期。

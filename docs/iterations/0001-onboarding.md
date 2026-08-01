@@ -36,3 +36,9 @@
 - `pnpm tauri build --debug --no-bundle`
 
 验证结束后保留 `dist`、`src-tauri/target` 等正常构建缓存，以支持增量构建。删除 coverage、临时数据目录、测试凭据、日志、协议探针等可能污染项目或用户环境的测试产物；正式测试代码保留。
+
+## 迭代变更摘要
+
+- 0001：完成首次启动、数据目录选择、账户验证、凭据保存和主界面空壳。
+- 0002：建立 React/Tauri 边界、稳定 DTO、基础组件与 onboarding 架构。
+- 0003：显式安装 rustls `ring` CryptoProvider，消除运行期 provider 歧义。

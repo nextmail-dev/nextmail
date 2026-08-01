@@ -263,3 +263,9 @@ Rust 使用 Ammonia 的白名单 Builder 作为第一层，并增加邮件专用
 - [Ammonia whitelist Builder](https://docs.rs/ammonia/latest/ammonia/struct.Builder.html)
 - [Tauri Capability](https://v2.tauri.app/security/capabilities/)
 - [Tauri 前后端命令与事件](https://v2.tauri.app/develop/calling-rust/)
+
+## 迭代变更摘要
+
+- 0004：落地 IMAP 本地阅读核心、SQLite 邮件模型、正文与附件内容存储。
+- 0005：补齐邮件多字符集、附件名称和 IMAP 文件夹编码。
+- 0006：增强 RFC 2047 encoded-word 的容错与安全降级。

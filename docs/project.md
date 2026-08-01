@@ -1,0 +1,286 @@
+# NextMail 项目开发手册
+
+更新时间：2026-08-01
+
+本文是 NextMail 新会话唯一必读的长期技术文档，集中保存当前实现事实、开发细则、工程约定和项目记忆。历史范围与验收记录保留在 `iterations/`；重大架构或安全取舍保留在 `adr/`，都只在任务相关时按需查阅。
+
+代码、配置、迁移和测试是最终事实来源。若本文与当前检出内容不一致，先核对实现，再在同一批修改中修正文档。本文不记录某次会话的分支、HEAD、未提交文件或复制粘贴式交接快照。
+
+## 1. 新会话开始方式
+
+接手项目后：
+
+1. 完整阅读本文。
+2. 执行 `git status --short` 和 `git log -3 --oneline --decorate`，确认当前 HEAD、远端关系和用户未提交修改。
+3. 阅读本次任务涉及的源码、配置、迁移和测试；需要历史范围或设计理由时，再查相应 iteration/ADR。
+4. 只实施用户明确给出的当前阶段，不从“后续设想”中自行选择功能。
+5. 新阶段先在 `docs/iterations/` 新建或更新对应文件，写清状态、范围、非目标和验证门禁；实施结果、验证与验收继续写回同一文件。
+6. 不得 reset、覆盖、清理或顺手提交用户已有修改；出现重叠时先说明。
+7. 按风险完成验证，交付结果和必要的实机验收步骤。
+
+## 2. 产品与当前状态
+
+NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.1.0`。
+
+平台边界：
+
+- Windows 10 22H2+ x64 是主要开发与实机验收平台。
+- macOS 12+ Intel/Apple Silicon 是正式目标平台；未实际执行的行为不得宣称通过。
+- Linux x64 提供实验性 bundle，不做深度适配或完整实机承诺。
+- 当前产物没有 Windows 正式代码签名，也没有 Apple Developer 签名或公证。
+
+已经实现：
+
+- 首次启动、可迁移数据目录、账户自动发现和真实 IMAP/SMTP 密码认证。
+- 多账户添加、编辑、重新认证、切换、安全移除、独立同步策略和文件夹角色映射。
+- SQLite 离线视图、全服务器头部优先同步、按需正文、账户可选全文同步和逐封可见更新。
+- 已读、星标、移动、复制、归档、删除的本地乐观更新与持久化 IMAP 待办。
+- 在线 IMAP 文件夹创建、重命名、层级移动、删除、全部已读及独立本地排序。
+- RFC 2047、常见 MIME 字符集、IMAP modified UTF-7。
+- Rust 清洗的 HTML/CSS 阅读、远程图片控制、标准 CID、受限 data 图片、误标 octet-stream 图片和 BMP。
+- 原始 EML、附件按需下载、安全另存为和受控系统打开。
+- 当前账户/当前文件夹 SQLite FTS5 搜索；Enter 或搜索按钮显式提交。
+- Tiptap/ProseMirror + CodeMirror 富文本写信、源码/预览、模板、签名、变量、回复/转发和内嵌图片。
+- 关闭 Composer 时显式决定是否保存；持久化 SMTP 发件、Sent/Drafts APPEND 和 Drafts 定向刷新。
+- Windows/macOS 窗口壳、窗口状态记忆、独立设置/账户/定义/预览/原文窗口。
+- 中英文、系统/浅色/深色主题、主题色和分层通知偏好。
+- NextMail 自有通知窗口，以及 `v*` tag 触发的三平台 GitHub Release 工作流。
+
+尚未实现或未排期：
+
+- IMAP IDLE、无 IDLE 轮询和秒级失败重试。
+- 会话聚合、跨账户搜索、统一收件箱、系统托盘。
+- POP3、Google/Microsoft OAuth、跨机账户重绑定。
+- 系统通知中心历史/勿扰集成、正式签名/公证、自动更新。
+- 联系人、规则、日历、PGP/S-MIME、EML/MBOX 导入导出和 Linux 深度适配。
+
+这些只是长期记忆，不是自动生效的路线图。下一阶段以用户当前请求为准。
+
+## 3. 技术栈与仓库地图
+
+前端使用 React 19、TypeScript 5.8、Vite 7、TanStack Query 5、react-i18next、Tailwind CSS 4、Radix Primitives、Tiptap/ProseMirror 3.27.3、CodeMirror 6、Vitest、Testing Library 和 jsdom。
+
+桌面/Rust 使用 Tauri 2、Tokio、async-imap 0.11、lettre 0.11、mail-parser 0.11、mail-builder 0.4、SQLx 0.9、SQLite WAL/FTS5、rustls 0.23、keyring 4.1、Ammonia 4 和 cssparser 0.37。精确版本以 lockfile 和 manifest 为准。
+
+```text
+src/
+  app/                  IPC、DTO、Query key、外观、语言、平台入口
+  components/ui/        自有基础组件与滚动容器
+  components/window/    跨平台标题栏
+  features/             accounts/composer/mail/notifications/onboarding/preferences
+  locales/              zh-CN、en-US
+  styles/               语义主题与全局样式
+src-tauri/
+  capabilities/         各窗口最小权限
+  migrations/           只增不改的 SQLx 迁移，当前到 0024
+  src/core/             无 Tauri/SQLx/协议库依赖的 DTO、错误与 ports
+  src/application/      账户生命周期与纯业务组合用例
+  src/adapters/         JSON、Keyring、发现、连接测试和系统集成
+  src/protocols/        IMAP/SMTP/MIME/HTML/TLS Adapter
+  src/storage/          SQLite 与内容存储的窄 Repository
+  src/commands/         薄 Tauri Command
+  src/state.rs          唯一组合根
+  src/mail_runtime.rs   账户 Supervisor 门面
+  src/composer_runtime.rs
+  src/notification_runtime.rs
+testdata/mail-rendering/ 正式邮件保真与恶意内容回归语料
+docs/project.md          本文
+docs/iterations/         每次迭代范围、变更摘要、验证与验收
+docs/adr/                按需查阅的长期架构决策
+```
+
+仓库只有 `src-tauri/Cargo.toml` 一个 Rust package。根目录不得出现 Cargo Workspace、根 `Cargo.toml`、根 `Cargo.lock`、根 `target` 或业务子 crate。
+
+## 4. 不可破坏的架构边界
+
+### 前端与 IPC
+
+- React 不直接访问 SQLite、邮件服务器、任意文件系统或系统凭据库。
+- 业务组件统一通过 `src/app/api.ts` 和稳定 DTO 调用 Command，不散落裸 `invoke`。
+- `src/app/types.ts` 与 Rust DTO 维持 camelCase 序列化契约。
+- TanStack Query 管理读取模型；Event 只携带公开 ID、状态、进度或修订并触发精确失效/重读，不推正文。
+- Query key 使用集中工厂；邮件详情稳定为 `['message', accountId, mailboxId, messageId]`。
+- 外观偏好由各 WebView 的 TanStack Query 管理，窗口间通过 Rust 持久化值和窄事件同步。
+
+### Rust 分层
+
+- `core` 不依赖 Tauri、SQLx、`tracing` 或具体协议库。
+- `application` 组织账户生命周期、回复/转发、定义变量等纯业务用例。
+- `adapters`/`protocols` 隔离系统和第三方类型；`storage` 提供窄 Repository。
+- `state.rs` 是组合根，具体配置、凭据、协议、Repository、系统 opener 和通知通过 ports 注入。
+- Command 保持薄，只做 DTO 接收、用例委托、稳定错误转换和窄事件发布。
+- 公开失败统一为 `CommandError { code, params, retryable }`；UI 不得得到密码、Token、服务器原始响应、内部路径或堆栈。
+
+### 窗口与 Capability
+
+窗口包括 `main`、`composer-*`、`settings`、`accounts`、`definition-*`、`message-preview-*`、`raw-message`、`notification-*`。
+
+- 每类使用独立最小 Capability；前端没有 Shell、数据库、任意网络、任意文件或任意建窗权限。
+- `settings`、`accounts`、`raw-message` 是单例；动态窗口按稳定业务目标复用。
+- 普通窗口先隐藏，React 懒加载和首批 Query 完成后显示；错误边界也要显示。
+- 窗口状态由 Rust 侧 `window-state` 保存；动态标签映射为公共类别，通知窗口不保存。
+- Windows 使用 React 自绘控制；macOS 使用 Overlay 和原生交通灯。
+- 业务窗口标题随语言变化；主窗口和通知保留 `NextMail`。
+
+## 5. 数据、同步与协议记忆
+
+### 数据与配置
+
+```text
+.nextmail-data.json
+content.sqlite
+raw/<hash-prefix>/<hash>
+attachments/<hash-prefix>/<hash>
+cache/attachment-open/...
+```
+
+- SQLite schema metadata 当前为版本 24，迁移到 `0024`。
+- `.nextmail-data.json` 的 `format_version` 当前为独立版本 1，不是 SQLite schema 版本。
+- 已发布迁移只允许新增，不得修改。
+- 所有账户业务数据按匿名 `account_slot_id` 隔离。
+- 多表可见状态使用 SQLx 事务；网络、MIME 和慢文件 I/O 不持有 SQLite 写锁。
+- 内部路径和内容哈希不返回 React。
+- 账户配置、本机偏好和窗口状态在系统应用配置区；密码及未来 Token 只进入服务名 `com.taurusxin.nextmail` 的系统凭据库。
+
+### 同步模型
+
+完整账户同步只有四类入口：首次设定账户、应用启动、账户配置的 1/5/10 分钟周期、用户手动收取；`0` 表示仅手动。设置变化只重置计时。持久化待办、Sent/Drafts APPEND 和 Drafts 定向刷新不触发完整同步。
+
+同步遍历全部可选文件夹，以最多 100 UID 为网络批次，但每封邮件头单独原子落库并发布最小事件。当前文件夹按事件顺序重读本地视图，100ms 只合并绘制，不等待整批完成。
+
+默认只同步邮件头。打开缺失正文时优先从本地原始 EML 重建，否则按需联网。启用“收取邮件全文”后，每个文件夹头部完成再补正文；正文回填不产生新邮件候选，Drafts 定向刷新跳过全文阶段。
+
+所有账户共享两个高层网络许可。每账户最多三条按需建立、操作后关闭的主动 IMAP 会话；完整同步只占两条，为正文、附件、文件夹结构和待办保留第三条。这是有界容量，不是长期 Session 池。
+
+已读、星标、移动、复制、归档和删除在同一事务更新本地投影并写入 `pending_operations`。Worker 有序重放；异常退出可恢复。缺少 UIDPLUS 时不得执行宽泛 EXPUNGE。
+
+文件夹结构变更和全部已读必须在线成功后再事务更新本地投影。结构操作使用账户级 mailbox 路径写锁，普通同步/正文/待办/APPEND 使用读锁；锁不跨 SQLite。文件夹本地排序不改变服务器路径。
+
+### 草稿与发件
+
+- 草稿保存 Tiptap JSON、HTML、纯文本和 revision；停止输入不会自动保存。
+- 关闭 Composer 只有取消、不保存、保存为草稿三个显式动作。
+- 保存后排入 Drafts APPEND；确认后只定向刷新 Drafts，失败由后续同步修复。
+- 回复/转发保持回复区、签名分隔、签名、空行、原始邮件元数据和完整原文的稳定边界。
+- 原文保存在 `nextmailOriginalMessage` 原子节点的 `sourceHtml`，不进入 ProseMirror 邮件表格 schema。
+- 模板/签名支持全局和账户范围；四场景配置默认模板，每个范围一个默认签名和自动插入开关。
+- Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
+- SMTP 前生成不可变 MIME/Message-ID，写入 `raw/` 后创建持久化 `send_job`；重试复用相同 MIME。
+- SendWorker 账户内 FIFO、账户间轮转；全局最多两封、每账户最多一封。SMTP 成功后独立 APPEND Sent，归档失败不得再次发信。
+- 客户端头为 `X-Mailer: NextMail/0.1.0`；版本变化时同步核对 manifest 与此值。
+
+## 6. 安全边界
+
+- TLS 严格验证系统信任链和主机名，不提供忽略证书错误选项。
+- 明文 IMAP/SMTP 必须由用户明确确认，并在 Rust 边界复验。
+- SMTP 测试不得发送邮件；IMAP 测试不得修改邮箱。
+- HTML 邮件由 Rust 权威清洗，并在无 scripts、forms、same-origin、top-navigation、任意文件或任意网络能力的 sandbox iframe 中渲染。
+- 阅读 iframe 仅保留受宿主拦截的 `allow-popups`；外链经 Rust 再次校验后交给系统，WebView 始终拒绝创建外部页面。
+- 远程图片默认由邮件 CSP 阻止；显式允许后仍使用 `no-referrer`。
+- CSS 网络 `url()`、`@import`、`@font-face`、固定遮罩、动画和变换继续移除。
+- CID/`data:image` 只接受经过 media type、解码、文件魔数和大小预算验证的 PNG/JPEG/GIF/WebP/BMP。
+- 只有正文实际引用且成功内联的 MIME part 才从附件列表排除。
+- 富 HTML 粘贴必须先经 Rust 清洗和选择器作用域限定。
+- 日志不得记录 `CommandError.params`、凭据、Token、邮件正文或服务器原始响应。
+
+任何邮件内容、协议、凭据、Capability、外链、文件或网络权限放宽都属于安全变更，必须补针对性测试；重大取舍新增或修订 ADR。
+
+## 7. 前端与体验约定
+
+- 业务页面优先组合 `src/components/ui/`；不暴露浏览器默认表单外观。
+- 主题使用语义令牌，不在业务组件写死主题相关颜色。
+- 新生产文案同时提供 `zh-CN` 与 `en-US`，缺失时回退英文。
+- UI 不显示调试说明、内部阶段名或临时占位文案。
+- Windows 使用 Segoe UI/Microsoft YaHei UI，macOS 使用系统 UI/PingFang SC。
+- 纵向滚动统一使用 `OverlayScrollArea` 覆盖滑块；文件夹列表是唯一默认自动隐藏例外。
+- 保留 Windows/macOS 平台差异，不用一套自绘按钮覆盖 macOS 原生行为。
+- 邮件 HTML 与 Composer 原文不进入主 React DOM；保真优化不能越过安全边界。
+
+## 8. 依赖、Git 与交付约定
+
+- Node.js 只使用 pnpm。
+- 当前不使用 Python；未来需要时只用 uv 管理依赖和执行环境。
+- Rust 只在 `src-tauri` 单一 package 中工作。
+- 新依赖优先 MIT、Apache-2.0、BSD、ISC；其他许可必须先确认并按需更新第三方说明。
+- 不提前开发当前范围外行为，不自行扩展依赖、安全策略或重大 UI 决策。
+- 未经明确要求，不 commit、push、创建/移动 tag、改远端、签名或发布。
+- 不用 reset/checkout 覆盖工作区，不清理无关文件。
+- 正式测试和测试语料长期保留；临时探针、凭据、日志、截图、coverage 和临时数据在验证后清理。
+- `dist/` 和 `src-tauri/target/` 是正常增量缓存，默认保留。
+- Git 历史承担逐提交细节；iteration 保留每阶段范围、变更摘要、验证和验收。
+- iteration 状态使用“规划中”“实施中”“等待手动验收”“已验收”或明确的“未排期”；验收前不自行进入下一阶段。
+- 不重新建立会话 handoff、独立 changes 流水账或重复的 architecture/technical-reference/master-plan。
+
+## 9. 开发、验证与发布
+
+### 安装与运行
+
+```powershell
+pnpm install
+pnpm tauri dev
+```
+
+`pnpm tauri dev` 是桌面联调入口并复用 Rust 增量缓存。纯浏览器层可用 `pnpm dev`，但不能替代 Tauri Command、Capability、Keyring、文件选择器和窗口生命周期验收。
+
+日常不运行 Tauri bundle；仅在用户明确要求发布或打包时执行。
+
+### 自动验证
+
+前端：
+
+```powershell
+pnpm test
+pnpm build
+```
+
+Rust：
+
+```powershell
+Push-Location src-tauri
+cargo fmt --all -- --check
+cargo test --offline --locked
+cargo clippy --offline --locked --all-targets -- -D warnings
+Pop-Location
+```
+
+最终：
+
+```powershell
+git diff --check
+```
+
+没有根 Cargo Workspace，不运行 `cargo test --workspace`。纯文档修改至少检查 Markdown 本地链接、陈旧引用和 `git diff --check`，无需运行产品构建或 Tauri bundle。
+
+### GitHub Release
+
+`.github/workflows/release.yml` 只响应 `v*` tag push，构建 Windows x64、Ubuntu 22.04 x64 和 macOS Universal；三者上传同一草稿 Release，全部成功后才公开。
+
+- 普通分支 push、pull request、手动 dispatch 不触发发布。
+- macOS ad-hoc identity `-` 不等于正式签名或公证。
+- 不为测试工作流随意创建/推送 tag。
+- 只有用户明确决定发布时，才提交、推送并创建与应用版本一致的 `v<version>` tag。
+
+## 10. 长期记忆与已知限制
+
+- SQLite schema 24 与数据目录标记格式 1 是独立概念。
+- 默认同步全部可选文件夹邮件头，正文按需；全文开关不是新调度入口。
+- 每账户三条 IMAP 会话预算，完整同步只占两条。
+- 搜索只覆盖当前账户/当前文件夹，不做跨账户或会话聚合。
+- 自有通知窗口不等于系统通知中心。
+- Vite 主入口仍有大于 500 kB 的 chunk 警告；不要把全局拆包混入无关阶段。
+- 前端没有 ESLint/Prettier，也没有普通分支或 PR CI。
+- 日志按日滚动，但没有保留/自动清理策略。
+- 远程图片代理/缓存、CSS 背景图和 Web Font 未实现。
+- 正式代码签名、公证和自动更新未实现。
+
+## 11. iteration、ADR 与文档维护
+
+- `iterations/` 是历史入口：每份文件记录一个阶段的范围、实施变更摘要、验证与验收。早期计划可能被后续阶段取代，判断当前行为始终以本文和代码为准。
+- 新阶段先建立对应 iteration；后续实现批次直接追加到同一文件，不再为每个批次创建独立 change 文档。
+- ADR 只解释长期架构/安全理由，不是默认必读清单；索引见 [`adr/README.md`](./adr/README.md)。ADR 0001 作为已被取代的历史决策保留，当前单一 Tauri Rust package 边界以 ADR 0006 为准。
+- 当前能力、技术栈、目录、数据格式、运行语义、限制或开发约定变化时更新本文。
+- 重大架构/安全取舍新增 ADR；已有决定变化时更新状态和修订说明。
+- 第三方资源或许可变化时更新 [`third-party-notices.md`](./third-party-notices.md)。
+- 根 README 面向用户和贡献者，精确技术事实链接本文。
+- 不再创建会话式交接文档、独立 change 流水账、重复技术参考或总体计划。
+- 某阶段的详细实现由对应 iteration 与 Git 历史承担；只有跨阶段继续有效的事实进入本文或 ADR。
