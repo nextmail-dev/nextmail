@@ -92,13 +92,15 @@ pub fn assemble_composition_content(
                 &template.content.editor_json,
             )?]);
         }
-        let mut content = vec![reply, serde_json::json!({ "type": "paragraph" })];
+        let mut content = vec![reply];
         if let Some(signature) = signature {
+            content.push(serde_json::json!({ "type": "nextmailSignatureDivider" }));
             content.push(definition_node(
                 "nextmailSignature",
                 &signature.id,
                 &signature.content.editor_json,
             )?);
+            content.push(serde_json::json!({ "type": "paragraph" }));
         }
         content.push(original);
         let editor_json = serde_json::to_string(&serde_json::json!({
@@ -118,7 +120,7 @@ pub fn assemble_composition_content(
         );
         let signature_html = signature.map_or_else(String::new, |value| {
             format!(
-                "<div data-nextmail-signature-id=\"{}\">{}</div>",
+                "<hr data-nextmail-signature-divider=\"\" style=\"border:0;border-top:1px solid #d9dee7;margin:20px 0\"><div data-nextmail-signature-id=\"{}\">{}</div><p></p>",
                 value.id, value.content.html
             )
         });
@@ -128,18 +130,31 @@ pub fn assemble_composition_content(
             .map(|index| &base.html[index..])
             .unwrap_or(base.html.as_str());
         let html = format!(
-            "<div data-nextmail-reply=\"\">{reply_html}</div><p></p>{signature_html}{original_html}"
+            "<div data-nextmail-reply=\"\">{reply_html}</div>{signature_html}{original_html}"
         );
-        let plain_text = [
-            template.map(|value| value.content.plain_text.as_str()),
-            signature.map(|value| value.content.plain_text.as_str()),
-            Some(base.plain_text.trim_start_matches('\n')),
-        ]
-        .into_iter()
-        .flatten()
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n");
+        let reply_plain = template.map_or("", |value| value.content.plain_text.as_str());
+        let original_plain = base.plain_text.trim_start_matches('\n');
+        let plain_text = signature.map_or_else(
+            || {
+                [reply_plain, original_plain]
+                    .into_iter()
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n\n")
+            },
+            |value| {
+                [
+                    reply_plain,
+                    "----------------",
+                    value.content.plain_text.as_str(),
+                    original_plain,
+                ]
+                .into_iter()
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n")
+            },
+        );
         return Ok(DraftContent {
             editor_json,
             html,
@@ -628,7 +643,6 @@ mod tests {
                 "type": "doc",
                 "content": [
                     { "type": "nextmailReply", "content": [{ "type": "paragraph" }] },
-                    { "type": "paragraph" },
                     {
                         "type": "nextmailOriginalMessage",
                         "attrs": { "sourceHtml": "<table><tr><td>Original</td></tr></table>" },
@@ -637,8 +651,8 @@ mod tests {
                 ]
             })
             .to_string(),
-            html: "<div data-nextmail-reply=\"\"><p></p></div><p></p><div data-nextmail-original-message=\"\"><table><tr><td>Original</td></tr></table></div>".to_owned(),
-            plain_text: "\n\nSender wrote:\n\nOriginal".to_owned(),
+            html: "<div data-nextmail-reply=\"\"><p></p></div><div data-nextmail-original-message=\"\"><table><tr><td>Original</td></tr></table></div>".to_owned(),
+            plain_text: "\n\n---------- Original message ----------\n\nOriginal".to_owned(),
         };
         let template = RenderedMailTemplate {
             id: "template-one".to_owned(),
@@ -671,21 +685,23 @@ mod tests {
             types,
             [
                 "nextmailReply",
-                "paragraph",
+                "nextmailSignatureDivider",
                 "nextmailSignature",
+                "paragraph",
                 "nextmailOriginalMessage"
             ]
         );
         assert!(document["content"][0]
             .to_string()
             .contains("nextmailTemplate"));
-        assert!(document["content"][3]
+        assert!(document["content"][4]
             .to_string()
             .contains("<table><tr><td>Original</td></tr></table>"));
+        assert!(assembled.html.contains("data-nextmail-signature-divider"));
         assert!(assembled.html.find("signature-one") < assembled.html.find("Original"));
         assert_eq!(
             assembled.plain_text,
-            "Reply\n\nRegards\n\nSender wrote:\n\nOriginal"
+            "Reply\n\n----------------\n\nRegards\n\n---------- Original message ----------\n\nOriginal"
         );
     }
 }

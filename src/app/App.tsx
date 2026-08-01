@@ -38,6 +38,9 @@ const AccountManagementApp = lazy(() =>
 const RawMessageApp = lazy(() =>
   import("@/features/mail/RawMessageApp").then((module) => ({ default: module.RawMessageApp })),
 );
+const MessagePreviewApp = lazy(() =>
+  import("@/features/mail/MessagePreviewApp").then((module) => ({ default: module.MessagePreviewApp })),
+);
 const CompositionDefinitionEditorApp = lazy(() =>
   import("@/features/preferences/CompositionDefinitionEditorApp")
     .then((module) => ({ default: module.CompositionDefinitionEditorApp })),
@@ -58,11 +61,13 @@ export function App() {
   const settings = params.get("window") === "settings";
   const accountManagement = params.get("window") === "accounts";
   const rawMessage = params.get("window") === "raw-message";
+  const messagePreview = params.get("window") === "message-preview";
   const definitionEditor = params.get("window") === "definition";
   const notification = params.get("window") === "notification";
   const notificationId = params.get("notificationId") ?? "";
   const accountId = params.get("accountId") ?? "";
   const messageId = params.get("messageId") ?? "";
+  const mailboxId = params.get("mailboxId") ?? "";
   const draftId = params.get("draftId") ?? "";
   const definitionKind = params.get("kind");
   const definitionId = params.get("definitionId");
@@ -82,28 +87,32 @@ export function App() {
       ? "settings"
       : accountManagement
         ? "accounts"
-        : rawMessage
-          ? "raw-message"
-          : definitionEditor
-            ? "definition"
-          : "main";
+        : messagePreview
+          ? "message-preview"
+          : rawMessage
+            ? "raw-message"
+            : definitionEditor
+              ? "definition"
+            : "main";
   const windowContent = composer && accountId && draftId
     ? <ComposerApp accountId={accountId} draftId={draftId} />
     : settings
       ? <SettingsApp />
       : accountManagement
         ? <AccountManagementApp />
-        : rawMessage && accountId && messageId
-          ? <RawMessageApp accountId={accountId} messageId={messageId} />
-          : definitionEditor && (definitionKind === "template" || definitionKind === "signature")
-            ? (
+        : messagePreview && accountId && mailboxId && messageId
+          ? <MessagePreviewApp accountId={accountId} mailboxId={mailboxId} messageId={messageId} />
+          : rawMessage && accountId && messageId
+            ? <RawMessageApp accountId={accountId} messageId={messageId} />
+            : definitionEditor && (definitionKind === "template" || definitionKind === "signature")
+              ? (
                 <CompositionDefinitionEditorApp
                   accountId={accountId || null}
                   kind={definitionKind}
                   definitionId={definitionId}
                 />
               )
-          : <AppContent />;
+              : <AppContent />;
   return (
     <QueryClientProvider client={queryClient}>
       <AppearanceEventBridge />
@@ -128,15 +137,14 @@ export function App() {
 
 function WindowFrame({ kind, children }: { kind: WindowKind; children: ReactNode }) {
   const { t } = useTranslation();
-  const title = kind === "main"
-    ? ""
-    : kind === "accounts"
-      ? t("accounts.title")
-      : kind === "raw-message"
-        ? t("mail.sourceTitle")
-        : kind === "definition"
-          ? t("compositionLibrary.editorWindowTitle")
-        : "NextMail";
+  let title = "NextMail";
+  if (kind === "main") title = "";
+  if (kind === "composer") title = t("composer.windowTitle");
+  if (kind === "settings") title = t("settings.title");
+  if (kind === "accounts") title = t("accounts.title");
+  if (kind === "message-preview") title = t("mail.previewWindowTitle");
+  if (kind === "raw-message") title = t("mail.sourceTitle");
+  if (kind === "definition") title = t("compositionLibrary.editorWindowTitle");
   return (
     <>
       <WindowTitlebar kind={kind} title={title} />
@@ -170,7 +178,7 @@ class WindowContentBoundary extends Component<
 
   private closeWindow = () => {
     const appWindow = getCurrentWindow();
-    void (["settings", "accounts", "raw-message", "definition"].includes(this.props.kind)
+    void (["settings", "accounts", "message-preview", "raw-message", "definition"].includes(this.props.kind)
       ? appWindow.destroy()
       : appWindow.close());
   };
@@ -191,6 +199,7 @@ class WindowContentBoundary extends Component<
 }
 
 function AppearanceEventBridge() {
+  useAppearancePreferences();
   useAppearanceEventBridge();
   return null;
 }

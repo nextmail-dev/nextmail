@@ -4,6 +4,8 @@
 
 日期：2026-07-22
 
+修订：2026-08-01，新增受限 BMP 文件头识别。
+
 ## 背景
 
 HTML 邮件可以用 `cid:` URL 引用同一 MIME 消息中的其他 body part。RFC 2392 定义了 `cid:` 与 `Content-ID` 的对应关系，RFC 2387 定义了 `multipart/related` 复合对象。部分发件客户端同时把被引用图片标为 `attachment`；若接收端只相信 `Content-Disposition`，会把正文图片重复显示成普通附件。
@@ -13,10 +15,10 @@ NextMail 的阅读器此前会移除 `cid:`，并把 `mail-parser` 返回的全�
 ## 决策
 
 - Rust 从当前账户隔离、已经下载的原始 MIME 中解析 HTML 与附件 part；不由 React 解析 MIME，也不把路径或内容哈希交给前端。
-- 只有 HTML 包含对应 `cid:`、part 有可规范化 `Content-ID`、类型为 PNG/JPEG/GIF/WebP、单项不超过 25 MB 且单封累计不超过 100 MB 时，才把解码字节转换为内存 `data:` URL。`cid:` 按 RFC 2392 对 URL 部分执行一次 `%hh` 解码，再与完整 MIME part 集合的 Content-ID 索引匹配，不依赖解析器对 `Content-Disposition` 的附件/inline 分类。
-- 邮件 HTML 自带的 `data:image` 只有在 media type、base64/百分号编码、解码后文件魔数和共享大小预算全部通过时保留；允许 PNG/JPEG/GIF/WebP，拒绝 SVG、HTML、未知类型、错误编码和超限内容。
+- 只有 HTML 包含对应 `cid:`、part 有可规范化 `Content-ID`、类型为 PNG/JPEG/GIF/WebP/BMP、单项不超过 25 MB 且单封累计不超过 100 MB 时，才把解码字节转换为内存 `data:` URL。`cid:` 按 RFC 2392 对 URL 部分执行一次 `%hh` 解码，再与完整 MIME part 集合的 Content-ID 索引匹配，不依赖解析器对 `Content-Disposition` 的附件/inline 分类。
+- 邮件 HTML 自带的 `data:image` 只有在 media type、base64/百分号编码、解码后文件魔数和共享大小预算全部通过时保留；允许 PNG/JPEG/GIF/WebP/BMP，拒绝 SVG、HTML、未知类型、错误编码和超限内容。BMP 除 `BM` 标识外还必须包含有界的文件大小、像素偏移和 DIB 头长度，不能只凭两个前缀字节判定。
 - 转换后的 URL 在既有 Rust HTML 白名单清洗期间替换 `img src`，最终文档 CSP 仍只有 `img-src data:`；不新增脚本、同源、表单、顶层导航、任意文件或网络权限。
-- 只有真正进入清洗结果的 CID part 才从普通附件摘要排除。声明为 PNG/JPEG/GIF/WebP 的 part 沿用受限内联规则；被错误声明为 `application/octet-stream` 的 CID part 只有在解码字节文件魔数可确认上述四种图片类型时才兼容内联，不信任文件名。未引用、超限、类型不受支持、文件魔数不匹配或无法安全解析的 part 继续作为附件，不静默丢失；从本地 EML 重建正文时，正文和重复附件投影在同一 SQLite 事务更新。
+- 只有真正进入清洗结果的 CID part 才从普通附件摘要排除。声明为 PNG/JPEG/GIF/WebP/BMP 的 part 沿用受限内联规则；被错误声明为 `application/octet-stream` 的 CID part 只有在解码字节文件魔数可确认上述五种图片类型时才兼容内联，不信任文件名。未引用、超限、类型不受支持、文件魔数不匹配或无法安全解析的 part 继续作为附件，不静默丢失；从本地 EML 重建正文时，正文和重复附件投影在同一 SQLite 事务更新。
 - 数据库仍以原始 EML 为重建来源，不把展开后的图片另存进 `safe_html` 之外的新资源目录；Composer 的受管 CID 附件与发件边界继续由 ADR 0009 管理。
 
 ## 影响

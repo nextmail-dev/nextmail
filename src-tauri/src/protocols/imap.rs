@@ -17,8 +17,8 @@ pub use provider::AsyncImapProvider;
 
 use crate::core::{
     CommandError, CommandResult, ContentAvailability, ImapAccountConfig, MailSyncSink, MailboxRole,
-    MessageListItem, RemoteMailbox, RemoteMessage, RemoteMessageState, StoredMailbox, SyncNotice,
-    SyncObserver,
+    MailboxSyncTarget, MessageListItem, RemoteMailbox, RemoteMessage, RemoteMessageState,
+    StoredMailbox, StoredMessageLocation, SyncNotice, SyncObserver,
 };
 use async_imap::{
     types::{Flag, NameAttribute},
@@ -98,6 +98,7 @@ where
             sink,
             observer,
             condstore,
+            account.download_full_messages,
             FolderDescriptor {
                 role: mailbox_role(&display_name, folder.attributes()),
                 selectable: !folder.attributes().contains(&NameAttribute::NoSelect),
@@ -120,12 +121,56 @@ where
     Ok(())
 }
 
+async fn sync_mailbox_session<T>(
+    mut session: Session<T>,
+    account: &ImapAccountConfig,
+    mailbox: &MailboxSyncTarget,
+    sink: &(dyn MailSyncSink + Send + Sync),
+    observer: &(dyn SyncObserver + Send + Sync),
+) -> CommandResult<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let capabilities = session
+        .capabilities()
+        .await
+        .map_err(map_imap_err("sync.imap_capability_failed", true))?;
+    let condstore = capabilities.has_str("CONDSTORE");
+    let mut sessions = vec![session];
+    let result = sync_folder(
+        &mut sessions,
+        account,
+        sink,
+        observer,
+        condstore,
+        false,
+        FolderDescriptor {
+            name: mailbox.name.clone(),
+            display_name: mailbox.display_name.clone(),
+            progress_name: mailbox_leaf_display_name(
+                &mailbox.display_name,
+                mailbox.delimiter.as_deref(),
+            )
+            .to_owned(),
+            delimiter: mailbox.delimiter.clone(),
+            role: mailbox.role.clone(),
+            selectable: true,
+        },
+    )
+    .await;
+    if let Some(mut session) = sessions.pop() {
+        let _ = session.logout().await;
+    }
+    result
+}
+
 async fn sync_folder<T>(
     sessions: &mut [Session<T>],
     account: &ImapAccountConfig,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
     condstore: bool,
+    download_full_messages: bool,
     folder: FolderDescriptor,
 ) -> CommandResult<()>
 where
@@ -256,6 +301,10 @@ where
         highest_uid = highest_uid.max(result?);
     }
 
+    if download_full_messages {
+        fetch_missing_bodies(sessions, account, sink, observer, &context, &write_lock).await?;
+    }
+
     reconcile_flags(
         &mut sessions[0],
         sink,
@@ -360,6 +409,98 @@ where
         }
     }
     Ok(highest_uid)
+}
+
+async fn fetch_missing_bodies<T>(
+    sessions: &mut [Session<T>],
+    account: &ImapAccountConfig,
+    sink: &(dyn MailSyncSink + Send + Sync),
+    observer: &(dyn SyncObserver + Send + Sync),
+    context: &FolderSyncContext<'_>,
+    write_lock: &Mutex<()>,
+) -> CommandResult<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let uids = pending_body_uids(
+        sink.pending_body_locations(&context.mailbox.id, None)
+            .await?,
+        context.uid_validity,
+    );
+    let total = uids.len() as u64;
+    if total == 0 {
+        return Ok(());
+    }
+
+    let completed = AtomicU64::new(0);
+    let chunks = split_uids(&uids, sessions.len());
+    let results = join_all(sessions.iter_mut().enumerate().map(|(index, session)| {
+        fetch_bodies_worker(
+            session,
+            &chunks[index],
+            account,
+            sink,
+            observer,
+            context,
+            &completed,
+            total,
+            write_lock,
+        )
+    }))
+    .await;
+    for result in results {
+        result?;
+    }
+    Ok(())
+}
+
+fn pending_body_uids(locations: Vec<StoredMessageLocation>, current_uid_validity: u32) -> Vec<u32> {
+    let mut uids = locations
+        .into_iter()
+        .filter(|location| location.uid_validity == current_uid_validity)
+        .map(|location| location.uid)
+        .collect::<Vec<_>>();
+    uids.sort_unstable();
+    uids
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn fetch_bodies_worker<T>(
+    session: &mut Session<T>,
+    uids: &[u32],
+    account: &ImapAccountConfig,
+    sink: &(dyn MailSyncSink + Send + Sync),
+    observer: &(dyn SyncObserver + Send + Sync),
+    context: &FolderSyncContext<'_>,
+    completed: &AtomicU64,
+    total: u64,
+    write_lock: &Mutex<()>,
+) -> CommandResult<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    for uid in uids {
+        let messages = session::fetch_remote_messages(
+            session,
+            std::slice::from_ref(uid),
+            context.uid_validity,
+        )
+        .await?;
+        for message in messages {
+            {
+                let _write_guard = write_lock.lock().await;
+                sink.upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
+                    .await?;
+            }
+            let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+            observer.notify(SyncNotice::Bodies {
+                completed: done,
+                total,
+                mailbox_name: context.mailbox_name.to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 async fn fetch_summary_batch<T>(
@@ -525,6 +666,28 @@ mod tests {
         let empty = split_uids(&[], 3);
         assert_eq!(empty.len(), 3);
         assert!(empty.iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn full_message_sync_fetches_only_missing_bodies_for_current_uid_validity() {
+        let uids = pending_body_uids(
+            vec![
+                StoredMessageLocation {
+                    uid: 9,
+                    uid_validity: 2,
+                },
+                StoredMessageLocation {
+                    uid: 3,
+                    uid_validity: 2,
+                },
+                StoredMessageLocation {
+                    uid: 1,
+                    uid_validity: 1,
+                },
+            ],
+            2,
+        );
+        assert_eq!(uids, vec![3, 9]);
     }
 
     #[test]

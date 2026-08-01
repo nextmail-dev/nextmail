@@ -20,6 +20,7 @@ pub struct PendingOperationWork {
     pub message_id: Option<String>,
     pub source_mailbox_id: Option<String>,
     pub source_mailbox_name: Option<String>,
+    pub destination_mailbox_id: Option<String>,
     pub destination_mailbox_name: Option<String>,
     pub uid: Option<u32>,
     pub uid_validity: Option<u32>,
@@ -57,6 +58,7 @@ struct PendingOperationRow {
     message_id: Option<String>,
     source_mailbox_id: Option<String>,
     source_name: Option<String>,
+    destination_mailbox_id: Option<String>,
     destination_name: Option<String>,
     uid: Option<i64>,
     uid_validity: Option<i64>,
@@ -327,6 +329,7 @@ impl OperationRepository {
             .map_err(|_| CommandError::new("operation.claim_failed"))?;
         let row: Option<PendingOperationRow> = sqlx::query_as(
             "SELECT o.id, o.kind, o.message_id, o.source_mailbox_id, sb.remote_name AS source_name, \
+                    o.destination_mailbox_id, \
                     db.remote_name AS destination_name, o.uid, o.uid_validity, o.base_modseq, \
                     o.payload_json, o.attempt_count \
              FROM pending_operations o \
@@ -595,6 +598,7 @@ fn pending_operation_work(row: PendingOperationRow) -> CommandResult<PendingOper
         message_id: row.message_id,
         source_mailbox_id: row.source_mailbox_id,
         source_mailbox_name: row.source_name,
+        destination_mailbox_id: row.destination_mailbox_id,
         destination_mailbox_name: row.destination_name,
         uid: row.uid.map(|value| value as u32),
         uid_validity: row.uid_validity.map(|value| value as u32),
@@ -989,5 +993,29 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn draft_append_claim_preserves_target_mailbox_identity() {
+        let (_directory, repository, _, archive_id, _) = seeded_repository().await;
+        repository
+            .operations()
+            .queue_draft_append("slot", &archive_id, "draft-one", "hash-one", 1)
+            .await
+            .unwrap();
+
+        let work = repository
+            .operations()
+            .claim_pending_operation("slot")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(work.kind, PendingOperationKind::AppendDraft);
+        assert_eq!(
+            work.destination_mailbox_id.as_deref(),
+            Some(archive_id.as_str())
+        );
+        assert_eq!(work.destination_mailbox_name.as_deref(), Some("Archive"));
     }
 }

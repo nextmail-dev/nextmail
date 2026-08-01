@@ -43,6 +43,7 @@ import {
   createNextMailOriginalMessage,
   NextMailReply,
   NextMailSignature,
+  NextMailSignatureDivider,
   NextMailTemplate,
 } from "./composition-nodes";
 import {
@@ -96,6 +97,7 @@ const BASE_COMPOSER_EXTENSIONS: Extensions = [
   EmailTableHeader,
   NextMailImage,
   NextMailTemplate,
+  NextMailSignatureDivider,
   NextMailSignature,
   NextMailReply,
 ];
@@ -418,7 +420,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
               ref={imageInputRef}
               className="sr-only"
               type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
+              accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
               multiple
               aria-label={t("composer.insertImage")}
               disabled={richDisabled}
@@ -673,7 +675,7 @@ async function insertCachedImages(
 }
 
 function dataImageFile(value: string, index: number) {
-  const match = /^data:(image\/(?:png|jpeg|gif|webp));base64,([a-z0-9+/=\s]+)$/i.exec(value.trim());
+  const match = /^data:(image\/(?:png|jpeg|gif|webp|bmp));base64,([a-z0-9+/=\s]+)$/i.exec(value.trim());
   if (!match) return null;
   try {
     const binary = window.atob(match[2].replace(/\s/g, ""));
@@ -893,10 +895,15 @@ function replaceCompositionNode(
   content?: DraftContent,
 ) {
   if (!editor) return false;
-  const document = editor.getJSON();
-  const target = findNode(document, nodeType);
+  const target = findEditorNode(editor, nodeType);
   if (!definitionId) {
     if (!target) return true;
+    if (nodeType === "nextmailSignature") {
+      const divider = findEditorNode(editor, "nextmailSignatureDivider");
+      if (divider?.to === target.from) {
+        return editor.chain().deleteRange({ from: divider.from, to: target.to }).run();
+      }
+    }
     return editor.chain().deleteRange({ from: target.from, to: target.to }).run();
   }
   const children = parseDocument(content?.editorJson ?? "").content;
@@ -909,15 +916,19 @@ function replaceCompositionNode(
     return editor.chain().insertContentAt(target, node).run();
   }
   if (nodeType === "nextmailTemplate") {
-    const reply = findNode(document, "nextmailReply");
+    const reply = findEditorNode(editor, "nextmailReply");
     if (reply) {
       return insertNodeAt(editor, reply.from + 1, node);
     }
     return editor.chain().insertContentAt(0, node).run();
   }
-  const original = findNode(document, "nextmailOriginalMessage");
+  const original = findEditorNode(editor, "nextmailOriginalMessage");
   if (original) {
-    return insertNodeAt(editor, original.from, node);
+    return editor.chain().insertContentAt(original.from, [
+      { type: "nextmailSignatureDivider" },
+      node,
+      { type: "paragraph" },
+    ]).run();
   }
   return editor.chain().insertContentAt(editor.state.doc.content.size, [
     { type: "paragraph" },
@@ -935,34 +946,16 @@ function insertNodeAt(editor: Editor, position: number, node: JSONContent) {
   }
 }
 
-function findNode(
-  document: JSONContent,
+function findEditorNode(
+  editor: Editor,
   nodeType: string,
-) {
-  return findNodeInChildren(document.content ?? [], nodeType, 0);
-}
-
-function findNodeInChildren(
-  children: JSONContent[],
-  nodeType: string,
-  start: number,
 ): { from: number; to: number } | null {
-  let position = start;
-  for (const node of children) {
-    const size = nodeSize(node);
-    if (node.type === nodeType) return { from: position, to: position + size };
-    const nested = findNodeInChildren(node.content ?? [], nodeType, position + 1);
-    if (nested) return nested;
-    position += size;
-  }
-  return null;
-}
-
-function nodeSize(node: JSONContent): number {
-  if (node.type === "text") return node.text?.length ?? 0;
-  const contentSize: number = (node.content ?? []).reduce(
-    (sum: number, child: JSONContent) => sum + nodeSize(child),
-    0,
-  );
-  return 2 + contentSize;
+  let result: { from: number; to: number } | null = null;
+  editor.state.doc.descendants((node, position) => {
+    if (result) return false;
+    if (node.type.name !== nodeType) return true;
+    result = { from: position, to: position + node.nodeSize };
+    return false;
+  });
+  return result;
 }

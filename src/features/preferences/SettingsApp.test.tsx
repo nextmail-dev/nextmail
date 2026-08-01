@@ -26,6 +26,7 @@ vi.mock("@/app/api", () => ({
       security: "tls",
       syncPolicy: "days90",
       syncInterval: "minutes1",
+      downloadFullMessages: false,
       downloadNonInboxBodies: false,
     }),
     listMailboxes: vi.fn().mockResolvedValue([]),
@@ -106,7 +107,7 @@ describe("SettingsApp", () => {
     expect(screen.getAllByRole("checkbox")[2]).toBeChecked();
   });
 
-  it("offers an accessible theme-color palette instead of a select", async () => {
+  it("offers visual theme modes and an accessible theme-color palette", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
@@ -116,15 +117,27 @@ describe("SettingsApp", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Appearance" }));
     expect(screen.getByRole("button", { name: "Appearance" })).toHaveClass("bg-primary/10", "text-primary");
+    expect(screen.getByRole("radio", { name: "Use system setting" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Light" })).not.toBeChecked();
+    expect(screen.getByRole("radio", { name: "Dark" })).not.toBeChecked();
     expect(screen.getByText("Theme color")).toBeInTheDocument();
-    expect(screen.getAllByRole("radio")).toHaveLength(10);
     expect(screen.getByRole("radio", { name: "Blue" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
+    await waitFor(() => {
+      const calls = vi.mocked(api.setAppearancePreferences).mock.calls;
+      expect(calls[calls.length - 1]?.[0]).toEqual({
+        theme: "dark",
+        accentColor: "#2563eb",
+        language: "en-US",
+      });
+    });
 
     fireEvent.click(screen.getByRole("radio", { name: "Orange" }));
     await waitFor(() => {
       const calls = vi.mocked(api.setAppearancePreferences).mock.calls;
       expect(calls[calls.length - 1]?.[0]).toEqual({
-        theme: "system",
+        theme: "dark",
         accentColor: "#ea580c",
         language: "en-US",
       });

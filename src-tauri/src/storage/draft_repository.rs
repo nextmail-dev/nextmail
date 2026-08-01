@@ -149,7 +149,7 @@ impl DraftRepository {
         message_id: &str,
     ) -> CommandResult<MessageActionSource> {
         let message = sqlx::query(
-            "SELECT subject, from_json, to_json, cc_json, message_id, references_json \
+            "SELECT subject, from_json, to_json, cc_json, received_at, message_id, references_json \
              FROM messages WHERE id = ? AND account_slot_id = ?",
         )
         .bind(message_id)
@@ -184,6 +184,7 @@ impl DraftRepository {
             from: decode_addresses(message.try_get("from_json").map_err(read_error)?)?,
             to: decode_addresses(message.try_get("to_json").map_err(read_error)?)?,
             cc: decode_addresses(message.try_get("cc_json").map_err(read_error)?)?,
+            received_at: message.try_get("received_at").map_err(read_error)?,
             message_id: message.try_get("message_id").map_err(read_error)?,
             references: serde_json::from_str(
                 &message
@@ -867,12 +868,15 @@ mod tests {
             "me@example.com",
             MessageComposeAction::ReplyAll,
             MessageActionLabels {
-                original_message: "Forwarded message",
-                wrote: "wrote:",
+                original_message: "Original message",
                 from: "From",
+                date: "Sent",
                 to: "To",
                 subject: "Subject",
+                reply_subject_prefix: "Re: ",
+                forward_subject_prefix: "Fwd: ",
             },
+            "1970-01-01 00:00",
         )
         .unwrap();
         let draft = repository

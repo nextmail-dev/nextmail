@@ -15,26 +15,18 @@ import {
   Settings,
   ShieldAlert,
   Trash2,
-  X,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { normalizeCommandError } from "@/app/api";
 import { reportCaughtError } from "@/app/errorReporting";
-import type { DraftListItem, MailboxRole, MailboxSummary, SyncProgress } from "@/app/types";
+import type { MailboxRole, MailboxSummary, SyncProgress } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Inline, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
 import { LabelText, Text } from "@/components/ui/typography";
 import {
@@ -58,9 +50,6 @@ interface MailboxPaneProps {
   progress?: SyncProgress;
   error?: unknown;
   onCompose: () => void;
-  drafts: DraftListItem[];
-  onOpenDraft: (draftId: string) => void;
-  onDeleteDraft: (draftId: string) => Promise<void>;
   onReceive: () => void;
   receiving: boolean;
   folderActionBusy?: boolean;
@@ -84,9 +73,6 @@ export function MailboxPane({
   progress,
   error,
   onCompose,
-  drafts,
-  onOpenDraft,
-  onDeleteDraft,
   onReceive,
   receiving,
   folderActionBusy = false,
@@ -100,7 +86,6 @@ export function MailboxPane({
   collapsed = false,
 }: MailboxPaneProps) {
   const { t } = useTranslation();
-  const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
   const [folderDialogAction, setFolderDialogAction] = useState<MailboxDialogAction | null>(null);
   const activeSync = progress && !["idle", "complete", "failed"].includes(progress.phase);
@@ -152,12 +137,6 @@ export function MailboxPane({
     });
   }
 
-  useEffect(() => {
-    if (!pendingDeleteDraftId) return;
-    const timeout = window.setTimeout(() => setPendingDeleteDraftId(null), 4_000);
-    return () => window.clearTimeout(timeout);
-  }, [pendingDeleteDraftId]);
-
   return (
     <Stack className={collapsed ? "min-h-0 flex-1 items-center px-2 py-5" : "min-h-0 flex-1 px-4 py-5"} gap="md">
       <Inline className={collapsed ? "w-full justify-center gap-0" : "w-full gap-1"}>
@@ -170,54 +149,6 @@ export function MailboxPane({
           <MailPlus className="size-[18px] shrink-0" />
           {collapsed ? null : t("mail.compose")}
         </Button>
-        {drafts.length && !collapsed ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button className="h-11 w-10 px-0" aria-label={t("composer.openDraft")}>
-                <ChevronDown size={15} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-72 p-2">
-              <DropdownMenuLabel className="px-2 py-1.5 normal-case">{t("composer.localDrafts")}</DropdownMenuLabel>
-              {drafts.map((draft) => (
-                <Inline key={draft.id} className="gap-1 rounded-md px-1 hover:bg-accent/70">
-                  <DropdownMenuItem
-                    className="h-auto min-h-12 min-w-0 flex-1 items-start bg-transparent px-2 py-2.5 focus:bg-transparent"
-                    onSelect={() => onOpenDraft(draft.id)}
-                  >
-                    <FilePenLine className="mt-0.5 shrink-0" size={15} />
-                    <Stack gap="xs" className="min-w-0 py-0.5">
-                      <Text className="truncate text-[length:var(--ui-font-control)] leading-5 text-foreground">{draft.subject || t("mail.noSubject")}</Text>
-                      <Text className="truncate text-[length:var(--ui-font-caption)] leading-4">
-                        {draft.recipients.map((recipient) => recipient.name || recipient.email).join(", ") || t("composer.noRecipients")}
-                      </Text>
-                    </Stack>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className={pendingDeleteDraftId === draft.id
-                      ? "size-7 shrink-0 justify-center self-center bg-destructive p-0 text-white focus:bg-destructive/90 focus:text-white"
-                      : "size-7 shrink-0 justify-center self-center bg-transparent p-0 text-muted-foreground"}
-                    aria-label={pendingDeleteDraftId === draft.id ? t("composer.confirmDeleteDraft") : t("composer.deleteDraft")}
-                    title={pendingDeleteDraftId === draft.id ? t("composer.confirmDeleteDraft") : t("composer.deleteDraft")}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      if (pendingDeleteDraftId !== draft.id) {
-                        setPendingDeleteDraftId(draft.id);
-                        return;
-                      }
-                      void onDeleteDraft(draft.id)
-                        .then(() => setPendingDeleteDraftId(null))
-                        .catch((error) => reportCaughtError("draft.delete", error));
-                    }}
-                  >
-                    {pendingDeleteDraftId === draft.id ? <Trash2 size={13} /> : <X size={13} />}
-                  </DropdownMenuItem>
-                </Inline>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
       </Inline>
       {collapsed ? (
         <Inline className="w-full justify-center">

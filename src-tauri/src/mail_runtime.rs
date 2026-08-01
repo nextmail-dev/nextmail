@@ -464,6 +464,12 @@ impl MailRuntime {
             .read()
             .get_sync_interval(&account.data_slot_id)
             .await?;
+        let download_full_messages = self
+            .repository()
+            .await?
+            .read()
+            .get_download_full_messages(&account.data_slot_id)
+            .await?;
         Ok(AccountManagementDetail {
             id: account.id,
             email: account.email,
@@ -472,6 +478,7 @@ impl MailRuntime {
             incoming_port: account.incoming.port,
             security: account.incoming.security,
             sync_interval,
+            download_full_messages,
         })
     }
 
@@ -492,6 +499,20 @@ impl MailRuntime {
         Ok(updated)
     }
 
+    pub async fn set_account_download_full_messages(
+        &self,
+        account_id: &str,
+        enabled: bool,
+    ) -> CommandResult<bool> {
+        self.ensure_account_writable(account_id)?;
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .read()
+            .set_download_full_messages(&account.data_slot_id, enabled)
+            .await
+    }
+
     pub fn sync_now(&self, account_id: &str) -> CommandResult<()> {
         self.ensure_account_writable(account_id)?;
         if self.runtime_state_is(account_id, AccountRuntimeState::Syncing) {
@@ -510,6 +531,12 @@ impl MailRuntime {
 
     async fn imap_config(&self, account_id: &str) -> CommandResult<ImapAccountConfig> {
         let account = self.service.account_record(account_id)?;
+        let download_full_messages = self
+            .repository()
+            .await?
+            .read()
+            .get_download_full_messages(&account.data_slot_id)
+            .await?;
         let password = self
             .service
             .account_password(&account.credential_ref)
@@ -517,6 +544,7 @@ impl MailRuntime {
         Ok(ImapAccountConfig {
             account_id: account.id,
             account_slot_id: account.data_slot_id,
+            download_full_messages,
             host: account.incoming.host,
             port: account.incoming.port,
             security: account.incoming.security,

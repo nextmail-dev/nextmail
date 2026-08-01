@@ -186,22 +186,12 @@ impl ComposerRuntime {
         let draft = drafts
             .get_draft(account_id, &account.data_slot_id, draft_id)
             .await?;
-        let is_empty = draft.subject.trim().is_empty()
-            && draft.recipients.to.is_empty()
-            && draft.recipients.cc.is_empty()
-            && draft.recipients.bcc.is_empty()
-            && draft.content.plain_text.trim().is_empty()
-            && (draft.content.html.trim().is_empty() || draft.content.html.trim() == "<p></p>")
-            && draft.attachments.is_empty();
-        if is_empty {
-            return Ok(());
-        }
         let Some((drafts_mailbox_id, _)) = repository
             .mailbox_roles()
             .mailbox_for_role(&account.data_slot_id, MailboxRole::Drafts)
             .await?
         else {
-            return Ok(());
+            return Err(CommandError::new("draft.mailbox_mapping_missing"));
         };
         let mut attachments = Vec::new();
         for stored in drafts

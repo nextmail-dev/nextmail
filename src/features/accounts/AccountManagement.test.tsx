@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/app/api";
@@ -16,6 +16,7 @@ vi.mock("@/app/api", () => ({
     listMailboxes: vi.fn(),
     getAccountRemovalImpact: vi.fn(),
     setAccountSyncInterval: vi.fn(),
+    setAccountDownloadFullMessages: vi.fn(),
   },
   normalizeCommandError: vi.fn(() => ({ code: "common.unexpected_error", params: {}, retryable: false })),
 }));
@@ -38,6 +39,7 @@ beforeEach(() => {
     incomingPort: 993,
     security: "tls",
     syncInterval: "minutes1",
+    downloadFullMessages: false,
   });
   vi.mocked(api.getSyncProgress).mockResolvedValue({
     accountId: "account-one",
@@ -72,7 +74,7 @@ describe("AccountsManagement", () => {
     );
 
     expect(screen.getByText("Email accounts")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add account" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add account" })).toHaveClass("bg-primary");
     const detailScrollArea = container.querySelector(".account-management-detail-scroll");
     expect(detailScrollArea).toHaveClass("-ml-1");
     expect(detailScrollArea?.querySelector(".native-scrollbar-hidden")).toHaveClass("pl-1", "pr-3");
@@ -112,5 +114,10 @@ describe("AccountsManagement", () => {
 
     expect(await screen.findByText("Automatic synchronization")).toBeInTheDocument();
     expect(screen.getByText("Every minute")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Download full messages" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Download full messages" }));
+    await waitFor(() => {
+      expect(api.setAccountDownloadFullMessages).toHaveBeenCalledWith("account-one", true);
+    });
   });
 });

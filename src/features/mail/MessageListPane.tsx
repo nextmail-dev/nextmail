@@ -2,6 +2,7 @@ import {
   Archive,
   CloudUpload,
   Copy,
+  ExternalLink,
   FilePenLine,
   FolderInput,
   Forward,
@@ -123,10 +124,13 @@ export function MessageListPane({
   const editDraftOperation = useMutation({
     mutationFn: (message: MessageListItem) => api.openRemoteDraft(accountId, message.id),
   });
+  const previewOperation = useMutation({
+    mutationFn: (message: MessageListItem) => api.openMessagePreviewWindow(accountId, mailboxId, message.id),
+  });
   const mailboxName = mailbox
     ? mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`)
     : t("mail.messages");
-  const actionError = operation.error ?? composeOperation.error ?? editDraftOperation.error;
+  const actionError = operation.error ?? composeOperation.error ?? editDraftOperation.error ?? previewOperation.error;
   const autoLoadMore = readingPreferences.data?.autoLoadMoreMessages ?? true;
 
   function loadNextPageNearEnd(event: UIEvent<HTMLDivElement>) {
@@ -168,6 +172,7 @@ export function MessageListPane({
       {actionError ? <MessageListError error={actionError} /> : null}
       {items.length ? (
         <OverlayScrollArea
+          key={`${accountId}:${mailboxId}`}
           className="min-h-0 flex-1"
           viewportClassName="pr-4"
           trackClassName="right-2 w-3"
@@ -179,10 +184,11 @@ export function MessageListPane({
               message={message}
               currentMailbox={mailbox}
               mailboxes={mailboxes}
-              pending={operation.isPending || composeOperation.isPending || editDraftOperation.isPending}
+              pending={operation.isPending || composeOperation.isPending || editDraftOperation.isPending || previewOperation.isPending}
               onCompose={(action) => composeOperation.mutate({ message, action })}
               onOperate={(kind, destination) => operation.mutate({ message, kind, destination })}
               onEditDraft={() => editDraftOperation.mutate(message)}
+              onOpenInNewWindow={() => previewOperation.mutate(message)}
             >
               <MessageRow
                 message={message}
@@ -191,10 +197,12 @@ export function MessageListPane({
                 noSubject={t("mail.noSubject")}
                 starLabel={message.flagged ? t("mail.removeStar") : t("mail.addStar")}
                 onContextMenu={() => onSelect(message.id)}
-                onClick={() => {
+                onClick={(clickCount) => {
+                  if (clickCount > 1) return;
                   onSelect(message.id === selectedMessageId ? "" : message.id);
                   if (message.unread) operation.mutate({ message, kind: "read" });
                 }}
+                onOpenInNewWindow={() => previewOperation.mutate(message)}
                 onToggleFlag={() => operation.mutate({ message, kind: "flag" })}
               />
             </MessageActionsContextMenu>
@@ -228,7 +236,8 @@ interface MessageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"
   yesterdayLabel: string;
   noSubject: string;
   starLabel: string;
-  onClick: () => void;
+  onClick: (clickCount: number) => void;
+  onOpenInNewWindow: () => void;
   onToggleFlag: () => void;
 }
 
@@ -239,6 +248,7 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
   noSubject,
   starLabel,
   onClick,
+  onOpenInNewWindow,
   onToggleFlag,
   className,
   ...props
@@ -256,7 +266,11 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
       <Button
         variant="ghost"
         className="h-auto min-w-0 flex-1 items-start rounded-none bg-transparent px-6 py-4 pr-12 text-left hover:bg-transparent"
-        onClick={onClick}
+        onClick={(event) => onClick(event.detail)}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          onOpenInNewWindow();
+        }}
       >
         <Stack className="min-w-0 flex-1" gap="xs">
           <Inline className="w-full">
@@ -302,6 +316,7 @@ function MessageActionsContextMenu({
   onCompose,
   onOperate,
   onEditDraft,
+  onOpenInNewWindow,
   children,
 }: {
   message: MessageListItem;
@@ -311,6 +326,7 @@ function MessageActionsContextMenu({
   onCompose: (action: "reply" | "reply_all" | "forward") => void;
   onOperate: (kind: MessageListOperationKind, destination?: string) => void;
   onEditDraft: () => void;
+  onOpenInNewWindow: () => void;
   children: ReactElement;
 }) {
   const { t } = useTranslation();
@@ -321,9 +337,14 @@ function MessageActionsContextMenu({
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem disabled={pending} onSelect={() => onCompose("reply")}><Reply size={16} />{t("mail.reply")}</ContextMenuItem>
-        <ContextMenuItem disabled={pending} onSelect={() => onCompose("reply_all")}><ReplyAll size={16} />{t("mail.replyAll")}</ContextMenuItem>
-        <ContextMenuItem disabled={pending} onSelect={() => onCompose("forward")}><Forward size={16} />{t("mail.forward")}</ContextMenuItem>
+        <ContextMenuItem disabled={pending} onSelect={onOpenInNewWindow}><ExternalLink size={16} />{t("mail.openInNewWindow")}</ContextMenuItem>
+        {!isDraft ? (
+          <>
+            <ContextMenuItem disabled={pending} onSelect={() => onCompose("reply")}><Reply size={16} />{t("mail.reply")}</ContextMenuItem>
+            <ContextMenuItem disabled={pending} onSelect={() => onCompose("reply_all")}><ReplyAll size={16} />{t("mail.replyAll")}</ContextMenuItem>
+            <ContextMenuItem disabled={pending} onSelect={() => onCompose("forward")}><Forward size={16} />{t("mail.forward")}</ContextMenuItem>
+          </>
+        ) : null}
         {isDraft ? <ContextMenuItem disabled={pending} onSelect={onEditDraft}><FilePenLine size={16} />{t("mail.editDraft")}</ContextMenuItem> : null}
         <ContextMenuSeparator />
         <ContextMenuItem disabled={pending} onSelect={() => onOperate("read")}>

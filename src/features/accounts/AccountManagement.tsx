@@ -8,6 +8,7 @@ import type { AccountDraft, AccountSummary, MailboxRole, SyncInterval } from "@/
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Modal } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PasswordField } from "@/components/ui/input";
@@ -53,7 +54,7 @@ export function AccountsManagement({
     <Stack className="mt-5 min-h-0 flex-1" gap="lg">
       <Inline className="justify-between">
         <LabelText>{t("accounts.accountList")}</LabelText>
-        {accounts.length ? <Button size="sm" onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button> : null}
+        {accounts.length ? <Button variant="primary" size="sm" onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button> : null}
       </Inline>
       {accounts.length ? (
         <Page className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] gap-6 overflow-hidden">
@@ -94,7 +95,7 @@ export function AccountsManagement({
           icon={<CircleUserRound size={24} />}
           title={t("accounts.noAccount")}
           description={t("accounts.noAccountDescription")}
-          action={<Button onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button>}
+          action={<Button variant="primary" onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button>}
         />
       )}
       <Modal open={addOpen} onOpenChange={setAddOpen} title={t("accounts.addTitle")} closeLabel={t("common.close")}>
@@ -141,6 +142,10 @@ export function AccountManagementPanel({
     mutationFn: (syncInterval: SyncInterval) => api.setAccountSyncInterval(accountId, syncInterval),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
   });
+  const fullMessagesMutation = useMutation({
+    mutationFn: (enabled: boolean) => api.setAccountDownloadFullMessages(accountId, enabled),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["account-management", accountId] }),
+  });
   const roleMutation = useMutation({
     mutationFn: ({ role, mailboxId }: { role: MailboxRole; mailboxId: string | null }) => api.setMailboxRoleMapping(accountId, role, mailboxId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["mailboxes", accountId] }),
@@ -164,7 +169,13 @@ export function AccountManagementPanel({
   });
   const account = detailQuery.data;
   const runtime = runtimeQuery.data?.find((item) => item.accountId === accountId);
-  const operationError = detailQuery.error ?? mailboxesQuery.error ?? roleMutation.error ?? reauthMutation.error ?? removeMutation.error;
+  const operationError = detailQuery.error
+    ?? mailboxesQuery.error
+    ?? intervalMutation.error
+    ?? fullMessagesMutation.error
+    ?? roleMutation.error
+    ?? reauthMutation.error
+    ?? removeMutation.error;
   const normalizedError = operationError ? normalizeCommandError(operationError) : null;
 
   async function updateAccount(draft: AccountDraft) {
@@ -218,6 +229,15 @@ export function AccountManagementPanel({
             onValueChange={(value) => intervalMutation.mutate(value as SyncInterval)}
             disabled={intervalMutation.isPending}
           />
+          <Stack className="rounded-lg bg-muted/60 p-4" gap="sm">
+            <Checkbox
+              checked={account.downloadFullMessages}
+              disabled={fullMessagesMutation.isPending}
+              label={t("accounts.downloadFullMessages")}
+              onCheckedChange={(enabled) => fullMessagesMutation.mutate(enabled)}
+            />
+            <Text className="pl-[28px] text-xs">{t("accounts.downloadFullMessagesDescription")}</Text>
+          </Stack>
           <Stack gap="sm">
             <LabelText>{t("accounts.folderMappings")}</LabelText>
             {(["sent", "drafts", "trash", "archive"] as MailboxRole[]).map((role) => (

@@ -67,7 +67,6 @@ describe("RichTextEditor composition nodes", () => {
       type: "doc",
       content: [
         { type: "nextmailReply", content: [{ type: "paragraph" }] },
-        { type: "paragraph" },
         {
           type: "nextmailOriginalMessage",
           attrs: { sourceHtml },
@@ -91,6 +90,12 @@ describe("RichTextEditor composition nodes", () => {
     expect(Number.parseFloat(originalFrame?.style.height ?? "0")).toBeGreaterThan(300);
     expect(originalFrame?.srcdoc).toContain('table width="600"');
     expect(originalFrame?.srcdoc).toContain("nextmail-preview-unavailable");
+    const srcdocMutations: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => srcdocMutations.push(...records));
+    observer.observe(originalFrame as HTMLIFrameElement, {
+      attributes: true,
+      attributeFilter: ["srcdoc"],
+    });
 
     act(() => {
       expect(ref.current?.replaceSignature("signature-one", definition("Regards"))).toBe(true);
@@ -109,11 +114,49 @@ describe("RichTextEditor composition nodes", () => {
       };
       expect(document.content?.map((node) => node.type)).toEqual([
         "nextmailReply",
-        "paragraph",
+        "nextmailSignatureDivider",
         "nextmailSignature",
+        "paragraph",
         "nextmailOriginalMessage",
       ]);
     });
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector(".nextmail-composition-original-frame")).toBe(originalFrame);
+    expect(srcdocMutations).toHaveLength(0);
+
+    act(() => {
+      expect(ref.current?.replaceSignature("signature-two", definition("Best regards"))).toBe(true);
+    });
+    await waitFor(() => {
+      const content = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      const document = JSON.parse(content?.editorJson ?? EMPTY) as {
+        content?: Array<{ type?: string }>;
+      };
+      expect(document.content?.map((node) => node.type)).toEqual([
+        "nextmailReply",
+        "nextmailSignatureDivider",
+        "nextmailSignature",
+        "paragraph",
+        "nextmailOriginalMessage",
+      ]);
+      expect(content?.editorJson).toContain("signature-two");
+      expect(content?.editorJson).toContain('"sourceHtml"');
+      expect(content?.html).toContain('table width="600"');
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector(".nextmail-composition-original-frame")).toBe(originalFrame);
+    expect(srcdocMutations).toHaveLength(0);
+
+    act(() => {
+      expect(ref.current?.replaceSignature(null)).toBe(true);
+    });
+    await waitFor(() => {
+      const document = latestDocument(onChange);
+      expect(document.content?.some((node) => node.type === "nextmailSignature")).toBe(false);
+      expect(document.content?.some((node) => node.type === "nextmailSignatureDivider")).toBe(false);
+      expect(document.content?.some((node) => node.type === "nextmailOriginalMessage")).toBe(true);
+    });
+    observer.disconnect();
 
     fireEvent.click(screen.getByRole("button", { name: "HTML source" }));
     expect(screen.getByRole("textbox", { name: "HTML source" })).toBeInTheDocument();

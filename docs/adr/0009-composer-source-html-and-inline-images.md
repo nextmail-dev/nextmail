@@ -4,6 +4,8 @@
 
 日期：2026-07-21
 
+修订：2026-08-01，受管图片格式增加经过完整文件头验证的 BMP；`srcdoc` 构建增加历史主动内容防御；回复/转发增加稳定签名分隔和原始邮件元数据结构。
+
 ## 背景
 
 第十阶段第四批最初把清洗后的引用原文导入 Tiptap/ProseMirror。真实邮件实机验收发现，ProseMirror 表格模型必须把内容规范化为矩形 schema，会补段落、列信息和单元格，从而改变不规则或精细排版邮件的原始几何。图片占位节点也无法满足粘贴、回复、转发后可靠保留正文图片的需求。
@@ -18,10 +20,12 @@ ADR 0002/0008 已规定不可信邮件 HTML 不能进入具备 Tauri IPC 的主 
 - 富文本视图把原文放入 `sandbox=""`、`referrerpolicy="no-referrer"` 的 `srcdoc` iframe。CSP 只允许行内样式和 data URL 图片；不允许 scripts、forms、same-origin、top-navigation、弹窗、任意文件或任意网络。
 - CodeMirror 6 提供完整 HTML 源码与实时沙箱预览双栏。源码切回富文本时重新识别 NextMail 的稳定节点边界，但原文内部 HTML 不进入 ProseMirror schema。
 - HTML 源码在浏览器中只进入隔离预览；保存模板、签名或草稿时，Rust 对完整 HTML 及编辑器 JSON 中的原文属性再次执行主动内容、URL 和 CSS 清洗。未经处理的源码不得直接进入发件 MIME。
+- Rust 仍是权威清洗边界；前端每次构建预览 `srcdoc` 时额外移除脚本、iframe、表单等主动元素和 `on*` 事件属性。该防御只用于让历史编辑内容不再反复触发 sandbox 拦截日志，不增加 sandbox 权限，也不替代持久化前复验。
+- 回复、回复全部和转发统一由 application 生成回复区、`nextmailSignatureDivider`、签名、空行和 `nextmailOriginalMessage`；原文节点内部先放原始邮件分隔线及发件人、发件时间、收件人、主题元数据，再放完整原文。切换或移除签名同时维护分隔节点，不把分隔线作为签名自身样式，也不跨入原文节点。
 
 ### 2. 图片使用受管内容存储和 CID
 
-- 本地原始 EML 中实际被 HTML `cid:` 引用的 PNG、JPEG、GIF、WebP part，以及用户主动粘贴的同类图片，写入现有 SHA-256 内容寻址 `attachments/` 存储。React 不获得文件路径或内容哈希。
+- 本地原始 EML 中实际被 HTML `cid:` 引用的 PNG、JPEG、GIF、WebP、BMP part，以及用户主动选择或粘贴的同类图片，写入现有 SHA-256 内容寻址 `attachments/` 存储。React 不获得文件路径或内容哈希。
 - `draft_attachments` 记录 `content_id` 与 `is_inline`；前端只获得不透明附件 ID、CID 和用于当前编辑会话的 data URL 预览。预览数据不写回 HTML，持久化 HTML 始终使用 `cid:`。
 - 粘贴图片通过 `src/app/api.ts` 的单一窄 Command 进入 Rust，校验允许的 MIME、文件魔数、25MB 单项上限、100MB 草稿总上限和账户槽/草稿可编辑归属。
 - 发件 MIME 使用 `multipart/alternative` 包含纯文本和 HTML；HTML 与 CID part 组成 `multipart/related`；普通附件存在时再包入外层 `multipart/mixed`。持久化 send job 继续只引用不可变 MIME 哈希。
@@ -43,4 +47,5 @@ ADR 0002/0008 已规定不可信邮件 HTML 不能进入具备 Tauri IPC 的主 
 - 回归必须证明原始表格 HTML/宽度属性在 Tiptap 保存更新后仍逐字保留于原文节点，并且原文 iframe 不包含任何 sandbox allow token。
 - Rust 必须覆盖 CID MIME 导入、图片字节缓存、账户槽隔离、`multipart/related` 构建和 HTML/JSON 二次清洗。
 - 前端必须覆盖 CID data URL 替换、远程图片不请求/无占位、HTML 源码双栏和模板/签名编辑高度。
+- 前端必须覆盖历史主动元素无法进入 `srcdoc`，切换模板或签名时不产生脚本执行尝试。
 - Windows 需实机验证真实复杂表格、回复/转发内嵌图、剪贴板图片、保存重开和实际收件端显示；macOS 未执行前不得记录通过。

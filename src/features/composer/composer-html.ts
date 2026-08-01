@@ -17,6 +17,21 @@ export function buildComposerPreviewDocument(
   previews: Record<string, string>,
 ) {
   const document = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+  // Rust remains the authoritative sanitizer. This second, deliberately
+  // narrow guard prevents historical editor content from handing active
+  // elements back to an about:srcdoc preview when a composition node changes.
+  // An empty sandbox would block the script, but WebView would still report a
+  // noisy attempted execution for every signature/template replacement.
+  document.body
+    .querySelectorAll("base,embed,form,iframe,link,math,meta,noscript,object,script,svg")
+    .forEach((element) => element.remove());
+  for (const element of document.body.querySelectorAll("*")) {
+    for (const attribute of Array.from(element.attributes)) {
+      if (attribute.name.toLocaleLowerCase().startsWith("on")) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  }
   for (const image of document.body.querySelectorAll("img")) {
     image.removeAttribute("srcset");
     const source = image.getAttribute("src")?.trim() ?? "";

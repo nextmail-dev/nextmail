@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
 import { useAppearancePreferences, useUpdateAppearancePreferences } from "@/app/appearance";
-import type { AccountSummary, AppearancePreferences, LanguagePreference, ReadingPreferences, ThemePreference } from "@/app/types";
+import type { AccountSummary, AppearancePreferences, LanguagePreference, ReadingPreferences } from "@/app/types";
 import { useRevealWindowWhenReady } from "@/app/windowReady";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SelectField } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { ThemeColorPicker, type ThemeColorOption } from "@/components/ui/theme-color-picker";
+import { ThemeModePicker } from "@/components/ui/theme-mode-picker";
 import { Heading, Text } from "@/components/ui/typography";
 import { CompositionDefinitionsSettings } from "./CompositionDefinitionsSettings";
 import { NotificationSettings } from "./NotificationSettings";
@@ -198,7 +199,7 @@ function SettingsContent({
     }
     return (
       <SettingsSection category={category}>
-        <SelectField
+        <ThemeModePicker
           label={t("preferences.theme")}
           value={preferences.theme}
           options={[
@@ -206,7 +207,7 @@ function SettingsContent({
             { value: "light", label: t("preferences.light") },
             { value: "dark", label: t("preferences.dark") },
           ]}
-          onValueChange={(theme) => onChange({ ...preferences, theme: theme as ThemePreference })}
+          onValueChange={(theme) => onChange({ ...preferences, theme })}
         />
         <ThemeColorPicker
           label={t("preferences.themeColor")}

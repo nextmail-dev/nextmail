@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use crate::{
     core::{
-        CommandError, CommandResult, ImapAccountConfig, MailboxRole, PendingOperationKind,
-        PendingOperationSummary, RemoteMailboxOperation, RemoteOperationOutcome,
+        CommandError, CommandResult, ImapAccountConfig, MailboxRole, MailboxSyncTarget,
+        PendingOperationKind, PendingOperationSummary, RemoteMailboxOperation,
+        RemoteOperationOutcome,
     },
     storage::{MailRepository, PendingOperationWork},
 };
@@ -11,7 +12,7 @@ use tauri::Emitter;
 
 use super::{
     remote_operation, required_destination, required_payload, MailRuntime, MailboxChangedEvent,
-    MessageContentChangedEvent, PendingOperationChangedEvent,
+    MessageContentChangedEvent, PendingOperationChangedEvent, RuntimeObserver,
 };
 
 impl MailRuntime {
@@ -511,6 +512,26 @@ impl MailRuntime {
                         .operations()
                         .complete_pending_operation(&work, outcome.cleanup_pending)
                         .await?;
+                    if work.kind == PendingOperationKind::AppendDraft {
+                        if let Err(error) = self
+                            .refresh_appended_draft(
+                                &repository,
+                                &config,
+                                account_id,
+                                &account.data_slot_id,
+                                generation,
+                                &work,
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                %account_id,
+                                code = %error.code,
+                                retryable = error.retryable,
+                                "appended draft mailbox refresh failed"
+                            );
+                        }
+                    }
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -589,6 +610,46 @@ impl MailRuntime {
         let raw = repository.send_jobs().read_send_mime(hash).await?;
         self.provider
             .replace_draft(config, destination, draft_id, &raw)
+            .await
+    }
+
+    async fn refresh_appended_draft(
+        &self,
+        repository: &MailRepository,
+        config: &ImapAccountConfig,
+        account_id: &str,
+        account_slot_id: &str,
+        generation: u64,
+        work: &PendingOperationWork,
+    ) -> CommandResult<()> {
+        let mailbox_id = work
+            .destination_mailbox_id
+            .as_deref()
+            .ok_or_else(|| CommandError::new("operation.destination_required"))?;
+        let mailbox = repository
+            .mailboxes()
+            .mutation_context(account_slot_id, mailbox_id)
+            .await?;
+        let observer = RuntimeObserver {
+            runtime: self,
+            account_id: account_id.to_owned(),
+            generation,
+            report_progress: false,
+            candidates: std::sync::Mutex::new(Vec::new()),
+        };
+        let sink = repository.sync_sink();
+        self.provider
+            .synchronize_mailbox(
+                config,
+                &MailboxSyncTarget {
+                    name: mailbox.remote_name,
+                    display_name: mailbox.display_name,
+                    delimiter: mailbox.delimiter,
+                    role: MailboxRole::Drafts,
+                },
+                &sink,
+                &observer,
+            )
             .await
     }
 

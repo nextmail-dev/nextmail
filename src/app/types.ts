@@ -255,6 +255,7 @@ export interface AccountManagementDetail {
   incomingPort: number;
   security: ConnectionSecurity;
   syncInterval: SyncInterval;
+  downloadFullMessages: boolean;
 }
 
 export interface MessageBodyProgress {

@@ -38,6 +38,7 @@ pub trait ExternalLinkOpener: Send + Sync {
 pub struct ImapAccountConfig {
     pub account_id: String,
     pub account_slot_id: String,
+    pub download_full_messages: bool,
     pub host: String,
     pub port: u16,
     pub security: ConnectionSecurity,
@@ -57,6 +58,14 @@ pub struct RemoteMailbox {
     pub total_count: u32,
     pub unread_count: u32,
     pub highest_modseq: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct MailboxSyncTarget {
+    pub name: String,
+    pub display_name: String,
+    pub delimiter: Option<String>,
+    pub role: MailboxRole,
 }
 
 #[derive(Clone, Debug)]
@@ -253,6 +262,14 @@ pub trait ImapSyncProvider: Send + Sync {
     async fn synchronize(
         &self,
         account: &ImapAccountConfig,
+        sink: &(dyn MailSyncSink + Send + Sync),
+        observer: &(dyn SyncObserver + Send + Sync),
+    ) -> CommandResult<()>;
+
+    async fn synchronize_mailbox(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox: &MailboxSyncTarget,
         sink: &(dyn MailSyncSink + Send + Sync),
         observer: &(dyn SyncObserver + Send + Sync),
     ) -> CommandResult<()>;

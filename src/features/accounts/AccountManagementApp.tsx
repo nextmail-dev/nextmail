@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
+import { useAppearancePreferences } from "@/app/appearance";
 import { useRevealWindowWhenReady } from "@/app/windowReady";
 import { Alert } from "@/components/ui/alert";
 import { AppShell, Page, Stack } from "@/components/ui/layout";
@@ -13,6 +14,7 @@ import { AccountsManagement } from "./AccountManagement";
 export function AccountManagementApp() {
   const { t } = useTranslation();
   const [selectedAccountId, setSelectedAccountId] = useState("");
+  const appearanceQuery = useAppearancePreferences();
   const accountsQuery = useQuery({
     queryKey: ["accounts"],
     queryFn: api.listAccountSummaries,
@@ -21,7 +23,9 @@ export function AccountManagementApp() {
     queryKey: ["last-selected-account"],
     queryFn: api.getLastSelectedAccount,
   });
-  useRevealWindowWhenReady(!accountsQuery.isPending && !lastSelectedQuery.isPending);
+  useRevealWindowWhenReady(
+    !appearanceQuery.isPending && !accountsQuery.isPending && !lastSelectedQuery.isPending,
+  );
 
   useEffect(() => {
     const accounts = accountsQuery.data ?? [];

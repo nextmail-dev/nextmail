@@ -26,10 +26,11 @@ use tokio::sync::Notify;
 use crate::{
     application::{
         assemble_composition_content, compose_imported_draft, compose_message_action_draft,
-        render_mail_signature, render_mail_template, AppService, CompositionRenderContext,
-        MessageActionLabels,
+        prefixed_message_action_subject, render_mail_signature, render_mail_template, AppService,
+        CompositionRenderContext, MessageActionLabels,
     },
     mail_runtime::MailRuntime,
+    window_titles::{window_title, WindowTitleKind},
 };
 
 const MAX_ATTACHMENT_BYTES: u64 = 25 * 1024 * 1024;
@@ -230,20 +231,25 @@ impl ComposerRuntime {
                 }
             }
         }
-        let labels = match self.service.get_preferences()?.language {
+        let language = self.service.get_preferences()?.language;
+        let labels = match &language {
             LanguagePreference::ZhCn => MessageActionLabels {
-                original_message: "转发邮件",
-                wrote: "写道：",
+                original_message: "原始邮件",
                 from: "发件人",
+                date: "发件时间",
                 to: "收件人",
                 subject: "主题",
+                reply_subject_prefix: "回复：",
+                forward_subject_prefix: "转发：",
             },
             LanguagePreference::EnUs => MessageActionLabels {
-                original_message: "Forwarded message",
-                wrote: "wrote:",
+                original_message: "Original message",
                 from: "From",
+                date: "Sent",
                 to: "To",
                 subject: "Subject",
+                reply_subject_prefix: "Re: ",
+                forward_subject_prefix: "Fwd: ",
             },
         };
         let repository = self.repository().await?;
@@ -276,7 +282,9 @@ impl ComposerRuntime {
                 }
             }
         }
-        let mut composed = compose_message_action_draft(&source, &account.email, action, labels)?;
+        let sent_at = format_message_action_date(source.received_at, &language);
+        let mut composed =
+            compose_message_action_draft(&source, &account.email, action, labels, &sent_at)?;
         let scene = match action {
             MessageComposeAction::Reply => CompositionScene::Reply,
             MessageComposeAction::ReplyAll => CompositionScene::ReplyAll,
@@ -291,7 +299,7 @@ impl ComposerRuntime {
                 &composed.content,
             )
             .await?;
-        composed.subject = subject;
+        composed.subject = prefixed_message_action_subject(&subject, action, &labels);
         composed.content = content;
         let draft = drafts
             .persist_message_action_draft(PersistMessageActionDraftRequest {
@@ -371,10 +379,10 @@ impl ComposerRuntime {
             "index.html?window=composer&accountId={}&draftId={}",
             account_id, draft_id
         );
-        let title = match self.service.get_preferences()?.language {
-            LanguagePreference::ZhCn => "新建邮件 — NextMail",
-            LanguagePreference::EnUs => "New message — NextMail",
-        };
+        let title = window_title(
+            &self.service.get_preferences()?.language,
+            WindowTitleKind::Composer,
+        );
         let builder = WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::App(url.into()))
             .title(title)
             .inner_size(860.0, 700.0)
@@ -568,7 +576,7 @@ impl ComposerRuntime {
         let content_type = content_type.trim().to_ascii_lowercase();
         if !matches!(
             content_type.as_str(),
-            "image/gif" | "image/jpeg" | "image/png" | "image/webp"
+            "image/bmp" | "image/gif" | "image/jpeg" | "image/png" | "image/webp"
         ) {
             return Err(CommandError::new("attachment.image_type_unsupported"));
         }
@@ -653,6 +661,19 @@ impl ComposerRuntime {
             .await?;
         drafts
             .discard_empty_draft(&account.data_slot_id, draft_id)
+            .await
+    }
+
+    pub async fn discard_draft_session(
+        &self,
+        account_id: &str,
+        draft_id: &str,
+    ) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .drafts()
+            .delete_editing_draft(&account.data_slot_id, draft_id)
             .await
     }
 
@@ -790,15 +811,8 @@ fn sanitize_draft_content(mut content: DraftContent) -> CommandResult<DraftConte
 }
 
 fn valid_image_signature(content_type: &str, bytes: &[u8]) -> bool {
-    match content_type {
-        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
-        "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff]),
-        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
-        "image/webp" => {
-            bytes.starts_with(b"RIFF") && bytes.get(8..12).is_some_and(|value| value == b"WEBP")
-        }
-        _ => false,
-    }
+    crate::protocols::detected_raster_content_type(bytes)
+        .is_some_and(|detected| detected.eq_ignore_ascii_case(content_type))
 }
 
 fn prepare_definition_inline_image(
@@ -809,7 +823,7 @@ fn prepare_definition_inline_image(
     let content_type = content_type.trim().to_ascii_lowercase();
     if !matches!(
         content_type.as_str(),
-        "image/gif" | "image/jpeg" | "image/png" | "image/webp"
+        "image/bmp" | "image/gif" | "image/jpeg" | "image/png" | "image/webp"
     ) {
         return Err(CommandError::new("attachment.image_type_unsupported"));
     }
@@ -874,6 +888,27 @@ fn envelope_recipients(fields: &DraftRecipientFields) -> Vec<String> {
 
 fn nonempty(value: &str) -> Option<String> {
     (!value.trim().is_empty()).then(|| value.trim().to_owned())
+}
+
+fn format_message_action_date(timestamp: i64, language: &LanguagePreference) -> String {
+    use chrono::{Datelike, Local, Timelike};
+
+    let Some(value) =
+        chrono::DateTime::from_timestamp(timestamp, 0).map(|value| value.with_timezone(&Local))
+    else {
+        return String::new();
+    };
+    match language {
+        LanguagePreference::ZhCn => format!(
+            "{}年{}月{}日 {:02}:{:02}",
+            value.year(),
+            value.month(),
+            value.day(),
+            value.hour(),
+            value.minute()
+        ),
+        LanguagePreference::EnUs => value.format("%Y-%m-%d %H:%M").to_string(),
+    }
 }
 
 fn unix_timestamp() -> i64 {
@@ -1075,6 +1110,13 @@ mod tests {
             "image/webp",
             b"RIFF\x04\x00\x00\x00WEBPdata"
         ));
+        let mut bmp = vec![0; 54];
+        bmp[0..2].copy_from_slice(b"BM");
+        bmp[2..6].copy_from_slice(&54_u32.to_le_bytes());
+        bmp[10..14].copy_from_slice(&54_u32.to_le_bytes());
+        bmp[14..18].copy_from_slice(&40_u32.to_le_bytes());
+        assert!(valid_image_signature("image/bmp", &bmp));
+        assert!(!valid_image_signature("image/bmp", b"BMnot-a-bmp"));
     }
 
     #[test]

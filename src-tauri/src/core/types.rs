@@ -566,6 +566,7 @@ pub struct AccountManagementDetail {
     pub incoming_port: u16,
     pub security: ConnectionSecurity,
     pub sync_interval: SyncInterval,
+    pub download_full_messages: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -622,6 +623,7 @@ pub struct MessageActionSource {
     pub from: Vec<MessageAddress>,
     pub to: Vec<MessageAddress>,
     pub cc: Vec<MessageAddress>,
+    pub received_at: i64,
     pub message_id: Option<String>,
     pub references: Vec<String>,
     pub plain_text: String,

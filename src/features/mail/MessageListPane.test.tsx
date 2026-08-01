@@ -15,6 +15,7 @@ vi.mock("@/app/api", () => ({
     getReadingPreferences: vi.fn(),
     setMessageRead: vi.fn(),
     setMessageFlagged: vi.fn(),
+    openMessagePreviewWindow: vi.fn(),
     openMessageActionComposer: vi.fn(),
     openRemoteDraft: vi.fn(),
     moveMessages: vi.fn(),
@@ -137,6 +138,130 @@ describe("MessageListPane", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Alice.*Server-side result/i }));
     expect(onSelect).toHaveBeenCalledWith("");
+  });
+
+  it("opens a message in an independent window from double click or the context menu", async () => {
+    vi.mocked(api.listMessages).mockResolvedValue({ items: [serverResult], nextCursor: null });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane
+          accountId="account-one"
+          mailboxId="inbox"
+          mailboxes={[]}
+          selectedMessageId=""
+          onSelect={vi.fn()}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessageRemoved={vi.fn()}
+          searchQuery=""
+          submittedSearchQuery=""
+          onSearchChange={vi.fn()}
+          onSearchSubmit={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    const row = await screen.findByRole("button", { name: /Alice.*Server-side result/i });
+    fireEvent.doubleClick(row);
+    await waitFor(() => expect(api.openMessagePreviewWindow).toHaveBeenCalledWith(
+      "account-one", "inbox", "message-one",
+    ));
+
+    vi.mocked(api.openMessagePreviewWindow).mockClear();
+    fireEvent.contextMenu(row);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open in new window" }));
+    await waitFor(() => expect(api.openMessagePreviewWindow).toHaveBeenCalledWith(
+      "account-one", "inbox", "message-one",
+    ));
+  });
+
+  it("does not offer reply or forward actions for messages in Drafts", async () => {
+    vi.mocked(api.listMessages).mockResolvedValue({ items: [serverResult], nextCursor: null });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane
+          accountId="account-one"
+          mailboxId="drafts"
+          mailbox={{
+            id: "drafts",
+            accountId: "account-one",
+            name: "Drafts",
+            delimiter: "/",
+            role: "drafts",
+            selectable: true,
+            totalCount: 1,
+            unreadCount: 0,
+            revision: 1,
+          }}
+          mailboxes={[]}
+          selectedMessageId=""
+          onSelect={vi.fn()}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessageRemoved={vi.fn()}
+          searchQuery=""
+          submittedSearchQuery=""
+          onSearchChange={vi.fn()}
+          onSearchSubmit={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.contextMenu(await screen.findByRole("button", { name: /Alice.*Server-side result/i }));
+    expect(await screen.findByRole("menuitem", { name: "Continue editing draft" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Reply" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Reply all" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Forward" })).not.toBeInTheDocument();
+  });
+
+  it("resets the message viewport when the mailbox changes", async () => {
+    vi.mocked(api.listMessages).mockImplementation(async (_accountId, mailboxId) => ({
+      items: [{
+        ...serverResult,
+        subject: mailboxId === "archive" ? "Archive result" : serverResult.subject,
+      }],
+      nextCursor: null,
+    }));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const props = {
+      accountId: "account-one",
+      mailboxes: [],
+      selectedMessageId: "",
+      onSelect: vi.fn(),
+      onVisibleMessageIdsChange: vi.fn(),
+      onMessageRemoved: vi.fn(),
+      searchQuery: "",
+      submittedSearchQuery: "",
+      onSearchChange: vi.fn(),
+      onSearchSubmit: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane {...props} mailboxId="inbox" />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Server-side result");
+    const inboxViewport = container.querySelector(".native-scrollbar-hidden") as HTMLDivElement;
+    inboxViewport.scrollTop = 280;
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane {...props} mailboxId="archive" />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Archive result");
+    await waitFor(() => expect(api.listMessages).toHaveBeenCalledWith(
+      "account-one", "archive", null, 50,
+    ));
+    const archiveViewport = container.querySelector(".native-scrollbar-hidden") as HTMLDivElement;
+    expect(archiveViewport).not.toBe(inboxViewport);
+    expect(archiveViewport.scrollTop).toBe(0);
   });
 
   it("loads the next page automatically near the bottom when the reading preference is enabled", async () => {

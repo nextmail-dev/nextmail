@@ -43,6 +43,22 @@ export const NextMailSignature = definitionNode(
   "signature",
 );
 
+export const NextMailSignatureDivider = Node.create({
+  name: "nextmailSignatureDivider",
+  group: "block",
+  atom: true,
+  selectable: false,
+  parseHTML() {
+    return [{ tag: "hr[data-nextmail-signature-divider]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["hr", mergeAttributes(HTMLAttributes, {
+      "data-nextmail-signature-divider": "",
+      style: "border:0;border-top:1px solid #d9dee7;margin:20px 0",
+    })];
+  },
+});
+
 export const NextMailReply = Node.create({
   name: "nextmailReply",
   group: "block",
@@ -104,6 +120,9 @@ export function createNextMailOriginalMessage(
         frame.setAttribute("sandbox", "");
         frame.setAttribute("scrolling", "no");
         frame.referrerPolicy = "no-referrer";
+        let renderedSourceHtml: string | null = null;
+        let renderedSourcePlainText: string | null = null;
+        let renderedPreviews: Record<string, string> = {};
         const update = (current: typeof node) => {
           const sourceHtml = typeof current.attrs.sourceHtml === "string"
             ? current.attrs.sourceHtml
@@ -112,6 +131,14 @@ export function createNextMailOriginalMessage(
             ? current.attrs.sourcePlainText
             : "";
           const previews = getPreviews();
+          if (
+            sourceHtml === renderedSourceHtml
+            && sourcePlainText === renderedSourcePlainText
+            && previewMapsEqual(previews, renderedPreviews)
+          ) return;
+          renderedSourceHtml = sourceHtml;
+          renderedSourcePlainText = sourcePlainText;
+          renderedPreviews = { ...previews };
           frame.srcdoc = buildComposerPreviewDocument(
             sourceHtml,
             previews,
@@ -131,4 +158,14 @@ export function createNextMailOriginalMessage(
       };
     },
   });
+}
+
+function previewMapsEqual(
+  left: Record<string, string>,
+  right: Record<string, string>,
+) {
+  const leftEntries = Object.entries(left);
+  const rightKeys = Object.keys(right);
+  return leftEntries.length === rightKeys.length
+    && leftEntries.every(([key, value]) => right[key] === value);
 }

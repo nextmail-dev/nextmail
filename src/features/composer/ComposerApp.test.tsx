@@ -40,7 +40,7 @@ vi.mock("@/app/api", () => ({
   api: {
     addDraftAttachments: vi.fn(),
     addDraftInlineImage: vi.fn(),
-    discardEmptyDraft: vi.fn(),
+    discardDraftSession: vi.fn(),
     getComposerBootstrap: vi.fn(),
     getPreferences: vi.fn(),
     getSendJob: vi.fn(),
@@ -141,7 +141,7 @@ beforeEach(() => {
     revision: 2,
   }));
   vi.mocked(api.queueRemoteDraft).mockResolvedValue(undefined);
-  vi.mocked(api.discardEmptyDraft).mockResolvedValue(false);
+  vi.mocked(api.discardDraftSession).mockResolvedValue(undefined);
   destroyMock.mockResolvedValue(undefined);
   eventListenMock.mockResolvedValue(vi.fn());
   onCloseRequestedMock.mockImplementation((handler) => {
@@ -167,7 +167,7 @@ describe("ComposerApp close lifecycle", () => {
     expect(api.saveDraft).not.toHaveBeenCalled();
   });
 
-  it("subscribes once across body changes and saves the latest dirty draft on close", async () => {
+  it("subscribes once and saves the latest dirty draft only after close confirmation", async () => {
     renderComposer();
     const changeBody = await screen.findByRole("button", { name: "Change body" });
     await waitFor(() => expect(onCloseRequestedMock).toHaveBeenCalledOnce());
@@ -181,19 +181,19 @@ describe("ComposerApp close lifecycle", () => {
     await act(async () => closeHandler?.({ preventDefault }));
 
     expect(preventDefault).toHaveBeenCalledOnce();
+    expect(api.saveDraft).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Save as draft" }));
+    await waitFor(() => expect(destroyMock).toHaveBeenCalledOnce());
     expect(api.saveDraft).toHaveBeenCalledOnce();
     expect(vi.mocked(api.saveDraft).mock.calls[0]?.[4]).toEqual({
       editorJson: "{\"type\":\"doc\"}",
       html: "<p>Changed body</p>",
       plainText: "Changed body",
     });
-    expect(api.discardEmptyDraft).toHaveBeenCalledWith("account-one", "draft-one");
     expect(api.queueRemoteDraft).toHaveBeenCalledWith("account-one", "draft-one");
-    expect(destroyMock).toHaveBeenCalledOnce();
   });
 
-  it("keeps the existing empty-draft close path without an unnecessary save", async () => {
-    vi.mocked(api.discardEmptyDraft).mockResolvedValue(true);
+  it("discards the composing session without saving when the user declines", async () => {
     const view = renderComposer();
     await screen.findByRole("button", { name: "Change body" });
     await waitFor(() => expect(onCloseRequestedMock).toHaveBeenCalledOnce());
@@ -202,13 +202,21 @@ describe("ComposerApp close lifecycle", () => {
     await act(async () => closeHandler?.({ preventDefault }));
 
     expect(preventDefault).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Don't save" }));
+    await waitFor(() => expect(destroyMock).toHaveBeenCalledOnce());
     expect(api.saveDraft).not.toHaveBeenCalled();
-    expect(api.discardEmptyDraft).toHaveBeenCalledWith("account-one", "draft-one");
+    expect(api.discardDraftSession).toHaveBeenCalledWith("account-one", "draft-one");
     expect(api.queueRemoteDraft).not.toHaveBeenCalled();
-    expect(destroyMock).toHaveBeenCalledOnce();
 
     view.unmount();
     await waitFor(() => expect(unlistenCloseMock).toHaveBeenCalledOnce());
+  });
+
+  it("does not show the removed automatic draft-save status", async () => {
+    renderComposer();
+    await screen.findByRole("button", { name: "Change body" });
+
+    expect(screen.queryByText("Draft saved")).not.toBeInTheDocument();
   });
 
   it("renders and replaces an explicitly selected template through the stable editor handle", async () => {

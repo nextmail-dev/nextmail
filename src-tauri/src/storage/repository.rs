@@ -616,6 +616,36 @@ impl MailReadRepository {
         Ok(interval)
     }
 
+    pub async fn get_download_full_messages(&self, account_slot_id: &str) -> CommandResult<bool> {
+        let value = sqlx::query_scalar::<_, i64>(
+            "SELECT download_full_messages FROM account_sync_settings WHERE account_slot_id = ?",
+        )
+        .bind(account_slot_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_storage_err("storage.sync_settings_read_failed"))?;
+        Ok(value.unwrap_or_default() != 0)
+    }
+
+    pub async fn set_download_full_messages(
+        &self,
+        account_slot_id: &str,
+        enabled: bool,
+    ) -> CommandResult<bool> {
+        sqlx::query(
+            "INSERT INTO account_sync_settings(account_slot_id, download_full_messages, updated_at) \
+             VALUES (?, ?, ?) ON CONFLICT(account_slot_id) DO UPDATE SET \
+             download_full_messages = excluded.download_full_messages, updated_at = excluded.updated_at",
+        )
+        .bind(account_slot_id)
+        .bind(i64::from(enabled))
+        .bind(now())
+        .execute(&self.pool)
+        .await
+        .map_err(map_storage_err("storage.sync_settings_write_failed"))?;
+        Ok(enabled)
+    }
+
     pub async fn raw_message(
         &self,
         account_slot_id: &str,
@@ -1297,6 +1327,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn bmp_inline_image_policy_migration_invalidates_only_cached_html() {
+        assert_html_cache_invalidation_migration(
+            include_str!("../../migrations/0023_bmp_inline_image_fidelity.sql"),
+            "22",
+            "23",
+        )
+        .await;
+    }
+
+    #[tokio::test]
     async fn local_search_migration_backfills_existing_searchable_content() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -1671,8 +1711,23 @@ mod tests {
             .fetch_one(&repository.pool)
             .await
             .unwrap(),
-            "22"
+            "24"
         );
+    }
+
+    #[tokio::test]
+    async fn full_message_sync_defaults_off_and_round_trips() {
+        let (_directory, repository, _mailbox) = repository_with_mailbox(1).await;
+        let read = repository.read();
+
+        assert!(!read.get_download_full_messages("slot").await.unwrap());
+        assert!(read.set_download_full_messages("slot", true).await.unwrap());
+        assert!(read.get_download_full_messages("slot").await.unwrap());
+        assert!(!read
+            .set_download_full_messages("slot", false)
+            .await
+            .unwrap());
+        assert!(!read.get_download_full_messages("slot").await.unwrap());
     }
 
     async fn repository_with_mailbox(

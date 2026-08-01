@@ -3,6 +3,7 @@ import {
   CloudUpload,
   Copy,
   Download,
+  ExternalLink,
   FilePenLine,
   FileText,
   FolderInput,
@@ -37,11 +38,12 @@ import { formatBytes, MessageAttachment } from "./MessageAttachment";
 import { activateMessageAttachment } from "./message-attachment-actions";
 import { mailQueryKeys, messageQueryKeys } from "./mail-query-keys";
 
-export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMessageRemoved }: {
+export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allowOpenInNewWindow = true, onMessageRemoved }: {
   accountId: string;
   mailboxId: string;
   messageId: string;
   mailboxes: MailboxSummary[];
+  allowOpenInNewWindow?: boolean;
   onMessageRemoved: (messageId: string) => void;
 }) {
   const { t, i18n } = useTranslation();
@@ -103,6 +105,9 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
   const rawWindowMutation = useMutation({
     mutationFn: () => api.openRawMessageWindow(accountId, messageId),
   });
+  const previewWindowMutation = useMutation({
+    mutationFn: () => api.openMessagePreviewWindow(accountId, mailboxId, messageId),
+  });
   const messageOperation = useMutation({
     mutationFn: async (operation: { kind: "read" | "flag" | "move" | "copy" | "archive" | "delete"; destination?: string }) => {
       if (operation.kind === "read") await api.setMessageRead(accountId, mailboxId, [messageId], query.data?.unread ?? false);
@@ -135,7 +140,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
 
   const message = query.data;
   const allowRemoteImages = remoteImagesAllowed || readingPreferences.data?.autoLoadRemoteImages === true;
-  const operationError = bodyMutation.error ?? rawWindowMutation.error ?? attachmentMutation.error ?? saveAttachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
+  const operationError = bodyMutation.error ?? rawWindowMutation.error ?? previewWindowMutation.error ?? attachmentMutation.error ?? saveAttachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
   const normalizedOperationError = operationError ? normalizeCommandError(operationError) : null;
   const date = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(message.receivedAt * 1000));
   const sender = message.from[0];
@@ -197,9 +202,13 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
                 <IconAction label={message.flagged ? t("mail.removeStar") : t("mail.addStar")} onClick={() => messageOperation.mutate({ kind: "flag" })}>
                   <Star size={18} className={message.flagged ? "fill-current text-[#f2b84b]" : undefined} />
                 </IconAction>
-                <IconAction label={t("mail.reply")} loading={composeMutation.isPending && composeMutation.variables === "reply"} onClick={() => composeMutation.mutate("reply")}><Reply size={18} /></IconAction>
-                <IconAction label={t("mail.replyAll")} loading={composeMutation.isPending && composeMutation.variables === "reply_all"} onClick={() => composeMutation.mutate("reply_all")}><ReplyAll size={18} /></IconAction>
-                <IconAction label={t("mail.forward")} loading={composeMutation.isPending && composeMutation.variables === "forward"} onClick={() => composeMutation.mutate("forward")}><Forward size={18} /></IconAction>
+                {!isDraft ? (
+                  <>
+                    <IconAction label={t("mail.reply")} loading={composeMutation.isPending && composeMutation.variables === "reply"} onClick={() => composeMutation.mutate("reply")}><Reply size={18} /></IconAction>
+                    <IconAction label={t("mail.replyAll")} loading={composeMutation.isPending && composeMutation.variables === "reply_all"} onClick={() => composeMutation.mutate("reply_all")}><ReplyAll size={18} /></IconAction>
+                    <IconAction label={t("mail.forward")} loading={composeMutation.isPending && composeMutation.variables === "forward"} onClick={() => composeMutation.mutate("forward")}><Forward size={18} /></IconAction>
+                  </>
+                ) : null}
                 {mailboxes.some((mailbox) => mailbox.role === "archive" && mailbox.id !== mailboxId) ? (
                   <IconAction label={t("mail.archive")} onClick={() => messageOperation.mutate({ kind: "archive" })}><Archive size={18} /></IconAction>
                 ) : null}
@@ -221,6 +230,9 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, onMe
                     <Button variant="ghost" size="icon" aria-label={t("mail.moreActions")} title={t("mail.moreActions")}><MoreHorizontal size={18} /></Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    {allowOpenInNewWindow ? (
+                      <DropdownMenuItem onSelect={() => previewWindowMutation.mutate()}><ExternalLink size={16} />{t("mail.openInNewWindow")}</DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuItem onSelect={() => messageOperation.mutate({ kind: "read" })}>
                       {message.unread ? <MailOpen size={16} /> : <Mail size={16} />}
                       {message.unread ? t("mail.markRead") : t("mail.markUnread")}

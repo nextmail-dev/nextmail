@@ -364,6 +364,7 @@ fn sanitize_mail_html_fragment_with_scope(
             ],
         )
         .add_tag_attributes("p", ["align"])
+        .add_tag_attributes("hr", ["data-nextmail-signature-divider"])
         .add_tag_attributes(
             "table",
             [
@@ -490,7 +491,7 @@ fn decode_data_image(value: &str) -> Option<(&str, Vec<u8>)> {
     let content_type = parts.next()?.trim();
     if !matches!(
         content_type.to_ascii_lowercase().as_str(),
-        "image/gif" | "image/jpeg" | "image/png" | "image/webp"
+        "image/bmp" | "image/gif" | "image/jpeg" | "image/png" | "image/webp"
     ) {
         return None;
     }
@@ -515,6 +516,7 @@ fn valid_image_signature(content_type: &str, bytes: &[u8]) -> bool {
 
 fn inline_raster_content_type(declared_content_type: &str, bytes: &[u8]) -> Option<&'static str> {
     match declared_content_type.to_ascii_lowercase().as_str() {
+        "image/bmp" | "image/x-ms-bmp" => Some("image/bmp"),
         "image/gif" => Some("image/gif"),
         "image/jpeg" => Some("image/jpeg"),
         "image/png" => Some("image/png"),
@@ -524,7 +526,7 @@ fn inline_raster_content_type(declared_content_type: &str, bytes: &[u8]) -> Opti
     }
 }
 
-fn detected_raster_content_type(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn detected_raster_content_type(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("image/png")
     } else if bytes.starts_with(b"\xff\xd8\xff") {
@@ -533,9 +535,26 @@ fn detected_raster_content_type(bytes: &[u8]) -> Option<&'static str> {
         Some("image/gif")
     } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
         Some("image/webp")
+    } else if valid_bmp_signature(bytes) {
+        Some("image/bmp")
     } else {
         None
     }
+}
+
+fn valid_bmp_signature(bytes: &[u8]) -> bool {
+    if bytes.len() < 26 || !bytes.starts_with(b"BM") {
+        return false;
+    }
+    let file_size = u32::from_le_bytes(bytes[2..6].try_into().expect("BMP size slice")) as usize;
+    let pixel_offset =
+        u32::from_le_bytes(bytes[10..14].try_into().expect("BMP offset slice")) as usize;
+    let dib_size = u32::from_le_bytes(bytes[14..18].try_into().expect("BMP DIB slice")) as usize;
+    (file_size == 0 || file_size <= bytes.len())
+        && pixel_offset >= 14
+        && pixel_offset <= bytes.len()
+        && dib_size >= 12
+        && 14usize.saturating_add(dib_size) <= bytes.len()
 }
 
 fn preserve_body_container(input: &str) -> Cow<'_, str> {
@@ -799,6 +818,45 @@ mod tests {
         assert!(!sanitized.document.contains("data:image/svg+xml"));
         assert!(sanitized.document.contains("id=\"fake\""));
         assert!(sanitized.document.contains("id=\"svg\""));
+    }
+
+    #[test]
+    fn preserves_valid_bmp_data_images_and_rejects_magic_only_prefixes() {
+        let valid = "Qk02AAAAAAAAADYAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let sanitized = sanitize_mail_html(&format!(
+            "<img id=\"bmp\" src=\"data:image/bmp;base64,{valid}\">\
+             <img id=\"fake\" src=\"data:image/bmp;base64,Qk1ub3QtYS1ibXA=\">"
+        ));
+
+        assert!(sanitized
+            .document
+            .contains(&format!("data:image/bmp;base64,{valid}")));
+        assert!(!sanitized
+            .document
+            .contains("data:image/bmp;base64,Qk1ub3QtYS1ibXA="));
+    }
+
+    #[test]
+    fn detects_octet_stream_bmp_cid_parts_from_a_bounded_file_header() {
+        let raw = concat!(
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/related; boundary=nextmail\r\n\r\n",
+            "--nextmail\r\n",
+            "Content-Type: text/html; charset=utf-8\r\n\r\n",
+            "<img src=\"cid:legacy-bmp@example.test\">\r\n",
+            "--nextmail\r\n",
+            "Content-Type: application/octet-stream\r\n",
+            "Content-Disposition: inline; filename=legacy.bmp\r\n",
+            "Content-ID: <legacy-bmp@example.test>\r\n",
+            "Content-Transfer-Encoding: base64\r\n\r\n",
+            "Qk02AAAAAAAAADYAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\r\n",
+            "--nextmail--\r\n"
+        );
+        let body = sanitize_raw_message_body(raw.as_bytes()).expect("BMP MIME body");
+        let html = body.safe_html.expect("safe BMP HTML");
+
+        assert!(html.contains("data:image/bmp;base64,"));
+        assert_eq!(body.inline_content_ids, vec!["legacy-bmp@example.test"]);
     }
 
     #[test]

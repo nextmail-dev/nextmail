@@ -16,6 +16,7 @@ use crate::{
     },
     error::CommandResult,
     state::AppState,
+    window_titles::{update_open_window_titles, window_title, WindowTitleKind},
 };
 
 #[tauri::command]
@@ -51,6 +52,7 @@ pub fn set_appearance_preferences(
     preferences: AppearancePreferences,
 ) -> CommandResult<AppearancePreferences> {
     let preferences = state.service.set_preferences(preferences)?;
+    update_open_window_titles(&app, &preferences.language);
     emit_or_log(&app, "appearance-preferences-changed", &preferences);
     Ok(preferences)
 }
@@ -384,7 +386,7 @@ fn truncate_log_field(mut value: String, max_bytes: usize) -> String {
 }
 
 #[tauri::command]
-pub async fn open_settings_window(app: AppHandle) -> CommandResult<()> {
+pub async fn open_settings_window(state: State<'_, AppState>, app: AppHandle) -> CommandResult<()> {
     // Window creation must not run inside the synchronous WebView IPC callback on Windows.
     // Yielding here keeps this path aligned with the working composer-window lifecycle.
     tokio::task::yield_now().await;
@@ -405,7 +407,10 @@ pub async fn open_settings_window(app: AppHandle) -> CommandResult<()> {
         "settings",
         WebviewUrl::App("index.html?window=settings".into()),
     )
-    .title("NextMail Settings")
+    .title(window_title(
+        &state.service.get_preferences()?.language,
+        WindowTitleKind::Settings,
+    ))
     .inner_size(900.0, 680.0)
     .min_inner_size(760.0, 560.0)
     .center()
@@ -424,7 +429,10 @@ pub async fn open_settings_window(app: AppHandle) -> CommandResult<()> {
 }
 
 #[tauri::command]
-pub async fn open_account_management_window(app: AppHandle) -> CommandResult<()> {
+pub async fn open_account_management_window(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> CommandResult<()> {
     tokio::task::yield_now().await;
 
     if let Some(window) = app.get_webview_window("accounts") {
@@ -443,7 +451,10 @@ pub async fn open_account_management_window(app: AppHandle) -> CommandResult<()>
         "accounts",
         WebviewUrl::App("index.html?window=accounts".into()),
     )
-    .title("NextMail Account Management")
+    .title(window_title(
+        &state.service.get_preferences()?.language,
+        WindowTitleKind::Accounts,
+    ))
     .inner_size(980.0, 720.0)
     .min_inner_size(820.0, 600.0)
     .center()
@@ -500,7 +511,10 @@ pub async fn open_raw_message_window(
         location.account_id, location.message_id
     );
     let builder = WebviewWindowBuilder::new(&app, "raw-message", WebviewUrl::App(url.into()))
-        .title("NextMail Message Source")
+        .title(window_title(
+            &state.service.get_preferences()?.language,
+            WindowTitleKind::RawMessage,
+        ))
         .inner_size(900.0, 700.0)
         .min_inner_size(680.0, 500.0)
         .center()
@@ -515,6 +529,106 @@ pub async fn open_raw_message_window(
     builder
         .build()
         .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_message_preview_window(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    account_id: String,
+    mailbox_id: String,
+    message_id: String,
+) -> CommandResult<()> {
+    tokio::task::yield_now().await;
+    uuid::Uuid::parse_str(&account_id)
+        .map_err(|_| crate::error::CommandError::new("account.not_found"))?;
+    uuid::Uuid::parse_str(&message_id)
+        .map_err(|_| crate::error::CommandError::new("message.not_found"))?;
+    uuid::Uuid::parse_str(&mailbox_id)
+        .map_err(|_| crate::error::CommandError::new("mailbox.not_found"))?;
+    let detail = state
+        .mail
+        .get_message_detail(&account_id, &message_id, Some(&mailbox_id))
+        .await?;
+    let location = MessagePreviewWindowLocation {
+        account_id,
+        mailbox_id,
+        message_id,
+    };
+    let label = format!("message-preview-{}", location.message_id);
+
+    if detail.unread {
+        if let Err(error) = state
+            .mail
+            .set_message_read(
+                &location.account_id,
+                &location.mailbox_id,
+                std::slice::from_ref(&location.message_id),
+                true,
+            )
+            .await
+        {
+            tracing::warn!(
+                account_id = %location.account_id,
+                mailbox_id = %location.mailbox_id,
+                message_id = %location.message_id,
+                code = %error.code,
+                "message preview could not mark message read"
+            );
+        }
+    }
+
+    if let Some(window) = app.get_webview_window(&label) {
+        window
+            .emit("message-preview-location-changed", &location)
+            .map_err(|_| crate::error::CommandError::new("message.preview_window_create_failed"))?;
+        if window.is_visible().unwrap_or(false) {
+            window
+                .show()
+                .and_then(|_| window.set_focus())
+                .map_err(|_| {
+                    crate::error::CommandError::new("message.preview_window_create_failed")
+                })?;
+        }
+        return Ok(());
+    }
+
+    let url = format!(
+        "index.html?window=message-preview&accountId={}&mailboxId={}&messageId={}",
+        location.account_id, location.mailbox_id, location.message_id
+    );
+    let external_link_opener = std::sync::Arc::clone(&state.external_link_opener);
+    let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
+        .title(window_title(
+            &state.service.get_preferences()?.language,
+            WindowTitleKind::MessagePreview,
+        ))
+        .inner_size(980.0, 760.0)
+        .min_inner_size(720.0, 520.0)
+        .center()
+        .on_new_window(move |url, _features| {
+            if let Err(error) =
+                crate::open_external_mail_target(external_link_opener.as_ref(), url.as_str())
+            {
+                tracing::warn!(
+                    code = %error.code,
+                    retryable = error.retryable,
+                    "external mail link opening failed"
+                );
+            }
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .visible(false);
+    #[cfg(target_os = "windows")]
+    let builder = builder.decorations(false);
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+    builder
+        .build()
+        .map_err(|_| crate::error::CommandError::new("message.preview_window_create_failed"))?;
     Ok(())
 }
 
@@ -574,8 +688,16 @@ pub async fn open_composition_definition_editor_window(
         url.push_str("&definitionId=");
         url.push_str(value);
     }
+    let title_kind = if kind == "template" {
+        WindowTitleKind::TemplateEditor
+    } else {
+        WindowTitleKind::SignatureEditor
+    };
     let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(url.into()))
-        .title("NextMail Rich Text Editor")
+        .title(window_title(
+            &state.service.get_preferences()?.language,
+            title_kind,
+        ))
         .inner_size(1040.0, 800.0)
         .min_inner_size(800.0, 600.0)
         .center()
@@ -872,6 +994,18 @@ pub async fn set_account_sync_interval(
     state
         .mail
         .set_account_sync_interval(&account_id, sync_interval)
+        .await
+}
+
+#[tauri::command]
+pub async fn set_account_download_full_messages(
+    state: State<'_, AppState>,
+    account_id: String,
+    enabled: bool,
+) -> CommandResult<bool> {
+    state
+        .mail
+        .set_account_download_full_messages(&account_id, enabled)
         .await
 }
 
@@ -1294,6 +1428,18 @@ pub async fn discard_empty_draft(
 }
 
 #[tauri::command]
+pub async fn discard_draft_session(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft_id: String,
+) -> CommandResult<()> {
+    state
+        .composer
+        .discard_draft_session(&account_id, &draft_id)
+        .await
+}
+
+#[tauri::command]
 pub async fn delete_draft(
     state: State<'_, AppState>,
     account_id: String,
@@ -1386,5 +1532,13 @@ struct CompositionDefinitionsChangedEvent {
 #[serde(rename_all = "camelCase")]
 struct RawMessageWindowLocation {
     account_id: String,
+    message_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MessagePreviewWindowLocation {
+    account_id: String,
+    mailbox_id: String,
     message_id: String,
 }

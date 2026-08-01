@@ -32,6 +32,18 @@ describe("composer HTML preview", () => {
       .toBe("Hello\nWorld");
   });
 
+  it("removes historical active content before rebuilding a sandbox preview", () => {
+    const document = buildComposerPreviewDocument(
+      '<p onclick="alert(1)">Visible</p><script>alert(2)</script><iframe srcdoc="<script>alert(3)</script>"></iframe>',
+      {},
+    );
+
+    expect(document).toContain("Visible");
+    expect(document).not.toContain("<script");
+    expect(document).not.toContain("<iframe");
+    expect(document).not.toContain("onclick");
+  });
+
   it("expands long quoted content without imposing a maximum height", () => {
     const shortHeight = estimateComposerDocumentHeight("<p>Short message</p>", "Short message", {});
     const longText = "这是一封需要完整显示的长邮件。".repeat(180);

@@ -5,12 +5,15 @@ use crate::core::{
     ImportedDraftSource, MessageActionSource, MessageAddress, MessageComposeAction,
 };
 
+#[derive(Clone, Copy)]
 pub struct MessageActionLabels<'a> {
     pub original_message: &'a str,
-    pub wrote: &'a str,
     pub from: &'a str,
+    pub date: &'a str,
     pub to: &'a str,
     pub subject: &'a str,
+    pub reply_subject_prefix: &'a str,
+    pub forward_subject_prefix: &'a str,
 }
 
 pub fn compose_imported_draft(source: &ImportedDraftSource) -> CommandResult<DraftContent> {
@@ -29,6 +32,7 @@ pub fn compose_message_action_draft(
     own_email: &str,
     action: MessageComposeAction,
     labels: MessageActionLabels<'_>,
+    sent_at: &str,
 ) -> CommandResult<ComposedMessageActionDraft> {
     let mut recipients = DraftRecipientFields::default();
     match action {
@@ -52,41 +56,41 @@ pub fn compose_message_action_draft(
     }
 
     let sender = format_addresses(&source.from);
-    let (original_header, original_header_html) = match action {
-        MessageComposeAction::Reply | MessageComposeAction::ReplyAll => {
-            let header = format!("{sender} {}", labels.wrote);
-            let html = format!(
-                "<p>{} {}</p>",
-                escape_html(&sender),
-                escape_html(labels.wrote)
-            );
-            (header, html)
-        }
-        MessageComposeAction::Forward => {
-            let recipients = format_addresses(&source.to);
-            let header = format!(
-                "---------- {} ----------\n{}: {sender}\n{}: {recipients}\n{}: {}",
-                labels.original_message, labels.from, labels.to, labels.subject, source.subject,
-            );
-            let html = format!(
-                "<p>---------- {} ----------<br>{}: {}<br>{}: {}<br>{}: {}</p>",
-                escape_html(labels.original_message),
-                escape_html(labels.from),
-                escape_html(&sender),
-                escape_html(labels.to),
-                escape_html(&recipients),
-                escape_html(labels.subject),
-                escape_html(&source.subject),
-            );
-            (header, html)
-        }
-    };
+    let original_recipients = format_addresses(&source.to);
+    let original_header = format!(
+        "---------- {} ----------\n{}: {sender}\n{}: {sent_at}\n{}: {original_recipients}\n{}: {}",
+        labels.original_message,
+        labels.from,
+        labels.date,
+        labels.to,
+        labels.subject,
+        source.subject,
+    );
+    let original_header_html = format!(
+        "<div class=\"nextmail-original-heading\" style=\"margin:24px 0 12px;border-top:1px solid #d9dee7;padding-top:8px;color:#8a94a6;font-size:13px\">{}</div>\
+         <div class=\"nextmail-original-metadata\" style=\"padding:12px 14px;background-color:#f5f6f8;color:#111827;border-radius:8px;font-size:13px;line-height:1.6\">\
+         <div><span style=\"color:#6b7280\">{}: </span>{}</div>\
+         <div><span style=\"color:#6b7280\">{}: </span>{}</div>\
+         <div><span style=\"color:#6b7280\">{}: </span>{}</div>\
+         <div><span style=\"color:#6b7280\">{}: </span>{}</div></div>",
+        escape_html(labels.original_message),
+        escape_html(labels.from),
+        escape_html(&sender),
+        escape_html(labels.date),
+        escape_html(sent_at),
+        escape_html(labels.to),
+        escape_html(&original_recipients),
+        escape_html(labels.subject),
+        escape_html(&source.subject),
+    );
     let original_plain_text = format!("{original_header}\n\n{}", source.plain_text);
     let source_html = source
         .safe_html
         .clone()
         .unwrap_or_else(|| format!("<p>{}</p>", escape_html(&source.plain_text)));
-    let original_html = format!("{original_header_html}{source_html}");
+    let original_html = format!(
+        "{original_header_html}<div class=\"nextmail-original-body\" style=\"margin-top:16px\">{source_html}</div>"
+    );
     let original_content = editor_content_from_text(&original_plain_text);
     let editor_json = serde_json::to_string(&serde_json::json!({
         "type": "doc",
@@ -95,7 +99,6 @@ pub fn compose_message_action_draft(
                 "type": "nextmailReply",
                 "content": [{ "type": "paragraph" }]
             },
-            { "type": "paragraph" },
             {
                 "type": "nextmailOriginalMessage",
                 "attrs": {
@@ -108,7 +111,7 @@ pub fn compose_message_action_draft(
     }))
     .map_err(|_| CommandError::new("draft.editor_json_failed"))?;
     let html = format!(
-        "<div data-nextmail-reply=\"\"><p></p></div><p></p><div data-nextmail-original-message=\"\">{original_html}</div>"
+        "<div data-nextmail-reply=\"\"><p></p></div><div data-nextmail-original-message=\"\">{original_html}</div>"
     );
     let plain_text = format!("\n\n{original_plain_text}");
     let mut references = source.references.clone();
@@ -119,7 +122,7 @@ pub fn compose_message_action_draft(
     }
     Ok(ComposedMessageActionDraft {
         recipients,
-        subject: prefixed_subject(&source.subject, action),
+        subject: prefixed_message_action_subject(&source.subject, action, &labels),
         content: DraftContent {
             editor_json,
             html,
@@ -182,22 +185,35 @@ fn format_addresses(values: &[MessageAddress]) -> String {
         .join(", ")
 }
 
-fn prefixed_subject(subject: &str, action: MessageComposeAction) -> String {
+pub fn prefixed_message_action_subject(
+    subject: &str,
+    action: MessageComposeAction,
+    labels: &MessageActionLabels<'_>,
+) -> String {
     let trimmed = subject.trim();
+    let lower = trimmed.to_ascii_lowercase();
     match action {
         MessageComposeAction::Reply | MessageComposeAction::ReplyAll
-            if trimmed.to_ascii_lowercase().starts_with("re:") =>
+            if lower.starts_with("re:")
+                || trimmed.starts_with("回复：")
+                || trimmed.starts_with("回复:") =>
         {
             trimmed.to_owned()
         }
         MessageComposeAction::Forward
-            if trimmed.to_ascii_lowercase().starts_with("fwd:")
-                || trimmed.to_ascii_lowercase().starts_with("fw:") =>
+            if lower.starts_with("fwd:")
+                || lower.starts_with("fw:")
+                || trimmed.starts_with("转发：")
+                || trimmed.starts_with("转发:") =>
         {
             trimmed.to_owned()
         }
-        MessageComposeAction::Reply | MessageComposeAction::ReplyAll => format!("Re: {trimmed}"),
-        MessageComposeAction::Forward => format!("Fwd: {trimmed}"),
+        MessageComposeAction::Reply | MessageComposeAction::ReplyAll => {
+            format!("{}{trimmed}", labels.reply_subject_prefix)
+        }
+        MessageComposeAction::Forward => {
+            format!("{}{trimmed}", labels.forward_subject_prefix)
+        }
     }
 }
 
@@ -253,11 +269,13 @@ mod tests {
 
     fn labels() -> MessageActionLabels<'static> {
         MessageActionLabels {
-            original_message: "Forwarded message",
-            wrote: "wrote:",
+            original_message: "Original message",
             from: "From",
+            date: "Sent",
             to: "To",
             subject: "Subject",
+            reply_subject_prefix: "Re: ",
+            forward_subject_prefix: "Fwd: ",
         }
     }
 
@@ -268,6 +286,7 @@ mod tests {
             from: vec![address("sender@example.com")],
             to: vec![address("me@example.com"), address("other@example.com")],
             cc: vec![address("SENDER@example.com"), address("other@example.com")],
+            received_at: 1,
             message_id: Some("child@example.com".into()),
             references: vec!["root@example.com".into()],
             plain_text: "First\nSecond".into(),
@@ -278,6 +297,7 @@ mod tests {
             "ME@example.com",
             MessageComposeAction::ReplyAll,
             labels(),
+            "1970-01-01 00:00",
         )
         .unwrap();
 
@@ -294,6 +314,8 @@ mod tests {
             .editor_json
             .contains("nextmailOriginalMessage"));
         assert!(draft.content.editor_json.contains("<strong>First</strong>"));
+        assert!(draft.content.html.contains("Original message"));
+        assert!(draft.content.html.contains("1970-01-01 00:00"));
         assert!(!draft.content.plain_text.contains("> First"));
     }
 
@@ -304,6 +326,7 @@ mod tests {
             from: vec![address("sender@example.com")],
             to: vec![address("me@example.com")],
             cc: vec![],
+            received_at: 1,
             message_id: Some("message@example.com".into()),
             references: vec![],
             plain_text: "<original>".into(),
@@ -314,6 +337,7 @@ mod tests {
             "me@example.com",
             MessageComposeAction::Forward,
             labels(),
+            "1970-01-01 00:00",
         )
         .unwrap();
 
@@ -324,5 +348,30 @@ mod tests {
             .content
             .html
             .contains("data-nextmail-original-message"));
+    }
+
+    #[test]
+    fn localized_subject_prefixes_are_added_once() {
+        let labels = MessageActionLabels {
+            original_message: "原始邮件",
+            from: "发件人",
+            date: "发件时间",
+            to: "收件人",
+            subject: "主题",
+            reply_subject_prefix: "回复：",
+            forward_subject_prefix: "转发：",
+        };
+        assert_eq!(
+            prefixed_message_action_subject("主题", MessageComposeAction::Reply, &labels),
+            "回复：主题"
+        );
+        assert_eq!(
+            prefixed_message_action_subject("回复：主题", MessageComposeAction::ReplyAll, &labels),
+            "回复：主题"
+        );
+        assert_eq!(
+            prefixed_message_action_subject("主题", MessageComposeAction::Forward, &labels),
+            "转发：主题"
+        );
     }
 }

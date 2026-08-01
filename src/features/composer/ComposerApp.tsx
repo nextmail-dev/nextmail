@@ -8,7 +8,6 @@ import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
 import { useAppearancePreferences } from "@/app/appearance";
-import { reportCaughtError } from "@/app/errorReporting";
 import { useRevealWindowWhenReady } from "@/app/windowReady";
 import type {
   ComposerBootstrap,
@@ -82,12 +81,13 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   const [attachments, setAttachments] = useState(draft.attachments);
   const [revision, setRevision] = useState(draft.revision);
   const [dirty, setDirty] = useState(false);
-  const [saveState, setSaveState] = useState<"saved" | "saving" | "failed">("saved");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "failed">("idle");
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [sendJob, setSendJob] = useState<SendJobSummary | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmEmptySubject, setConfirmEmptySubject] = useState(false);
-  const [saveRetry, setSaveRetry] = useState(0);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [closing, setClosing] = useState(false);
   const initialComposition = compositionSelection(draft.content.editorJson);
   const [templateId, setTemplateId] = useState(initialComposition.templateId ?? "none");
   const [signatureId, setSignatureId] = useState(initialComposition.signatureId ?? "none");
@@ -127,8 +127,8 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     };
   }, [bcc, bccInput, cc, ccInput, to, toInput]);
 
-  const saveNow = useCallback(async (commitPendingRecipients = false) => {
-    if (!dirty || savingRef.current || !editable) return null;
+  const saveNow = useCallback(async (commitPendingRecipients = false, force = false) => {
+    if ((!dirty && !force) || savingRef.current || !editable) return null;
     const resolvedRecipients = commitPendingRecipients
       ? resolveAllRecipients()
       : { to, cc, bcc };
@@ -153,7 +153,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       if (savingVersion === changeVersionRef.current) {
         setDirty(false);
       }
-      setSaveState("saved");
+      setSaveState("idle");
       setErrorCode(null);
       return saved;
     } catch (error) {
@@ -163,32 +163,12 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       return null;
     } finally {
       savingRef.current = false;
-      if (savingVersion !== changeVersionRef.current) {
-        setSaveRetry((value) => value + 1);
-      }
     }
   }, [bcc, cc, content, dirty, draft.id, editable, resolveAllRecipients, sender.id, subject, to]);
   const saveNowRef = useRef(saveNow);
   saveNowRef.current = saveNow;
-  const closeStateRef = useRef({ dirty, editable, sendJob, submitting });
-  closeStateRef.current = { dirty, editable, sendJob, submitting };
-
-  useEffect(() => {
-    if (!dirty || !editable || toInput.trim() || ccInput.trim() || bccInput.trim()) return;
-    const timeout = window.setTimeout(() => void saveNow(false), 800);
-    return () => window.clearTimeout(timeout);
-  }, [bccInput, ccInput, dirty, editable, saveNow, saveRetry, toInput]);
-
-  useEffect(() => {
-    if (!editable || dirty || revision === draft.revision) return;
-    const timeout = window.setTimeout(
-      () => void api
-        .queueRemoteDraft(sender.id, draft.id)
-        .catch((error) => reportCaughtError("draft.remote-queue", error)),
-      10_000,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [dirty, draft.id, draft.revision, editable, revision, sender.id]);
+  const closeStateRef = useRef({ editable, sendJob, submitting });
+  closeStateRef.current = { editable, sendJob, submitting };
 
   useEffect(() => {
     const currentWindow = getCurrentWindow();
@@ -204,20 +184,48 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         return;
       }
       if (closeState.sendJob || closeState.submitting) return;
-      if (closeState.dirty && closeState.editable) {
-        const saved = await saveNowRef.current(true);
-        if (!saved) return;
+      if (!closeState.editable) {
+        try {
+          await currentWindow.destroy();
+        } catch (error) {
+          setErrorCode(normalizeCommandError(error).code);
+        }
+        return;
       }
-      try {
-        const discarded = await api.discardEmptyDraft(sender.id, draft.id);
-        if (!discarded) await api.queueRemoteDraft(sender.id, draft.id);
-        await currentWindow.destroy();
-      } catch (error) {
-        setErrorCode(normalizeCommandError(error).code);
-      }
+      setConfirmClose(true);
     });
     return () => { void unlisten.then((dispose) => dispose()); };
-  }, [draft.id, sender.id]);
+  }, []);
+
+  async function discardAndClose() {
+    setClosing(true);
+    try {
+      await api.discardDraftSession(sender.id, draft.id);
+      await getCurrentWindow().destroy();
+    } catch (error) {
+      setErrorCode(normalizeCommandError(error).code);
+      setClosing(false);
+      setConfirmClose(false);
+    }
+  }
+
+  async function saveAndClose() {
+    setClosing(true);
+    const saved = await saveNowRef.current(true, true);
+    if (!saved) {
+      setClosing(false);
+      setConfirmClose(false);
+      return;
+    }
+    try {
+      await api.queueRemoteDraft(sender.id, draft.id);
+      await getCurrentWindow().destroy();
+    } catch (error) {
+      setErrorCode(normalizeCommandError(error).code);
+      setClosing(false);
+      setConfirmClose(false);
+    }
+  }
 
   useEffect(() => {
     if (!sendJob) return;
@@ -433,9 +441,6 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           <Paperclip size={16} />{t("composer.attach")}
         </Button>
         <Page className="flex-1" />
-        <Text className="text-xs" aria-live="polite">
-          {saveState === "saving" ? t("composer.saving") : saveState === "failed" ? t("composer.saveFailed") : t("composer.saved")}
-        </Text>
       </Inline>
 
       <Page className="flex min-h-0 flex-1 flex-col">
@@ -443,7 +448,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           <Text className="w-20 shrink-0 px-4 text-xs font-semibold">{t("composer.from")}</Text>
           <AddressTag address={{ name: sender.displayName || null, email: sender.email }} />
         </Inline>
-        <Separator className="ml-20" />
+        <Separator />
         <RecipientField
           label={t("composer.to")}
           addresses={to}
@@ -456,12 +461,12 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           onRemove={(index) => removeRecipient("to", index)}
           onEditLast={(address, index) => editLastRecipient("to", address, index)}
           trailing={
-            <Button type="button" variant="ghost" size="sm" className="mr-2" onClick={() => setShowCopies((value) => !value)}>
+            <Button type="button" variant="ghost" size="sm" className="mr-2 mt-1.5 self-start" onClick={() => setShowCopies((value) => !value)}>
               {t("composer.ccBcc")}<ChevronDown size={14} />
             </Button>
           }
         />
-        <Separator className="ml-20" />
+        <Separator />
         {showCopies ? (
           <>
             <RecipientField
@@ -475,7 +480,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
               onRemove={(index) => removeRecipient("cc", index)}
               onEditLast={(address, index) => editLastRecipient("cc", address, index)}
             />
-            <Separator className="ml-20" />
+            <Separator />
             <RecipientField
               label={t("composer.bcc")}
               addresses={bcc}
@@ -487,7 +492,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
               onRemove={(index) => removeRecipient("bcc", index)}
               onEditLast={(address, index) => editLastRecipient("bcc", address, index)}
             />
-            <Separator className="ml-20" />
+            <Separator />
           </>
         ) : null}
         <CompactField label={t("composer.subject")} value={subject} disabled={!editable} onChange={(event) => { setSubject(event.currentTarget.value); markDirty(); }} />
@@ -565,6 +570,21 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           <Inline className="justify-end">
             <Button variant="secondary" onClick={() => setConfirmEmptySubject(false)}>{t("common.cancel")}</Button>
             <Button onClick={() => void sendMessage()}>{t("composer.sendAnyway")}</Button>
+          </Inline>
+        </Stack>
+      </Modal>
+      <Modal
+        open={confirmClose}
+        onOpenChange={(open) => { if (!closing) setConfirmClose(open); }}
+        title={t("composer.closeTitle")}
+        closeLabel={t("common.close")}
+      >
+        <Stack className="mt-4">
+          <Text>{t("composer.closeDescription")}</Text>
+          <Inline className="justify-end">
+            <Button variant="secondary" disabled={closing} onClick={() => setConfirmClose(false)}>{t("common.cancel")}</Button>
+            <Button variant="secondary" disabled={closing} onClick={() => void discardAndClose()}>{t("composer.discardAndClose")}</Button>
+            <Button loading={closing} onClick={() => void saveAndClose()}>{t("composer.saveAndClose")}</Button>
           </Inline>
         </Stack>
       </Modal>

@@ -48,6 +48,7 @@ vi.mock("@/app/api", () => ({
       availability: "available",
     }),
     openRawMessageWindow: vi.fn().mockResolvedValue(undefined),
+    openMessagePreviewWindow: vi.fn().mockResolvedValue(undefined),
   },
   normalizeCommandError: vi.fn(() => ({
     code: "common.unexpected_error",
@@ -138,5 +139,37 @@ describe("MessageViewer", () => {
       expect(api.openRawMessageWindow).toHaveBeenCalledWith("account-one", "message-one");
     });
     expect(screen.queryByRole("dialog", { name: "Message source" })).not.toBeInTheDocument();
+  });
+
+  it("hides reply and forward controls for a Drafts message", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageViewer
+          accountId="account-one"
+          mailboxId="drafts"
+          messageId="message-one"
+          mailboxes={[{
+            id: "drafts",
+            accountId: "account-one",
+            name: "Drafts",
+            delimiter: "/",
+            role: "drafts",
+            selectable: true,
+            totalCount: 1,
+            unreadCount: 0,
+            revision: 1,
+          }]}
+          onMessageRemoved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Attachment" });
+    expect(screen.queryByRole("button", { name: "Reply" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reply all" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Forward" })).not.toBeInTheDocument();
   });
 });

@@ -186,7 +186,7 @@ impl MailSyncSink for SyncSinkRepository {
                o.message_id = message_locations.message_id AND o.source_mailbox_id = message_locations.mailbox_id \
                AND o.kind IN ('set_read','set_flagged') AND o.status IN ('queued','running','retry_wait')) \
                THEN message_locations.flagged ELSE excluded.flagged END, \
-             internal_date = excluded.internal_date, modseq = excluded.modseq",
+             internal_date = excluded.internal_date, modseq = COALESCE(excluded.modseq, message_locations.modseq)",
         )
         .bind(Uuid::new_v4().to_string())
         .bind(&message_id)

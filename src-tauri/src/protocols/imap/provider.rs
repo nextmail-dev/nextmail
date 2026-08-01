@@ -10,12 +10,12 @@ use super::{
         fetch_message_session, replace_draft_session,
     },
     session_budget::{SessionBudgetRegistry, SYNC_SESSION_COUNT},
-    sync_session,
+    sync_mailbox_session, sync_session,
 };
 use crate::core::{
-    CommandResult, ImapAccountConfig, ImapSyncProvider, MailSyncSink, RemoteMailboxOperation,
-    RemoteMailboxOperationOutcome, RemoteMessage, RemoteOperation, RemoteOperationOutcome,
-    SyncObserver,
+    CommandResult, ImapAccountConfig, ImapSyncProvider, MailSyncSink, MailboxSyncTarget,
+    RemoteMailboxOperation, RemoteMailboxOperationOutcome, RemoteMessage, RemoteOperation,
+    RemoteOperationOutcome, SyncObserver,
 };
 
 #[derive(Default)]
@@ -58,6 +58,19 @@ impl ImapSyncProvider for AsyncImapProvider {
         let _path_guard = path_lock.read().await;
         let (_permit, session) = self.connect_budgeted_session(account).await?;
         fetch_message_session(session, mailbox_name, uid, expected_uid_validity).await
+    }
+
+    async fn synchronize_mailbox(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox: &MailboxSyncTarget,
+        sink: &(dyn MailSyncSink + Send + Sync),
+        observer: &(dyn SyncObserver + Send + Sync),
+    ) -> CommandResult<()> {
+        let path_lock = self.mailbox_path_locks.lock(&account.account_id);
+        let _path_guard = path_lock.read().await;
+        let (_permit, session) = self.connect_budgeted_session(account).await?;
+        sync_mailbox_session(session, account, mailbox, sink, observer).await
     }
 
     async fn apply_operation(

@@ -62,10 +62,14 @@
   min-height: 2.2rem;
 }
 
+.nextmail-editor-content hr[data-nextmail-signature-divider] {
+  margin: 20px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
 .nextmail-editor-content .nextmail-composition-original-message {
   margin-top: 0.9rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
   overflow-wrap: normal;
 }
 

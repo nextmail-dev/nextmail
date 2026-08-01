@@ -26,7 +26,11 @@ pub fn build_outgoing_message(
     let mut builder = MessageBuilder::new()
         .from(address(sender))
         .subject(subject.to_owned())
-        .header("Date", Raw::new(Local::now().to_rfc2822()));
+        .header("Date", Raw::new(Local::now().to_rfc2822()))
+        .header(
+            "X-Mailer",
+            Raw::new(format!("NextMail/{}", env!("CARGO_PKG_VERSION"))),
+        );
 
     if !recipients.to.is_empty() {
         builder = builder.to(address_list(&recipients.to));
@@ -143,6 +147,7 @@ mod tests {
         let raw_text = String::from_utf8_lossy(&raw).to_ascii_lowercase();
         assert!(!raw_text.contains("\r\nbcc:"));
         assert!(!raw_text.contains("hidden@example.com"));
+        assert!(raw_text.contains("\r\nx-mailer: nextmail/0.1.0"));
 
         let date_header = String::from_utf8_lossy(&raw)
             .lines()

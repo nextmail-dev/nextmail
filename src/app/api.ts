@@ -110,6 +110,8 @@ export const api = {
   openAccountManagementWindow: () => invoke<void>("open_account_management_window"),
   openRawMessageWindow: (accountId: string, messageId: string) =>
     invoke<void>("open_raw_message_window", { accountId, messageId }),
+  openMessagePreviewWindow: (accountId: string, mailboxId: string, messageId: string) =>
+    invoke<void>("open_message_preview_window", { accountId, mailboxId, messageId }),
   openCompositionDefinitionEditor: (
     accountId: string | null,
     kind: "template" | "signature",
@@ -178,6 +180,8 @@ export const api = {
     invoke<AccountManagementDetail>("get_account_management_detail", { accountId }),
   setAccountSyncInterval: (accountId: string, syncInterval: SyncInterval) =>
     invoke<SyncInterval>("set_account_sync_interval", { accountId, syncInterval }),
+  setAccountDownloadFullMessages: (accountId: string, enabled: boolean) =>
+    invoke<boolean>("set_account_download_full_messages", { accountId, enabled }),
   requestRawMessage: (accountId: string, messageId: string) =>
     invoke<string>("request_raw_message", { accountId, messageId }),
   requestAttachment: (accountId: string, attachmentId: string) =>
@@ -294,6 +298,8 @@ export const api = {
     invoke<void>("remove_draft_attachment", { accountId, draftId, attachmentId }),
   discardEmptyDraft: (accountId: string, draftId: string) =>
     invoke<boolean>("discard_empty_draft", { accountId, draftId }),
+  discardDraftSession: (accountId: string, draftId: string) =>
+    invoke<void>("discard_draft_session", { accountId, draftId }),
   deleteDraft: (accountId: string, draftId: string) =>
     invoke<void>("delete_draft", { accountId, draftId }),
   queueRemoteDraft: (accountId: string, draftId: string) =>

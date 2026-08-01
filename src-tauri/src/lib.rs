@@ -11,6 +11,7 @@ mod notification_runtime;
 pub mod protocols;
 mod state;
 pub mod storage;
+mod window_titles;
 
 use std::{io, sync::Arc};
 
@@ -30,6 +31,8 @@ pub fn run() {
                 .map_label(|label| {
                     if label.starts_with("composer-") {
                         "composer"
+                    } else if label.starts_with("message-preview-") {
+                        "message-preview"
                     } else if label.starts_with("definition-") {
                         "definition"
                     } else {
@@ -80,6 +83,7 @@ pub fn run() {
             commands::open_settings_window,
             commands::open_account_management_window,
             commands::open_raw_message_window,
+            commands::open_message_preview_window,
             commands::open_composition_definition_editor_window,
             commands::list_mailboxes,
             commands::create_mailbox,
@@ -104,6 +108,7 @@ pub fn run() {
             commands::retry_pending_operation,
             commands::get_account_management_detail,
             commands::set_account_sync_interval,
+            commands::set_account_download_full_messages,
             commands::request_raw_message,
             commands::request_message_body,
             commands::request_attachment,
@@ -136,6 +141,7 @@ pub fn run() {
             commands::sanitize_rich_text_paste,
             commands::remove_draft_attachment,
             commands::discard_empty_draft,
+            commands::discard_draft_session,
             commands::delete_draft,
             commands::queue_remote_draft,
             commands::queue_draft_send,
@@ -176,7 +182,7 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-fn open_external_mail_target(
+pub(crate) fn open_external_mail_target(
     opener: &dyn ExternalLinkOpener,
     candidate: &str,
 ) -> core::CommandResult<()> {

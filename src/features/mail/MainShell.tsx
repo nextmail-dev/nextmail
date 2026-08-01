@@ -91,12 +91,6 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     enabled: Boolean(selectedAccountId),
     refetchInterval: (query) => ["complete", "failed"].includes(query.state.data?.phase ?? "idle") ? false : 1_500,
   });
-  const draftsQuery = useQuery({
-    queryKey: mailQueryKeys.drafts(selectedAccountId),
-    queryFn: () => api.listDrafts(selectedAccountId),
-    enabled: Boolean(selectedAccountId),
-    refetchInterval: 3_000,
-  });
   const pendingOperationsQuery = useQuery({
     queryKey: mailQueryKeys.pendingOperations(selectedAccountId),
     queryFn: () => api.listPendingOperationStatus(selectedAccountId),
@@ -185,19 +179,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
             if (!selectedAccountId) return;
             setComposeError(null);
             void api.openComposer(selectedAccountId)
-              .then(() => queryClient.invalidateQueries({ queryKey: mailQueryKeys.drafts(selectedAccountId) }))
               .catch((error) => setComposeError(normalizeCommandError(error).code));
-          }}
-          drafts={draftsQuery.data ?? []}
-          onOpenDraft={(draftId) => void api.openExistingComposer(selectedAccountId, draftId).catch((error) => setComposeError(normalizeCommandError(error).code))}
-          onDeleteDraft={async (draftId) => {
-            try {
-              await api.deleteDraft(selectedAccountId, draftId);
-              await queryClient.invalidateQueries({ queryKey: mailQueryKeys.drafts(selectedAccountId) });
-            } catch (error) {
-              setComposeError(normalizeCommandError(error).code);
-              throw error;
-            }
           }}
           onReceive={receive}
           receiving={receiving}
