@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "nextmail",
+  "productName": "NextMail",
   "version": "0.1.1",
   "identifier": "com.taurusxin.nextmail",
   "build": {

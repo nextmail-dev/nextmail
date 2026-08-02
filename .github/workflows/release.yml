@@ -24,16 +24,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS Universal
-            platform: macos-latest
-            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            args: --target universal-apple-darwin -- --locked
+          - name: macOS Intel x64
+            platform: macos-15-intel
+            macos: true
+            rust-targets: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin -- --locked
+          - name: macOS Apple Silicon arm64
+            platform: macos-15
+            macos: true
+            rust-targets: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin -- --locked
           - name: Linux x64
             platform: ubuntu-22.04
+            macos: false
             rust-targets: ""
             args: -- --locked
           - name: Windows x64
             platform: windows-latest
+            macos: false
             rust-targets: ""
             args: -- --locked
 
@@ -78,13 +86,13 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && '-' || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.macos && '-' || '' }}
         with:
           tauriScript: pnpm tauri
           tagName: ${{ github.ref_name }}
           releaseName: NextMail ${{ github.ref_name }}
           releaseBody: |
-            Automated preview builds for Windows, macOS, and Linux.
+            Automated preview builds for Windows, macOS Intel, macOS Apple Silicon, and Linux.
 
             These artifacts do not yet use production Windows code signing or Apple notarization. See the README for current platform support and installation notes.
           releaseDraft: true
