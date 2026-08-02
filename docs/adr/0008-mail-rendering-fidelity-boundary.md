@@ -4,6 +4,8 @@
 
 日期：2026-07-21
 
+修订：2026-08-02
+
 ## 背景
 
 ADR 0002 确立了“Rust 清洗 + 无权限 sandbox iframe”的安全基线。现有实现因此能够隔离脚本、表单、同源访问和顶层导航，但也整段删除邮件 `<style>` 与所有链接 `href`，并用 `!important` 页面颜色压过一部分作者配色。第十阶段需要提高常见通知、交易和营销邮件的排版保真度，并增加受控外链，不能把不可信邮件放回具备 Tauri IPC 的主 React DOM。
@@ -44,6 +46,13 @@ Rust 锁文件当前已间接包含 `cssparser 0.37`，其许可证为 MPL-2.0�
 - 主窗口从既有 Tauri 平台配置显式创建并安装 `on_new_window` 处理器。处理器不信任文档值，对目标再次执行相同校验，随后调用只在 Rust 内可用的系统 opener；无论成功、失败或被拒绝，都返回 `NewWindowResponse::Deny`，不在应用内加载目标。
 - Windows WebView2 和 macOS WKWebView 的新窗口回调及系统关联行为必须分别实机验证。当前只以 Windows 作为本阶段验收平台；未经执行不得宣称 macOS 通过。
 
+### 5. 发布构建必须保留清洗后内联样式
+
+- 邮件继续使用 `srcdoc`，因此会继承主 WebView 的 CSP；子文档自己的 CSP 只能进一步收紧，不能放宽继承策略。
+- Tauri 发布构建默认向打包资产的 `style-src` 加入 nonce/hash。CSP 在同一指令存在 nonce/hash 时会忽略 `'unsafe-inline'`，而动态邮件 `<style>`、`style` 属性和阅读器主题无法预先携带发布资产 nonce/hash，最终会在安装版中整批失效。
+- Tauri 安全配置只对 `style-src` 禁止自动资产 CSP 修改，保留显式的 `style-src 'self' 'unsafe-inline'`。不得设置为全局 `true`，也不得把 `script-src` 或其他指令加入禁用列表。
+- 这一例外只恢复经过 Rust CSS 解析和重建的展示样式。邮件仍位于不透明 sandbox，主 React DOM 不接收邮件 HTML；脚本、表单、same-origin、顶层导航、CSS 网络资源、远程图片默认阻止和 Rust 外链复验均保持不变。
+
 ## 隔离方案比较
 
 | 方案 | 结论 | 原因 |
@@ -81,6 +90,11 @@ Rust 锁文件当前已间接包含 `cssparser 0.37`，其许可证为 MPL-2.0�
 
 - 一封合成自真实问题结构的发票语料显示：作者把 `tr` 设为 flex container，并用 `th/td:nth-child(...) { flex: ... }` 保证表头与数据行共享 2:2:1:3:1:1 的列宽。旧选择器白名单拒绝所有函数 token，导致整组安全列宽规则被丢弃。
 - 选择器解析现只增加上述四种结构伪类，并将参数限制为整数、`n`/`-n`、整数 `n` 维度、`odd`/`even` 与正负号；其他函数、任意嵌套选择器和网络/行为能力仍按失败关闭。迁移 0014 把数据格式提升到 14 并失效旧 HTML 缓存，使阅读器能从本地原始 EML 重建；Composer 新建回复/转发本来就直接读取原始 EML。
+
+## 第五批发布态 CSP 修正记录
+
+- 2026-08-02：确认调试模式与发布模式的差异来自 Tauri 对打包资产自动注入的 `style-src` nonce/hash，以及 `srcdoc` 对父 CSP 的继承。发布包仍包含阅读器样式注入代码，Rust 清洗器也没有 release 分支。
+- 配置现使用指令级 `dangerousDisableAssetCspModification: ["style-src"]`，不关闭其他 CSP 资产保护；增加配置契约测试，固定显式内联样式策略与 `script-src 'self'` 边界。Windows 与 macOS 安装包仍需分别完成邮件样式实机验收。
 
 ## 验证门禁
 

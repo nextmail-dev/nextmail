@@ -206,6 +206,8 @@ fn install_crypto_provider() {
 mod tests {
     use std::sync::Mutex;
 
+    use serde_json::Value;
+
     use super::{install_crypto_provider, open_external_mail_target};
     use crate::core::{CommandResult, ExternalLinkOpener};
 
@@ -225,6 +227,25 @@ mod tests {
     fn installs_process_level_rustls_crypto_provider() {
         install_crypto_provider();
         assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
+
+    #[test]
+    fn release_csp_preserves_sanitized_mail_styles_without_weakening_scripts() {
+        let config: Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("valid Tauri config");
+        let security = &config["app"]["security"];
+        let disabled_modifications = security["dangerousDisableAssetCspModification"]
+            .as_array()
+            .expect("directive-scoped CSP modification setting");
+        assert_eq!(
+            disabled_modifications,
+            &[Value::String("style-src".to_owned())]
+        );
+
+        let csp = security["csp"].as_str().expect("configured CSP");
+        let directives = csp.split(';').map(str::trim).collect::<Vec<_>>();
+        assert!(directives.contains(&"style-src 'self' 'unsafe-inline'"));
+        assert!(directives.contains(&"script-src 'self'"));
     }
 
     #[test]

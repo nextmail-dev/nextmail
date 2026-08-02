@@ -20,7 +20,7 @@
 </div>
 
 > [!IMPORTANT]
-> NextMail is currently a `0.1.0` preview. Windows 10 22H2+ x64 is the primary hands-on validation platform; macOS 12+ is a target platform. Linux packages are built for early testing, but Linux is not yet deeply adapted or validated.
+> NextMail is currently a `0.1.1` preview. Windows 10 22H2+ x64 is the primary hands-on validation platform; macOS 12+ is a target platform. Linux packages are built for early testing, but Linux is not yet deeply adapted or validated.
 
 ## Preview
 

@@ -1,6 +1,6 @@
 # NextMail 项目开发手册
 
-更新时间：2026-08-01
+更新时间：2026-08-02
 
 本文是 NextMail 新会话唯一必读的长期技术文档，集中保存当前实现事实、开发细则、工程约定和项目记忆。历史范围与验收记录保留在 `iterations/`；重大架构或安全取舍保留在 `adr/`，都只在任务相关时按需查阅。
 
@@ -20,7 +20,7 @@
 
 ## 2. 产品与当前状态
 
-NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.1.0`。
+NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.1.1`。
 
 平台边界：
 
@@ -167,7 +167,7 @@ cache/attachment-open/...
 - Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
 - SMTP 前生成不可变 MIME/Message-ID，写入 `raw/` 后创建持久化 `send_job`；重试复用相同 MIME。
 - SendWorker 账户内 FIFO、账户间轮转；全局最多两封、每账户最多一封。SMTP 成功后独立 APPEND Sent，归档失败不得再次发信。
-- 客户端头为 `X-Mailer: NextMail/0.1.0`；版本变化时同步核对 manifest 与此值。
+- 客户端头为 `X-Mailer: NextMail/0.1.1`；版本变化时同步核对 manifest 与此值。
 
 ## 6. 安全边界
 
@@ -176,6 +176,7 @@ cache/attachment-open/...
 - SMTP 测试不得发送邮件；IMAP 测试不得修改邮箱。
 - HTML 邮件由 Rust 权威清洗，并在无 scripts、forms、same-origin、top-navigation、任意文件或任意网络能力的 sandbox iframe 中渲染。
 - 阅读 iframe 仅保留受宿主拦截的 `allow-popups`；外链经 Rust 再次校验后交给系统，WebView 始终拒绝创建外部页面。
+- Tauri 发布构建只禁止对 `style-src` 自动追加资产 nonce/hash，使 `srcdoc` 继承的父 CSP 不会阻止经过 Rust 清洗的邮件 `<style>` 与行内样式；`script-src` 等其他指令仍保留 Tauri 的资产 CSP 加固，邮件 sandbox 和子文档 CSP 不变。
 - 远程图片默认由邮件 CSP 阻止；显式允许后仍使用 `no-referrer`。
 - CSS 网络 `url()`、`@import`、`@font-face`、固定遮罩、动画和变换继续移除。
 - CID/`data:image` 只接受经过 media type、解码、文件魔数和大小预算验证的 PNG/JPEG/GIF/WebP/BMP。
