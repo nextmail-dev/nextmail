@@ -14,9 +14,11 @@ vi.mock("@/app/api", () => ({
   api: {
     createMailSignature: vi.fn(),
     createMailTemplate: vi.fn(),
+    listContactSuggestions: vi.fn(),
     listMailSignatures: vi.fn(),
     listMailTemplates: vi.fn(),
     prepareCompositionDefinitionImage: vi.fn(),
+    resolveContactAddresses: vi.fn(),
     sanitizeRichTextPaste: vi.fn(),
     updateMailSignature: vi.fn(),
     updateMailTemplate: vi.fn(),
@@ -63,7 +65,11 @@ vi.mock("@/features/composer/RichTextEditor", () => ({
   ),
 }));
 
-function renderEditor(kind: "template" | "signature", definitionId: string | null = null) {
+function renderEditor(
+  kind: "template" | "signature",
+  definitionId: string | null = null,
+  accountId: string | null = null,
+) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -75,7 +81,7 @@ function renderEditor(kind: "template" | "signature", definitionId: string | nul
   );
   return render(
     <CompositionDefinitionEditorApp
-      accountId={null}
+      accountId={accountId}
       kind={kind}
       definitionId={definitionId}
     />,
@@ -91,6 +97,20 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.listMailTemplates).mockResolvedValue([]);
   vi.mocked(api.listMailSignatures).mockResolvedValue([]);
+  vi.mocked(api.listContactSuggestions).mockResolvedValue([{
+    id: "contact-one",
+    name: "Alice Local",
+    email: "alice@example.com",
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  }]);
+  vi.mocked(api.resolveContactAddresses).mockImplementation(async (_accountId, addresses) => addresses.map((address) => ({
+    contactId: address.email === "alice@example.com" ? "contact-one" : null,
+    name: address.name,
+    headerName: address.name,
+    email: address.email,
+  })));
   vi.mocked(api.prepareCompositionDefinitionImage).mockResolvedValue({
     fileName: "logo.png",
     contentType: "image/png",
@@ -110,6 +130,36 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("CompositionDefinitionEditorApp", () => {
+  it("saves template recipient fields with the reusable content", async () => {
+    renderEditor("template", null, "account-one");
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Customer reply" },
+    });
+    const to = screen.getByRole("textbox", { name: "To" });
+    expect(screen.getByText("To", { selector: "label" })).toHaveClass("items-center", "border-r");
+    fireEvent.change(to, { target: { value: "ali" } });
+    fireEvent.click(await screen.findByRole("option", { name: /Alice Local/ }));
+    const cc = screen.getByRole("textbox", { name: "Cc" });
+    fireEvent.change(cc, { target: { value: "team@example.com" } });
+    fireEvent.blur(cc);
+    fireEvent.change(screen.getByRole("textbox", { name: "Email subject" }), {
+      target: { value: "Reminder" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(api.createMailTemplate).toHaveBeenCalledWith("account-one", expect.objectContaining({
+      name: "Customer reply",
+      subject: "Reminder",
+      recipients: {
+        to: [{ name: "Alice Local", email: "alice@example.com" }],
+        cc: [{ name: null, email: "team@example.com" }],
+        bcc: [],
+      },
+    })));
+    expect(api.listContactSuggestions).toHaveBeenCalledWith("account-one", "ali", 8);
+  });
+
   it("inserts a validated embedded image and saves it in a new signature", async () => {
     renderEditor("signature");
 

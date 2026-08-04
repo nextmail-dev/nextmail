@@ -144,7 +144,7 @@ export function SettingsApp() {
             readingPreferences={readingPreferencesQuery.data}
             readingError={readingMutation.error}
             accounts={accountsQuery.data ?? []}
-            version={aboutQuery.data?.version ?? "0.1.1"}
+            version={aboutQuery.data?.version ?? "0.2.0"}
             onChange={updatePreferences}
             onReadingChange={updateReadingPreferences}
           />
@@ -265,6 +265,26 @@ function SettingsContent({
     return (
       <SettingsSection category={category}>
         <NotificationSettings accounts={accounts} />
+      </SettingsSection>
+    );
+  }
+  if (category === "advanced") {
+    const error = readingError ? normalizeCommandError(readingError) : null;
+    return (
+      <SettingsSection category={category}>
+        <Stack className="rounded-lg bg-muted/60 p-5" gap="sm">
+          <Checkbox
+            checked={readingPreferences.autoLoadMoreContacts}
+            label={t("settings.autoLoadMoreContacts")}
+            onCheckedChange={(autoLoadMoreContacts) => onReadingChange({ ...readingPreferences, autoLoadMoreContacts })}
+          />
+          <Text className="pl-[28px] text-xs">{t("settings.autoLoadMoreContactsDescription")}</Text>
+        </Stack>
+        {error ? (
+          <Alert tone="danger" title={t("errors.title")}>
+            {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+          </Alert>
+        ) : null}
       </SettingsSection>
     );
   }

@@ -1,23 +1,29 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
 import type {
   DraftContent,
+  DraftRecipientFields,
   MailSignature,
   MailTemplate,
+  MessageAddress,
 } from "@/app/types";
 import { useRevealWindowWhenReady } from "@/app/windowReady";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { CompactField } from "@/components/ui/compact-field";
 import { TextField } from "@/components/ui/input";
 import { AppShell, Form, Inline, Page, Stack } from "@/components/ui/layout";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, LabelText, Text } from "@/components/ui/typography";
 import { fileToBase64 } from "@/features/composer/fileToBase64";
+import { RecipientField } from "@/features/composer/RecipientField";
+import { addRecipientInput, formatAddress } from "@/features/composer/recipient-utils";
 import { RichTextEditor } from "@/features/composer/RichTextEditor";
+import { mailQueryKeys } from "@/features/mail/mail-query-keys";
 
 const EMPTY_CONTENT: DraftContent = {
   editorJson: '{"type":"doc","content":[{"type":"paragraph"}]}',
@@ -26,6 +32,7 @@ const EMPTY_CONTENT: DraftContent = {
 };
 
 export type CompositionDefinitionKind = "template" | "signature";
+type RecipientKind = keyof DraftRecipientFields;
 
 interface CompositionDefinitionEditorAppProps {
   accountId: string | null;
@@ -92,6 +99,34 @@ function DefinitionEditorForm({
   const [subject, setSubject] = useState(
     kind === "template" && value && "subject" in value ? value.subject : "",
   );
+  const templateRecipients = kind === "template" && value && "subject" in value
+    ? value.recipients
+    : null;
+  const [to, setTo] = useState(templateRecipients?.to ?? []);
+  const [cc, setCc] = useState(templateRecipients?.cc ?? []);
+  const [bcc, setBcc] = useState(templateRecipients?.bcc ?? []);
+  const [toInput, setToInput] = useState("");
+  const [ccInput, setCcInput] = useState("");
+  const [bccInput, setBccInput] = useState("");
+  const [recipientErrors, setRecipientErrors] = useState<Record<RecipientKind, string | null>>({
+    to: null,
+    cc: null,
+    bcc: null,
+  });
+  const recipientAddresses = useMemo(() => [...to, ...cc, ...bcc], [to, cc, bcc]);
+  const recipientEmails = useMemo(
+    () => [...new Set(recipientAddresses.map((address) => address.email.trim().toLocaleLowerCase()))].sort(),
+    [recipientAddresses],
+  );
+  const resolvedRecipients = useQuery({
+    queryKey: mailQueryKeys.contactAddresses(accountId ?? "", recipientEmails),
+    queryFn: () => api.resolveContactAddresses(accountId!, recipientAddresses),
+    enabled: Boolean(accountId && recipientAddresses.length),
+  });
+  const resolvedRecipientsByEmail = useMemo(
+    () => new Map((resolvedRecipients.data ?? []).map((address) => [address.email.trim().toLocaleLowerCase(), address])),
+    [resolvedRecipients.data],
+  );
   const [content, setContent] = useState(value?.content ?? EMPTY_CONTENT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -105,11 +140,13 @@ function DefinitionEditorForm({
   }
 
   async function submit() {
+    const recipients = kind === "template" ? resolveRecipients() : null;
+    if (kind === "template" && !recipients) return;
     setSaving(true);
     setError(null);
     try {
       if (kind === "template") {
-        const draft = { name, subject, content };
+        const draft = { name, subject, recipients: recipients!, content };
         if (value) {
           await api.updateMailTemplate(accountId, value.id, draft, value.revision);
         } else {
@@ -129,6 +166,80 @@ function DefinitionEditorForm({
     } finally {
       setSaving(false);
     }
+  }
+
+  function recipientValue(recipientKind: RecipientKind) {
+    if (recipientKind === "to") return { addresses: to, input: toInput };
+    if (recipientKind === "cc") return { addresses: cc, input: ccInput };
+    return { addresses: bcc, input: bccInput };
+  }
+
+  function setRecipientAddresses(recipientKind: RecipientKind, addresses: MessageAddress[]) {
+    if (recipientKind === "to") setTo(addresses);
+    else if (recipientKind === "cc") setCc(addresses);
+    else setBcc(addresses);
+  }
+
+  function setRecipientInput(recipientKind: RecipientKind, input: string) {
+    if (recipientKind === "to") setToInput(input);
+    else if (recipientKind === "cc") setCcInput(input);
+    else setBccInput(input);
+    setRecipientErrors((current) => ({ ...current, [recipientKind]: null }));
+  }
+
+  function commitRecipient(recipientKind: RecipientKind) {
+    const current = recipientValue(recipientKind);
+    const result = addRecipientInput(current.addresses, current.input);
+    if (result.invalid) {
+      setRecipientErrors((errors) => ({ ...errors, [recipientKind]: result.invalid }));
+      return;
+    }
+    setRecipientAddresses(recipientKind, result.addresses);
+    setRecipientInput(recipientKind, "");
+  }
+
+  function removeRecipient(recipientKind: RecipientKind, index: number) {
+    setRecipientAddresses(
+      recipientKind,
+      recipientValue(recipientKind).addresses.filter((_, itemIndex) => itemIndex !== index),
+    );
+  }
+
+  function editLastRecipient(recipientKind: RecipientKind, address: MessageAddress, index: number) {
+    removeRecipient(recipientKind, index);
+    setRecipientInput(recipientKind, formatAddress(address));
+  }
+
+  function selectContactRecipient(recipientKind: RecipientKind, contact: { name: string; email: string }) {
+    const current = recipientValue(recipientKind);
+    const normalizedEmail = contact.email.trim().toLocaleLowerCase();
+    if (!current.addresses.some((address) => address.email.trim().toLocaleLowerCase() === normalizedEmail)) {
+      setRecipientAddresses(recipientKind, [
+        ...current.addresses,
+        { name: contact.name, email: contact.email },
+      ]);
+    }
+    setRecipientInput(recipientKind, "");
+  }
+
+  function resolveRecipients(): DraftRecipientFields | null {
+    const resolved = {
+      to: addRecipientInput(to, toInput),
+      cc: addRecipientInput(cc, ccInput),
+      bcc: addRecipientInput(bcc, bccInput),
+    };
+    const errors = {
+      to: resolved.to.invalid,
+      cc: resolved.cc.invalid,
+      bcc: resolved.bcc.invalid,
+    };
+    setRecipientErrors(errors);
+    if (errors.to || errors.cc || errors.bcc) return null;
+    return {
+      to: resolved.to.addresses,
+      cc: resolved.cc.addresses,
+      bcc: resolved.bcc.addresses,
+    };
   }
 
   async function addInlineImage(file: File) {
@@ -173,24 +284,48 @@ function DefinitionEditorForm({
             <Heading level={1} className="text-xl">{title}</Heading>
             <Text className="text-xs">{t("compositionLibrary.editorWindowDescription")}</Text>
           </Stack>
-          <Inline className="items-start">
-            <TextField
-              label={t("compositionLibrary.name")}
-              value={name}
-              maxLength={80}
-              autoFocus
-              disabled={saving}
-              onChange={(event) => setName(event.target.value)}
-            />
-            {kind === "template" ? (
-              <TextField
-                label={t("composer.subject")}
+          <TextField
+            label={t("compositionLibrary.name")}
+            value={name}
+            maxLength={80}
+            autoFocus
+            disabled={saving}
+            onChange={(event) => setName(event.target.value)}
+          />
+          {kind === "template" ? (
+            <Stack className="overflow-visible border-t border-border/70 bg-card" gap="none">
+              {(["to", "cc", "bcc"] as const).map((recipientKind) => {
+                const current = recipientValue(recipientKind);
+                return (
+                  <RecipientField
+                    key={recipientKind}
+                    accountId={accountId ?? undefined}
+                    label={t(`composer.${recipientKind}`)}
+                    addresses={current.addresses}
+                    resolvedAddresses={resolvedRecipientsByEmail}
+                    input={current.input}
+                    error={recipientErrors[recipientKind]
+                      ? t("composer.invalidRecipient", { value: recipientErrors[recipientKind] })
+                      : null}
+                    disabled={saving}
+                    structured
+                    onInputChange={(input) => setRecipientInput(recipientKind, input)}
+                    onCommit={() => commitRecipient(recipientKind)}
+                    onRemove={(index) => removeRecipient(recipientKind, index)}
+                    onEditLast={(address, index) => editLastRecipient(recipientKind, address, index)}
+                    onSelectContact={(contact) => selectContactRecipient(recipientKind, contact)}
+                  />
+                );
+              })}
+              <CompactField
+                structured
+                label={t("compositionLibrary.mailSubject")}
                 value={subject}
                 disabled={saving}
-                onChange={(event) => setSubject(event.target.value)}
+                onChange={(event) => setSubject(event.currentTarget.value)}
               />
-            ) : null}
-          </Inline>
+            </Stack>
+          ) : null}
           <Text className="text-xs">{t("compositionLibrary.variablesHint")}</Text>
         </Stack>
         <Page className="flex min-h-0 flex-1 flex-col px-6 pt-4">

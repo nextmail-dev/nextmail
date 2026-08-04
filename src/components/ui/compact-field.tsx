@@ -4,11 +4,12 @@ import { cn } from "@/lib/utils";
 
 interface CompactFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
   label: string;
+  structured?: boolean;
   trailing?: ReactNode;
 }
 
 export const CompactField = forwardRef<HTMLInputElement, CompactFieldProps>(function CompactField(
-  { label, trailing, className, id: providedId, ...props },
+  { label, structured = false, trailing, className, id: providedId, ...props },
   ref,
 ) {
   const generatedId = useId();
@@ -16,9 +17,16 @@ export const CompactField = forwardRef<HTMLInputElement, CompactFieldProps>(func
   return (
     <label
       htmlFor={id}
-      className={cn("flex min-h-11 items-center overflow-hidden bg-card", className)}
+      className={cn(
+        "flex min-h-11 items-center overflow-hidden bg-card",
+        structured && "border-b border-border/70",
+        className,
+      )}
     >
-      <span className="w-20 shrink-0 px-4 text-xs font-semibold text-muted-foreground">{label}</span>
+      <span className={cn(
+        "w-20 shrink-0 px-4 text-xs font-semibold text-muted-foreground",
+        structured && "flex self-stretch items-center border-r border-border/70 py-2",
+      )}>{label}</span>
       <input
         ref={ref}
         id={id}

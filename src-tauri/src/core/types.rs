@@ -71,6 +71,7 @@ pub struct ReadingPreferences {
     pub auto_load_remote_images: bool,
     pub auto_open_downloaded_attachments: bool,
     pub auto_load_more_messages: bool,
+    pub auto_load_more_contacts: bool,
 }
 
 impl Default for ReadingPreferences {
@@ -79,6 +80,7 @@ impl Default for ReadingPreferences {
             auto_load_remote_images: false,
             auto_open_downloaded_attachments: true,
             auto_load_more_messages: true,
+            auto_load_more_contacts: true,
         }
     }
 }
@@ -422,6 +424,68 @@ pub struct MessageAddress {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct AddressPresentation {
+    pub contact_id: Option<String>,
+    pub name: Option<String>,
+    pub header_name: Option<String>,
+    pub email: String,
+}
+
+impl AddressPresentation {
+    pub fn from_header(address: &MessageAddress) -> Self {
+        Self {
+            contact_id: None,
+            name: address.name.clone(),
+            header_name: address.name.clone(),
+            email: address.email.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactDraft {
+    pub name: String,
+    pub email: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactSummary {
+    pub id: String,
+    pub name: String,
+    pub email: String,
+    pub revision: u64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactListPage {
+    pub items: Vec<ContactSummary>,
+    pub next_cursor: Option<String>,
+    pub total: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactRecentMessage {
+    pub message_id: String,
+    pub mailbox_id: String,
+    pub subject: String,
+    pub received_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactDetail {
+    pub contact: ContactSummary,
+    pub recent_messages: Vec<ContactRecentMessage>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct NewMailCandidate {
     pub account_id: String,
     pub mailbox_id: String,
@@ -472,7 +536,7 @@ pub struct MessageListItem {
     pub id: String,
     pub mailbox_id: String,
     pub subject: String,
-    pub from: Vec<MessageAddress>,
+    pub from: Vec<AddressPresentation>,
     pub received_at: i64,
     pub preview: String,
     pub unread: bool,
@@ -541,9 +605,9 @@ pub struct MessageDetail {
     pub id: String,
     pub mailbox_id: String,
     pub subject: String,
-    pub from: Vec<MessageAddress>,
-    pub to: Vec<MessageAddress>,
-    pub cc: Vec<MessageAddress>,
+    pub from: Vec<AddressPresentation>,
+    pub to: Vec<AddressPresentation>,
+    pub cc: Vec<AddressPresentation>,
     pub received_at: i64,
     pub plain_text: Option<String>,
     pub safe_html: Option<String>,
@@ -739,6 +803,7 @@ pub struct CompositionSceneRuleDraft {
 pub struct MailTemplateDraft {
     pub name: String,
     pub subject: String,
+    pub recipients: DraftRecipientFields,
     pub content: DraftContent,
 }
 
@@ -750,6 +815,7 @@ pub struct MailTemplate {
     pub account_id: Option<String>,
     pub name: String,
     pub subject: String,
+    pub recipients: Option<DraftRecipientFields>,
     pub content: DraftContent,
     pub revision: u64,
     pub updated_at: i64,
@@ -796,6 +862,7 @@ pub struct SignaturePreferencesDraft {
 pub struct RenderedMailTemplate {
     pub id: String,
     pub subject: String,
+    pub recipients: Option<DraftRecipientFields>,
     pub content: DraftContent,
 }
 

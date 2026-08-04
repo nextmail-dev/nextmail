@@ -28,5 +28,6 @@
 | [0022](./0022-project-readme-and-release-automation.md) | 项目 README 与发布自动化 | 已验收 |
 | [0023](./0023-documentation-consolidation.md) | 长期文档收敛 | 已验收 |
 | [0024](./0024-release-mail-style-fidelity.md) | 发布态邮件样式保真修复 | 已验收 |
+| [0025](./0025-contacts.md) | 联系人完整能力与初版体验 | 已验收 |
 
 新增阶段时先创建连续编号的 iteration，记录状态、范围、非目标和验证门禁；实施批次、验证结果和用户验收继续追加到同一文件，不再新建独立 change 文档。

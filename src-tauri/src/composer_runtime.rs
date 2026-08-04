@@ -26,8 +26,8 @@ use tokio::sync::Notify;
 use crate::{
     application::{
         assemble_composition_content, compose_imported_draft, compose_message_action_draft,
-        prefixed_message_action_subject, render_mail_signature, render_mail_template, AppService,
-        CompositionRenderContext, MessageActionLabels,
+        is_empty_content, prefixed_message_action_subject, render_mail_signature,
+        render_mail_template, AppService, CompositionRenderContext, MessageActionLabels,
     },
     mail_runtime::MailRuntime,
     window_titles::{window_title, WindowTitleKind},
@@ -58,6 +58,31 @@ impl ComposerRuntime {
     }
 
     pub async fn open_composer(&self, account_id: &str) -> CommandResult<String> {
+        self.open_composer_with_recipients(account_id, DraftRecipientFields::default())
+            .await
+    }
+
+    pub async fn open_composer_to_contact(
+        &self,
+        account_id: &str,
+        contact: MessageAddress,
+    ) -> CommandResult<String> {
+        self.open_composer_with_recipients(
+            account_id,
+            DraftRecipientFields {
+                to: vec![contact],
+                cc: Vec::new(),
+                bcc: Vec::new(),
+            },
+        )
+        .await
+    }
+
+    async fn open_composer_with_recipients(
+        &self,
+        account_id: &str,
+        recipients: DraftRecipientFields,
+    ) -> CommandResult<String> {
         self.mail.ensure_account_writable(account_id)?;
         let account = self.service.account_record(account_id)?;
         let empty = DraftContent {
@@ -65,20 +90,20 @@ impl ComposerRuntime {
             html: "<p></p>".to_owned(),
             plain_text: String::new(),
         };
-        let (subject, content) = self
-            .initial_composition(
-                &account,
-                CompositionScene::New,
-                &DraftRecipientFields::default(),
-                "",
-                &empty,
-            )
+        let (recipients, subject, content) = self
+            .initial_composition(&account, CompositionScene::New, &recipients, "", &empty)
             .await?;
         let draft = self
             .repository()
             .await?
             .drafts()
-            .create_initialized_draft(account_id, &account.data_slot_id, &subject, &content)
+            .create_initialized_draft_with_recipients(
+                account_id,
+                &account.data_slot_id,
+                &recipients,
+                &subject,
+                &content,
+            )
             .await?;
         if let Err(error) = self.show_composer_window(&account.id, &draft.id).await {
             if let Err(cleanup_error) = self
@@ -290,7 +315,7 @@ impl ComposerRuntime {
             MessageComposeAction::ReplyAll => CompositionScene::ReplyAll,
             MessageComposeAction::Forward => CompositionScene::Forward,
         };
-        let (subject, content) = self
+        let (recipients, subject, content) = self
             .initial_composition(
                 &account,
                 scene,
@@ -299,6 +324,7 @@ impl ComposerRuntime {
                 &composed.content,
             )
             .await?;
+        composed.recipients = recipients;
         composed.subject = prefixed_message_action_subject(&subject, action, &labels);
         composed.content = content;
         let draft = drafts
@@ -705,7 +731,7 @@ impl ComposerRuntime {
         recipients: &DraftRecipientFields,
         base_subject: &str,
         base_content: &DraftContent,
-    ) -> CommandResult<(String, DraftContent)> {
+    ) -> CommandResult<(DraftRecipientFields, String, DraftContent)> {
         let repository = self.repository().await?;
         let definitions = repository.composition_definitions();
         let rule = definitions
@@ -714,15 +740,26 @@ impl ComposerRuntime {
         let signature_preferences = definitions
             .signature_preferences(Some(&account.data_slot_id))
             .await?;
-        let context = self.render_context(account, recipients.to.first())?;
         let template = if let Some(id) = rule.template_id.as_deref() {
-            let value = definitions
-                .available_mail_template(&account.id, &account.data_slot_id, id)
-                .await?;
-            Some(render_mail_template(&value, &context)?)
+            Some(
+                definitions
+                    .available_mail_template(&account.id, &account.data_slot_id, id)
+                    .await?,
+            )
         } else {
             None
         };
+        let effective_recipients = template_recipient_override(
+            template
+                .as_ref()
+                .and_then(|value| value.recipients.as_ref()),
+            recipients,
+        );
+        let context = self.render_context(account, effective_recipients.to.first())?;
+        let template = template
+            .as_ref()
+            .map(|value| render_mail_template(value, &context))
+            .transpose()?;
         let signature = if signature_preferences.auto_insert {
             signature_preferences.default_signature_id.as_deref()
         } else {
@@ -742,9 +779,12 @@ impl ComposerRuntime {
             .filter(|value| !value.is_empty())
             .unwrap_or(base_subject)
             .to_owned();
+        let content_template = template
+            .as_ref()
+            .filter(|value| !is_empty_content(&value.content));
         let content =
-            assemble_composition_content(base_content, template.as_ref(), signature.as_ref())?;
-        Ok((subject, content))
+            assemble_composition_content(base_content, content_template, signature.as_ref())?;
+        Ok((effective_recipients, subject, content))
     }
 
     fn render_context<'a>(
@@ -786,6 +826,32 @@ fn validate_recipient_fields(fields: &DraftRecipientFields, required: bool) -> C
             .map_err(|_| CommandError::new("send.recipient_invalid"))?;
     }
     Ok(())
+}
+
+fn template_recipient_override(
+    template_recipients: Option<&DraftRecipientFields>,
+    current_recipients: &DraftRecipientFields,
+) -> DraftRecipientFields {
+    let Some(template) = template_recipients else {
+        return current_recipients.clone();
+    };
+    DraftRecipientFields {
+        to: if template.to.is_empty() {
+            current_recipients.to.clone()
+        } else {
+            template.to.clone()
+        },
+        cc: if template.cc.is_empty() {
+            current_recipients.cc.clone()
+        } else {
+            template.cc.clone()
+        },
+        bcc: if template.bcc.is_empty() {
+            current_recipients.bcc.clone()
+        } else {
+            template.bcc.clone()
+        },
+    }
 }
 
 fn validate_content(content: &DraftContent) -> CommandResult<()> {
@@ -1020,9 +1086,10 @@ mod tests {
 
     use super::{
         add_draft_identity_headers, add_threading_headers, prepare_definition_inline_image,
-        sanitize_draft_content, select_ready_account, valid_image_signature,
+        sanitize_draft_content, select_ready_account, template_recipient_override,
+        valid_image_signature,
     };
-    use crate::core::DraftContent;
+    use crate::core::{DraftContent, DraftRecipientFields, MessageAddress};
     use crate::storage::DraftThreadingHeaders;
 
     #[test]
@@ -1074,6 +1141,40 @@ mod tests {
             select_ready_account(&slots, &active, &mut cursor).as_deref(),
             Some("slot-c")
         );
+    }
+
+    #[test]
+    fn template_recipients_override_only_nonempty_fields() {
+        let current = DraftRecipientFields {
+            to: vec![MessageAddress {
+                name: None,
+                email: "current@example.com".into(),
+            }],
+            cc: vec![MessageAddress {
+                name: None,
+                email: "current-cc@example.com".into(),
+            }],
+            bcc: Vec::new(),
+        };
+        let empty_template = DraftRecipientFields::default();
+        let partial_template = DraftRecipientFields {
+            to: vec![MessageAddress {
+                name: Some("Template".into()),
+                email: "template@example.com".into(),
+            }],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+        };
+
+        assert_eq!(template_recipient_override(None, &current), current);
+        assert_eq!(
+            template_recipient_override(Some(&empty_template), &current),
+            current
+        );
+        let merged = template_recipient_override(Some(&partial_template), &current);
+        assert_eq!(merged.to, partial_template.to);
+        assert_eq!(merged.cc, current.cc);
+        assert_eq!(merged.bcc, current.bcc);
     }
 
     #[test]

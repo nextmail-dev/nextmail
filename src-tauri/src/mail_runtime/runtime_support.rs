@@ -1,5 +1,8 @@
 use std::{
-    sync::{atomic::AtomicBool, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
     time::Duration,
 };
 
@@ -18,6 +21,7 @@ pub(super) struct RuntimeObserver<'a> {
     pub(super) generation: u64,
     pub(super) report_progress: bool,
     pub(super) candidates: Mutex<Vec<PendingNewMailCandidate>>,
+    pub(super) contacts_changed: AtomicBool,
 }
 
 impl RuntimeObserver<'_> {
@@ -26,6 +30,10 @@ impl RuntimeObserver<'_> {
             .lock()
             .map(|mut candidates| std::mem::take(&mut *candidates))
             .unwrap_or_default()
+    }
+
+    pub(super) fn contacts_changed(&self) -> bool {
+        self.contacts_changed.load(Ordering::Acquire)
     }
 }
 
@@ -170,6 +178,9 @@ impl SyncObserver for RuntimeObserver<'_> {
                     );
                 }
             }
+            SyncNotice::ContactsChanged => {
+                self.contacts_changed.store(true, Ordering::Release);
+            }
             SyncNotice::NewMessageCandidate {
                 mailbox_id,
                 message_id,
@@ -232,6 +243,13 @@ pub(super) struct MessageArrivedEvent {
     pub(super) account_id: String,
     pub(super) mailbox_id: String,
     pub(super) item: MessageListItem,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ContactsChangedEvent {
+    pub(super) account_id: String,
+    pub(super) revision: u64,
 }
 
 #[derive(Clone, Serialize)]

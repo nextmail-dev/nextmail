@@ -47,6 +47,7 @@ vi.mock("@/app/api", () => ({
     queueDraftSend: vi.fn(),
     queueRemoteDraft: vi.fn(),
     removeDraftAttachment: vi.fn(),
+    resolveContactAddresses: vi.fn(),
     renderMailSignature: vi.fn(),
     renderMailTemplate: vi.fn(),
     retrySendJob: vi.fn(),
@@ -141,6 +142,7 @@ beforeEach(() => {
     revision: 2,
   }));
   vi.mocked(api.queueRemoteDraft).mockResolvedValue(undefined);
+  vi.mocked(api.resolveContactAddresses).mockResolvedValue([]);
   vi.mocked(api.discardDraftSession).mockResolvedValue(undefined);
   destroyMock.mockResolvedValue(undefined);
   eventListenMock.mockResolvedValue(vi.fn());
@@ -223,10 +225,24 @@ describe("ComposerApp close lifecycle", () => {
     vi.mocked(api.getComposerBootstrap).mockResolvedValue({
       ...bootstrap,
       templates: [{ id: "template-one", name: "Welcome", scope: "global" }],
+      draft: {
+        ...bootstrap.draft,
+        recipients: {
+          to: [{ name: null, email: "old@example.com" }],
+          cc: [{ name: null, email: "old-cc@example.com" }],
+          bcc: [{ name: null, email: "old-bcc@example.com" }],
+        },
+        subject: "Original subject",
+      },
     });
     vi.mocked(api.renderMailTemplate).mockResolvedValue({
       id: "template-one",
-      subject: "Hello",
+      subject: "",
+      recipients: {
+        to: [{ name: "New", email: "new@example.com" }],
+        cc: [],
+        bcc: [{ name: null, email: "new-bcc@example.com" }],
+      },
       content: {
         editorJson: '{"type":"doc","content":[{"type":"paragraph"}]}',
         html: "<p>Hello</p>",
@@ -242,10 +258,45 @@ describe("ComposerApp close lifecycle", () => {
     await waitFor(() => expect(api.renderMailTemplate).toHaveBeenCalledWith(
       "account-one",
       "template-one",
-      { to: [], cc: [], bcc: [] },
+      {
+        to: [{ name: null, email: "old@example.com" }],
+        cc: [{ name: null, email: "old-cc@example.com" }],
+        bcc: [{ name: null, email: "old-bcc@example.com" }],
+      },
     ));
     expect(replaceTemplateMock).toHaveBeenCalledWith("template-one", expect.objectContaining({
       plainText: "Hello",
     }));
+    expect(screen.getByRole("button", { name: "To: new@example.com" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "To: old@example.com" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cc: old-cc@example.com" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bcc: new-bcc@example.com" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Bcc: old-bcc@example.com" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Subject" })).toHaveValue("Original subject");
+  });
+
+  it("keeps the current body when an explicitly selected template has no body content", async () => {
+    vi.mocked(api.getComposerBootstrap).mockResolvedValue({
+      ...bootstrap,
+      templates: [{ id: "template-empty", name: "Recipients only", scope: "account" }],
+    });
+    vi.mocked(api.renderMailTemplate).mockResolvedValue({
+      id: "template-empty",
+      subject: "",
+      recipients: { to: [], cc: [], bcc: [] },
+      content: {
+        editorJson: '{"type":"doc","content":[{"type":"paragraph"}]}',
+        html: "<p></p>",
+        plainText: "",
+      },
+    });
+    renderComposer();
+    const template = await screen.findByRole("combobox", { name: "Template" });
+
+    fireEvent.pointerDown(template, { button: 0, ctrlKey: false, pointerType: "mouse" });
+    fireEvent.click(await screen.findByRole("option", { name: "Recipients only (Account)" }));
+
+    await waitFor(() => expect(api.renderMailTemplate).toHaveBeenCalled());
+    expect(replaceTemplateMock).not.toHaveBeenCalled();
   });
 });

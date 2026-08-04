@@ -76,6 +76,7 @@ pub struct RemoteMessage {
     pub from: Vec<MessageAddress>,
     pub to: Vec<MessageAddress>,
     pub cc: Vec<MessageAddress>,
+    pub contact_addresses: Vec<RemoteContactAddress>,
     pub received_at: i64,
     pub preview: String,
     pub unread: bool,
@@ -90,6 +91,35 @@ pub struct RemoteMessage {
     pub attachments: Vec<RemoteAttachment>,
     pub remote_images_blocked: bool,
     pub modseq: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContactAddressRole {
+    From,
+    Sender,
+    ReplyTo,
+    To,
+    Cc,
+    Bcc,
+}
+
+impl ContactAddressRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::From => "from",
+            Self::Sender => "sender",
+            Self::ReplyTo => "reply_to",
+            Self::To => "to",
+            Self::Cc => "cc",
+            Self::Bcc => "bcc",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RemoteContactAddress {
+    pub role: ContactAddressRole,
+    pub address: MessageAddress,
 }
 
 #[derive(Clone, Debug)]
@@ -121,6 +151,7 @@ pub struct StoredMailbox {
 pub struct MessageUpsertOutcome {
     pub message_id: String,
     pub is_new_location: bool,
+    pub contacts_changed: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -243,6 +274,7 @@ pub enum SyncNotice {
         mailbox_id: String,
         item: MessageListItem,
     },
+    ContactsChanged,
     NewMessageCandidate {
         mailbox_id: String,
         message_id: String,

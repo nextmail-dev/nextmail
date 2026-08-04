@@ -23,7 +23,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
-import type { AttachmentSummary, MailboxSummary, MessageAddress, MessageBodyProgress, MessageComposeAction } from "@/app/types";
+import type { AddressPresentation, AttachmentSummary, MailboxSummary, MessageBodyProgress, MessageComposeAction } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -37,14 +37,17 @@ import { SafeMailFrame } from "./SafeMailFrame";
 import { formatBytes, MessageAttachment } from "./MessageAttachment";
 import { activateMessageAttachment } from "./message-attachment-actions";
 import { mailQueryKeys, messageQueryKeys } from "./mail-query-keys";
+import { ContactIdentity } from "@/features/contacts/ContactIdentity";
 
-export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allowOpenInNewWindow = true, onMessageRemoved }: {
+export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allowOpenInNewWindow = true, onMessageRemoved, onOpenContact, onEditContact }: {
   accountId: string;
   mailboxId: string;
   messageId: string;
   mailboxes: MailboxSummary[];
   allowOpenInNewWindow?: boolean;
   onMessageRemoved: (messageId: string) => void;
+  onOpenContact?: (contactId: string) => void;
+  onEditContact?: (contactId: string) => void;
 }) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -144,6 +147,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
   const normalizedOperationError = operationError ? normalizeCommandError(operationError) : null;
   const date = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(message.receivedAt * 1000));
   const sender = message.from[0];
+  const senderName = sender?.name?.trim() || null;
   const senderLabel = sender?.name || sender?.email || "—";
   const senderInitial = senderLabel.trim().charAt(0).toLocaleUpperCase();
   const isDraft = mailboxes.find((mailbox) => mailbox.id === mailboxId)?.role === "drafts";
@@ -177,12 +181,18 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
             <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary/12 text-sm font-bold text-primary">{senderInitial}</span>
             <Stack className="min-w-0 flex-1" gap="xs">
               <Inline className="flex-wrap gap-x-3 gap-y-1">
-                <LabelText className="select-text text-[15px]">{senderLabel}</LabelText>
-                <Text className="select-text text-xs">{sender?.email !== senderLabel ? sender?.email : null}</Text>
+                {sender ? (
+                  <>
+                    {senderName ? <LabelText className="select-text text-[15px]">{senderName}</LabelText> : null}
+                    <ContactIdentity address={sender} onOpenContact={onOpenContact} onEditContact={onEditContact} tag>
+                      <span className="select-text text-xs text-muted-foreground">{sender.email}</span>
+                    </ContactIdentity>
+                  </>
+                ) : <LabelText className="text-[15px]">—</LabelText>}
               </Inline>
-              <Text className="select-text text-xs">{t("mail.toRecipients", { recipients: formatAddresses(message.to) })}</Text>
+              <AddressList label={t("composer.to")} addresses={message.to} onOpenContact={onOpenContact} onEditContact={onEditContact} />
               {message.cc.length ? (
-                <Text className="select-text text-xs">{t("mail.ccRecipients", { recipients: formatAddresses(message.cc) })}</Text>
+                <AddressList label={t("composer.cc")} addresses={message.cc} onOpenContact={onOpenContact} onEditContact={onEditContact} />
               ) : null}
               {message.attachments.length ? (
                 <Inline className="text-muted-foreground">
@@ -376,6 +386,20 @@ function MailboxActionMenu({ icon, label, mailboxes, onSelect }: {
   );
 }
 
-function formatAddresses(addresses: MessageAddress[]) {
-  return addresses.map((address) => address.name || address.email).join(", ") || "—";
+function AddressList({ label, addresses, onOpenContact, onEditContact }: {
+  label: string;
+  addresses: AddressPresentation[];
+  onOpenContact?: (contactId: string) => void;
+  onEditContact?: (contactId: string) => void;
+}) {
+  return (
+    <Inline className="select-text flex-wrap gap-1.5 text-xs text-muted-foreground">
+      <span>{label}:</span>
+      {addresses.length ? addresses.map((address, index) => (
+        <span key={`${address.email}-${index}`} className="inline-flex">
+          <ContactIdentity address={address} onOpenContact={onOpenContact} onEditContact={onEditContact} tag />
+        </span>
+      )) : <span>—</span>}
+    </Inline>
+  );
 }

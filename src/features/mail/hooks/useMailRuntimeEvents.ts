@@ -181,6 +181,11 @@ export function useMailRuntimeEvents({
     void register<{ accountId: string; messageId: string }>("message-content-changed", (payload) => {
       void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(payload.accountId) });
     });
+    void register<{ accountId: string }>("contacts-changed", (payload) => {
+      void queryClient.invalidateQueries({ queryKey: mailQueryKeys.contactsForAccount(payload.accountId) });
+      void queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(payload.accountId) });
+      void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(payload.accountId) });
+    });
     void register<{ accountId: string; jobId: string; status: string; subject: string }>("send-job-changed", (payload) => {
       if (payload.accountId !== selectedAccountIdRef.current || payload.status !== "sent") return;
       onSentRef.current({ id: payload.jobId, subject: payload.subject });

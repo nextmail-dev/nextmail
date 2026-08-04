@@ -47,11 +47,12 @@ vi.mock("@/app/api", () => ({
       pendingOperations: 0,
       canRemove: true,
     }),
-    getAppAbout: vi.fn().mockResolvedValue({ name: "NextMail", version: "0.1.1" }),
+    getAppAbout: vi.fn().mockResolvedValue({ name: "NextMail", version: "0.2.0" }),
     getReadingPreferences: vi.fn().mockResolvedValue({
       autoLoadRemoteImages: false,
       autoOpenDownloadedAttachments: true,
       autoLoadMoreMessages: true,
+      autoLoadMoreContacts: true,
     }),
     setAppearancePreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
     setReadingPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
@@ -155,6 +156,26 @@ describe("SettingsApp", () => {
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Accounts" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Composing" })).toBeInTheDocument();
+  });
+
+  it("exposes contact auto-pagination under More", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SettingsApp />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "More" }));
+    const toggle = screen.getByRole("checkbox", { name: "Load more contacts at the end of the list" });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(api.setReadingPreferences).toHaveBeenCalledWith(
+        expect.objectContaining({ autoLoadMoreContacts: false }),
+        expect.anything(),
+      ),
+    );
   });
 
   it("renders notification preferences instead of a placeholder", async () => {

@@ -123,14 +123,38 @@ impl DraftRepository {
         subject: &str,
         content: &DraftContent,
     ) -> CommandResult<DraftDetail> {
+        self.create_initialized_draft_with_recipients(
+            account_id,
+            account_slot_id,
+            &DraftRecipientFields::default(),
+            subject,
+            content,
+        )
+        .await
+    }
+
+    pub async fn create_initialized_draft_with_recipients(
+        &self,
+        account_id: &str,
+        account_slot_id: &str,
+        recipients: &DraftRecipientFields,
+        subject: &str,
+        content: &DraftContent,
+    ) -> CommandResult<DraftDetail> {
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
+        let to_json = encode_addresses(&recipients.to)?;
+        let cc_json = encode_addresses(&recipients.cc)?;
+        let bcc_json = encode_addresses(&recipients.bcc)?;
         sqlx::query(
-            "INSERT INTO drafts(id, account_slot_id, subject, editor_json, html, plain_text, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO drafts(id, account_slot_id, to_json, cc_json, bcc_json, subject, editor_json, html, plain_text, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(account_slot_id)
+        .bind(to_json)
+        .bind(cc_json)
+        .bind(bcc_json)
         .bind(subject)
         .bind(&content.editor_json)
         .bind(&content.html)

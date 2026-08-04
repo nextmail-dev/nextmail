@@ -20,7 +20,7 @@
 </div>
 
 > [!IMPORTANT]
-> NextMail is currently a `0.1.1` preview. Windows 10 22H2+ x64 is the primary hands-on validation platform; macOS 12+ is a target platform. Linux packages are built for early testing, but Linux is not yet deeply adapted or validated.
+> NextMail is currently a `0.2.0` preview. Windows 10 22H2+ x64 is the primary hands-on validation platform; macOS 12+ is a target platform. Linux packages are built for early testing, but Linux is not yet deeply adapted or validated.
 
 ## Preview
 
@@ -147,7 +147,7 @@ Node.js dependencies are managed only with pnpm. The project does not currently 
 
 ## Scope
 
-NextMail does not currently provide POP3, Google/Microsoft OAuth, a unified inbox, conversation aggregation, cross-account search, a tray application, system notification-center integration, automatic updates, or production signing/notarization. These are not implied by the current preview or release workflow.
+NextMail does not currently provide a unified inbox, conversation aggregation, cross-account search, a tray application, system notification-center integration, automatic updates, or production signing/notarization. These are not implied by the current preview or release workflow.
 
 ## License
 

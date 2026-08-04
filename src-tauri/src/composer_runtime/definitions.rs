@@ -244,10 +244,12 @@ impl ComposerRuntime {
             .composition_definitions()
             .available_mail_template(account_id, &account.data_slot_id, template_id)
             .await?;
-        render_mail_template(
-            &template,
-            &self.render_context(&account, recipients.to.first())?,
-        )
+        let recipient = template
+            .recipients
+            .as_ref()
+            .and_then(|recipients| recipients.to.first())
+            .or_else(|| recipients.to.first());
+        render_mail_template(&template, &self.render_context(&account, recipient)?)
     }
 
     pub async fn render_mail_signature(

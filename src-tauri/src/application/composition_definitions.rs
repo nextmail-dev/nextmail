@@ -4,6 +4,7 @@ use crate::core::{
     RenderedMailTemplate,
 };
 use chrono::{Datelike, Local, NaiveDate};
+use lettre::Address;
 use serde_json::Value;
 
 const MAX_DEFINITION_NAME_CHARS: usize = 80;
@@ -18,6 +19,7 @@ pub fn normalize_mail_template_draft(
     if draft.subject.chars().count() > MAX_TEMPLATE_SUBJECT_CHARS {
         return Err(CommandError::new("template.subject_too_long"));
     }
+    normalize_template_recipients(&mut draft.recipients)?;
     validate_content(&draft.content, "template")?;
     validate_variables(
         [
@@ -60,8 +62,32 @@ pub fn render_mail_template(
     Ok(RenderedMailTemplate {
         id: template.id.clone(),
         subject: render_text(&template.subject, context, TextContext::Subject)?,
+        recipients: template.recipients.clone(),
         content: render_content(&template.content, context)?,
     })
+}
+
+fn normalize_template_recipients(
+    recipients: &mut crate::core::DraftRecipientFields,
+) -> CommandResult<()> {
+    for address in recipients
+        .to
+        .iter_mut()
+        .chain(&mut recipients.cc)
+        .chain(&mut recipients.bcc)
+    {
+        address.email = address.email.trim().to_owned();
+        address.name = address
+            .name
+            .take()
+            .map(|name| name.trim().to_owned())
+            .filter(|name| !name.is_empty());
+        address
+            .email
+            .parse::<Address>()
+            .map_err(|_| CommandError::new("template.recipient_invalid"))?;
+    }
+    Ok(())
 }
 
 pub fn render_mail_signature(
@@ -482,7 +508,7 @@ fn is_empty_document(document: &Value) -> bool {
         })
 }
 
-fn is_empty_content(content: &DraftContent) -> bool {
+pub(crate) fn is_empty_content(content: &DraftContent) -> bool {
     content.plain_text.is_empty()
         && (content.html.is_empty() || content.html == "<p></p>")
         && serde_json::from_str(&content.editor_json).is_ok_and(|value| is_empty_document(&value))
@@ -491,7 +517,10 @@ fn is_empty_content(content: &DraftContent) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{CompositionDefinitionScope, MailSignature, MailTemplate, MessageAddress};
+    use crate::core::{
+        CompositionDefinitionScope, DraftRecipientFields, MailSignature, MailTemplate,
+        MessageAddress,
+    };
 
     fn content() -> DraftContent {
         DraftContent {
@@ -506,12 +535,22 @@ mod tests {
         let value = normalize_mail_template_draft(MailTemplateDraft {
             name: "  Follow up  ".to_owned(),
             subject: "  Next steps  ".to_owned(),
+            recipients: DraftRecipientFields {
+                to: vec![MessageAddress {
+                    name: Some("  Team  ".to_owned()),
+                    email: "  team@example.com  ".to_owned(),
+                }],
+                cc: Vec::new(),
+                bcc: Vec::new(),
+            },
             content: content(),
         })
         .expect("valid template");
 
         assert_eq!(value.name, "Follow up");
         assert_eq!(value.subject, "Next steps");
+        assert_eq!(value.recipients.to[0].name.as_deref(), Some("Team"));
+        assert_eq!(value.recipients.to[0].email, "team@example.com");
     }
 
     #[test]
@@ -526,6 +565,7 @@ mod tests {
         let invalid = normalize_mail_template_draft(MailTemplateDraft {
             name: "Broken".to_owned(),
             subject: String::new(),
+            recipients: DraftRecipientFields::default(),
             content: DraftContent {
                 editor_json: "{".to_owned(),
                 html: String::new(),
@@ -534,6 +574,22 @@ mod tests {
         })
         .expect_err("invalid JSON");
         assert_eq!(invalid.code, "template.editor_json_invalid");
+
+        let invalid_recipient = normalize_mail_template_draft(MailTemplateDraft {
+            name: "Broken recipient".to_owned(),
+            subject: String::new(),
+            recipients: DraftRecipientFields {
+                to: vec![MessageAddress {
+                    name: None,
+                    email: "not-an-email".to_owned(),
+                }],
+                cc: Vec::new(),
+                bcc: Vec::new(),
+            },
+            content: content(),
+        })
+        .expect_err("invalid recipient");
+        assert_eq!(invalid_recipient.code, "template.recipient_invalid");
     }
 
     #[test]
@@ -541,6 +597,7 @@ mod tests {
         let invalid = normalize_mail_template_draft(MailTemplateDraft {
             name: "Broken".to_owned(),
             subject: "Hello {{account_password}}".to_owned(),
+            recipients: DraftRecipientFields::default(),
             content: content(),
         })
         .expect_err("unknown variable");
@@ -559,6 +616,14 @@ mod tests {
             account_id: None,
             name: "Greeting".to_owned(),
             subject: "Hello {{ recipient_name }}".to_owned(),
+            recipients: Some(DraftRecipientFields {
+                to: vec![MessageAddress {
+                    name: Some("Bob".to_owned()),
+                    email: "bob@example.com".to_owned(),
+                }],
+                cc: Vec::new(),
+                bcc: Vec::new(),
+            }),
             content: DraftContent {
                 editor_json: r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"From {{sender_name}}"}]}]}"#.to_owned(),
                 html: "<p>From {{sender_name}}</p>".to_owned(),
@@ -586,6 +651,7 @@ mod tests {
         .expect("rendered template");
 
         assert_eq!(rendered.subject, "Hello Bob");
+        assert_eq!(rendered.recipients, template.recipients);
         assert!(rendered.content.editor_json.contains("Alice <Admin>"));
         assert!(rendered.content.html.contains("Alice &lt;Admin&gt;"));
         assert_eq!(rendered.content.plain_text, "From Alice <Admin>");
@@ -657,6 +723,7 @@ mod tests {
         let template = RenderedMailTemplate {
             id: "template-one".to_owned(),
             subject: String::new(),
+            recipients: None,
             content: DraftContent {
                 editor_json: r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Reply"}]}]}"#.to_owned(),
                 html: "<p>Reply</p>".to_owned(),

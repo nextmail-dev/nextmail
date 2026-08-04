@@ -885,6 +885,7 @@ mod tests {
                     }],
                     to: vec![],
                     cc: vec![],
+                    contact_addresses: vec![],
                     received_at: 10,
                     preview: "body".into(),
                     unread: true,

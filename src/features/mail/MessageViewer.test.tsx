@@ -39,6 +39,7 @@ vi.mock("@/app/api", () => ({
       autoLoadRemoteImages: false,
       autoOpenDownloadedAttachments: false,
       autoLoadMoreMessages: true,
+      autoLoadMoreContacts: true,
     }),
     requestAttachment: vi.fn().mockResolvedValue({
       id: "attachment-one",
@@ -81,9 +82,14 @@ describe("MessageViewer", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Attachment" })).toHaveClass("select-text");
-    expect(screen.getByText("Alice")).toHaveClass("select-text");
-    expect(screen.getByText("alice@example.com")).toHaveClass("select-text");
-    expect(screen.getByText(/user@example\.com/)).toHaveClass("select-text");
+    const sender = screen.getByLabelText("Alice <alice@example.com>");
+    const senderName = screen.getByText("Alice");
+    expect(sender).not.toContainElement(senderName);
+    expect(sender).toHaveTextContent("alice@example.com");
+    expect(sender).toHaveClass("bg-muted/55");
+    const recipient = screen.getByLabelText("user@example.com");
+    expect(recipient.closest(".select-text")).not.toBeNull();
+    expect(recipient).toHaveClass("bg-muted/55");
   });
 
   it("invalidates the exact detail query after an attachment download", async () => {

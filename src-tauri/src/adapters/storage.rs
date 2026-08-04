@@ -341,6 +341,7 @@ mod tests {
             auto_load_remote_images: true,
             auto_open_downloaded_attachments: false,
             auto_load_more_messages: false,
+            auto_load_more_contacts: false,
         };
         store.save(&preferences).expect("save reading preferences");
         assert_eq!(store.load().expect("load reading preferences"), preferences);
@@ -355,6 +356,7 @@ mod tests {
         assert!(preferences.auto_load_remote_images);
         assert!(preferences.auto_open_downloaded_attachments);
         assert!(preferences.auto_load_more_messages);
+        assert!(preferences.auto_load_more_contacts);
     }
 
     #[test]

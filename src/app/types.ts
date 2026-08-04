@@ -57,6 +57,7 @@ export interface ReadingPreferences {
   autoLoadRemoteImages: boolean;
   autoOpenDownloadedAttachments: boolean;
   autoLoadMoreMessages: boolean;
+  autoLoadMoreContacts: boolean;
 }
 
 export type NotificationDisplayMode = "stacked" | "replace";
@@ -187,11 +188,50 @@ export interface MessageAddress {
   email: string;
 }
 
+export interface AddressPresentation {
+  contactId: string | null;
+  name: string | null;
+  headerName: string | null;
+  email: string;
+}
+
+export interface ContactDraft {
+  name: string;
+  email: string;
+}
+
+export interface ContactSummary {
+  id: string;
+  name: string;
+  email: string;
+  revision: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ContactListPage {
+  items: ContactSummary[];
+  nextCursor: string | null;
+  total: number;
+}
+
+export interface ContactRecentMessage {
+  messageId: string;
+  mailboxId: string;
+  subject: string;
+  receivedAt: number;
+}
+
+export interface ContactDetail {
+  contact: ContactSummary;
+  recentMessages: ContactRecentMessage[];
+}
+
 export interface MessageListItem {
   id: string;
   mailboxId: string;
   subject: string;
-  from: MessageAddress[];
+  from: AddressPresentation[];
   receivedAt: number;
   preview: string;
   unread: boolean;
@@ -218,9 +258,9 @@ export interface MessageDetail {
   id: string;
   mailboxId: string;
   subject: string;
-  from: MessageAddress[];
-  to: MessageAddress[];
-  cc: MessageAddress[];
+  from: AddressPresentation[];
+  to: AddressPresentation[];
+  cc: AddressPresentation[];
   receivedAt: number;
   plainText: string | null;
   safeHtml: string | null;
@@ -350,13 +390,15 @@ export interface CompositionSceneRuleDraft {
 export interface MailTemplateDraft {
   name: string;
   subject: string;
+  recipients: DraftRecipientFields;
   content: DraftContent;
 }
 
-export interface MailTemplate extends MailTemplateDraft {
+export interface MailTemplate extends Omit<MailTemplateDraft, "recipients"> {
   id: string;
   scope: CompositionDefinitionScope;
   accountId: string | null;
+  recipients: DraftRecipientFields | null;
   revision: number;
   updatedAt: number;
 }
@@ -390,6 +432,7 @@ export interface SignaturePreferencesDraft {
 export interface RenderedMailTemplate {
   id: string;
   subject: string;
+  recipients: DraftRecipientFields | null;
   content: DraftContent;
 }
 

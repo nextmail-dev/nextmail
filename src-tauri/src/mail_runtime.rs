@@ -5,7 +5,7 @@ mod runtime_support;
 use runtime_support::*;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock,
@@ -15,8 +15,9 @@ use std::{
 
 use crate::core::{
     AccountManagementDetail, AccountRemovalImpact, AccountRuntimeState, AccountRuntimeSummary,
-    CommandError, CommandResult, ImapAccountConfig, ImapSyncProvider, MailSyncSink, MailboxRole,
-    MailboxSummary, MessageDetail, MessageListPage, NewMailCandidate, NotificationDisplayMode,
+    AddressPresentation, CommandError, CommandResult, ContactDetail, ContactDraft, ContactListPage,
+    ContactSummary, ImapAccountConfig, ImapSyncProvider, MailSyncSink, MailboxRole, MailboxSummary,
+    MessageAddress, MessageDetail, MessageListPage, NewMailCandidate, NotificationDisplayMode,
     NotificationNavigationTarget, PendingOperationKind, RemoteOperation, RemoteOperationKind,
     SyncInterval, SyncPhase, SyncProgress,
 };
@@ -42,6 +43,8 @@ pub struct MailRuntime {
     notifications: Arc<NotificationRuntime>,
     network_limit: Arc<Semaphore>,
     next_generation: AtomicU64,
+    contact_revision: AtomicU64,
+    contact_backfills: Mutex<HashSet<String>>,
     started: AtomicBool,
 }
 
@@ -68,6 +71,8 @@ impl MailRuntime {
             notifications,
             network_limit: Arc::new(Semaphore::new(2)),
             next_generation: AtomicU64::new(1),
+            contact_revision: AtomicU64::new(1),
+            contact_backfills: Mutex::new(HashSet::new()),
             started: AtomicBool::new(false),
         }
     }
@@ -199,6 +204,7 @@ impl MailRuntime {
         if !inserted {
             return;
         }
+        self.start_contact_backfill(account_id);
         self.update_runtime_state(account_id, AccountRuntimeState::Starting, None, None);
         self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None, None);
         let runtime = Arc::clone(self);
@@ -218,6 +224,69 @@ impl MailRuntime {
             supervisor.wake.notify_waiters();
         }
         self.update_runtime_state(account_id, state, None, None);
+    }
+
+    fn start_contact_backfill(self: &Arc<Self>, account_id: &str) {
+        let should_start = self
+            .contact_backfills
+            .lock()
+            .ok()
+            .is_some_and(|mut running| running.insert(account_id.to_owned()));
+        if !should_start {
+            return;
+        }
+        let runtime = Arc::clone(self);
+        let account_id = account_id.to_owned();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = runtime.run_contact_backfill(&account_id).await {
+                tracing::warn!(
+                    %account_id,
+                    code = %error.code,
+                    "contact backfill failed"
+                );
+            }
+            if let Ok(mut running) = runtime.contact_backfills.lock() {
+                running.remove(&account_id);
+            }
+        });
+    }
+
+    async fn run_contact_backfill(&self, account_id: &str) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        let contacts = self.repository().await?.contacts();
+        let mut changes_pending = false;
+        let mut batches_since_event = 0u8;
+        loop {
+            let batch = contacts.backfill_next_batch(&account.data_slot_id).await?;
+            changes_pending |= batch.changed;
+            batches_since_event = batches_since_event.saturating_add(1);
+            if changes_pending && (batch.complete || batches_since_event >= 10) {
+                self.emit_contacts_changed(account_id);
+                changes_pending = false;
+                batches_since_event = 0;
+            }
+            if batch.complete {
+                tracing::info!(%account_id, "contact backfill completed");
+                return Ok(());
+            }
+            if batch.processed == 0 {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    pub(crate) fn emit_contacts_changed(&self, account_id: &str) {
+        let revision = self.contact_revision.fetch_add(1, Ordering::AcqRel);
+        if let Err(error) = self.app.emit(
+            "contacts-changed",
+            ContactsChangedEvent {
+                account_id: account_id.to_owned(),
+                revision,
+            },
+        ) {
+            tracing::warn!(%account_id, ?error, "contacts changed event failed");
+        }
     }
 
     fn supervisor(&self, account_id: &str) -> Option<Arc<AccountSupervisor>> {
@@ -407,6 +476,95 @@ impl MailRuntime {
             .read()
             .get_message_detail(&account.data_slot_id, message_id, mailbox_id)
             .await
+    }
+
+    pub async fn list_contacts(
+        &self,
+        account_id: &str,
+        query: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> CommandResult<ContactListPage> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .contacts()
+            .list_contacts(&account.data_slot_id, query, cursor, limit)
+            .await
+    }
+
+    pub async fn list_contact_suggestions(
+        &self,
+        account_id: &str,
+        query: &str,
+        limit: u32,
+    ) -> CommandResult<Vec<ContactSummary>> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .contacts()
+            .list_suggestions(&account.data_slot_id, query, limit)
+            .await
+    }
+
+    pub async fn resolve_contact_addresses(
+        &self,
+        account_id: &str,
+        addresses: &[MessageAddress],
+    ) -> CommandResult<Vec<AddressPresentation>> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .contacts()
+            .resolve_addresses(&account.data_slot_id, addresses)
+            .await
+    }
+
+    pub async fn get_contact_detail(
+        &self,
+        account_id: &str,
+        contact_id: &str,
+    ) -> CommandResult<ContactDetail> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .contacts()
+            .get_contact_detail(&account.data_slot_id, contact_id, 20)
+            .await
+    }
+
+    pub async fn create_contact(
+        &self,
+        account_id: &str,
+        draft: &ContactDraft,
+    ) -> CommandResult<ContactSummary> {
+        let account = self.service.account_record(account_id)?;
+        let contact = self
+            .repository()
+            .await?
+            .contacts()
+            .create_contact(&account.data_slot_id, draft)
+            .await?;
+        self.emit_contacts_changed(account_id);
+        Ok(contact)
+    }
+
+    pub async fn update_contact_name(
+        &self,
+        account_id: &str,
+        contact_id: &str,
+        name: &str,
+        expected_revision: u64,
+    ) -> CommandResult<ContactSummary> {
+        let account = self.service.account_record(account_id)?;
+        let contact = self
+            .repository()
+            .await?
+            .contacts()
+            .update_contact_name(&account.data_slot_id, contact_id, name, expected_revision)
+            .await?;
+        self.emit_contacts_changed(account_id);
+        Ok(contact)
     }
 
     pub async fn resolve_notification_target(
@@ -602,6 +760,7 @@ impl MailRuntime {
             generation,
             report_progress,
             candidates: Mutex::new(Vec::new()),
+            contacts_changed: AtomicBool::new(false),
         };
         let sync_result = match self.imap_config(&account.id).await {
             Ok(config) => {
@@ -624,6 +783,9 @@ impl MailRuntime {
         }
         match result {
             Ok(()) => {
+                if observer.contacts_changed() {
+                    self.emit_contacts_changed(account_id);
+                }
                 if notification_baseline_ready {
                     self.emit_new_mail_candidates(account_id, observer.take_candidates());
                 }

@@ -1,9 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Paperclip, Send, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -26,6 +26,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { SelectField } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Text } from "@/components/ui/typography";
+import { mailQueryKeys } from "@/features/mail/mail-query-keys";
 import {
   RichTextEditor,
   type CompositionNodeSelection,
@@ -67,6 +68,7 @@ export function ComposerApp({ accountId, draftId }: ComposerAppProps) {
 
 function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const { draft, sender } = bootstrap;
   const [to, setTo] = useState(draft.recipients.to);
   const [cc, setCc] = useState(draft.recipients.cc);
@@ -98,6 +100,29 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   const changeVersionRef = useRef(0);
   const editable = draft.status === "editing" && !sendJob && !submitting;
   const sending = submitting || sendJob?.status === "queued" || sendJob?.status === "sending";
+  const recipientAddresses = useMemo(() => [...to, ...cc, ...bcc], [to, cc, bcc]);
+  const recipientEmails = useMemo(
+    () => [...new Set(recipientAddresses.map((address) => address.email.trim().toLocaleLowerCase()))].sort(),
+    [recipientAddresses],
+  );
+  const resolvedRecipients = useQuery({
+    queryKey: mailQueryKeys.contactAddresses(sender.id, recipientEmails),
+    queryFn: () => api.resolveContactAddresses(sender.id, recipientAddresses),
+    enabled: Boolean(recipientAddresses.length),
+  });
+  const resolvedRecipientsByEmail = useMemo(
+    () => new Map((resolvedRecipients.data ?? []).map((address) => [address.email.trim().toLocaleLowerCase(), address])),
+    [resolvedRecipients.data],
+  );
+
+  useEffect(() => {
+    const unlisten = listen<{ accountId: string }>("contacts-changed", (event) => {
+      if (event.payload.accountId === sender.id) {
+        void queryClient.invalidateQueries({ queryKey: mailQueryKeys.contactsForAccount(sender.id) });
+      }
+    });
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, [queryClient, sender.id]);
 
   useEffect(() => { revisionRef.current = revision; }, [revision]);
 
@@ -296,6 +321,19 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     setRecipientErrors((errors) => ({ ...errors, [kind]: null }));
   }
 
+  function selectContactRecipient(kind: RecipientKind, contact: { name: string; email: string }) {
+    const current = recipientValue(kind);
+    const normalizedEmail = contact.email.trim().toLocaleLowerCase();
+    if (!current.addresses.some((address) => address.email.trim().toLocaleLowerCase() === normalizedEmail)) {
+      setRecipientAddresses(kind, [...current.addresses, { name: contact.name, email: contact.email }]);
+    }
+    if (kind === "to") setToInput("");
+    else if (kind === "cc") setCcInput("");
+    else setBccInput("");
+    setRecipientErrors((errors) => ({ ...errors, [kind]: null }));
+    markDirty();
+  }
+
   function removeRecipient(kind: RecipientKind, index: number) {
     setRecipientAddresses(kind, recipientValue(kind).addresses.filter((_, itemIndex) => itemIndex !== index));
     markDirty();
@@ -319,8 +357,24 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       } else {
         const rendered = await api.renderMailTemplate(sender.id, value, recipients());
         if (rendered.subject.trim()) setSubject(rendered.subject);
-        editorRef.current?.replaceTemplate(rendered.id, rendered.content);
+        if (rendered.recipients) {
+          const nextTo = rendered.recipients.to.length ? rendered.recipients.to : to;
+          const nextCc = rendered.recipients.cc.length ? rendered.recipients.cc : cc;
+          const nextBcc = rendered.recipients.bcc.length ? rendered.recipients.bcc : bcc;
+          setTo(nextTo);
+          setCc(nextCc);
+          setBcc(nextBcc);
+          setToInput("");
+          setCcInput("");
+          setBccInput("");
+          setRecipientErrors({ to: null, cc: null, bcc: null });
+          setShowCopies(Boolean(nextCc.length || nextBcc.length));
+        }
+        if (hasTemplateContent(rendered.content)) {
+          editorRef.current?.replaceTemplate(rendered.id, rendered.content);
+        }
         setTemplateId(rendered.id);
+        markDirty();
       }
       setErrorCode(null);
     } catch (error) {
@@ -450,8 +504,10 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         </Inline>
         <Separator />
         <RecipientField
+          accountId={sender.id}
           label={t("composer.to")}
           addresses={to}
+          resolvedAddresses={resolvedRecipientsByEmail}
           input={toInput}
           error={recipientErrors.to ? t("composer.invalidRecipient", { value: recipientErrors.to }) : null}
           disabled={!editable}
@@ -460,6 +516,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           onCommit={() => commitRecipient("to")}
           onRemove={(index) => removeRecipient("to", index)}
           onEditLast={(address, index) => editLastRecipient("to", address, index)}
+          onSelectContact={(contact) => selectContactRecipient("to", contact)}
           trailing={
             <Button type="button" variant="ghost" size="sm" className="mr-2 mt-1.5 self-start" onClick={() => setShowCopies((value) => !value)}>
               {t("composer.ccBcc")}<ChevronDown size={14} />
@@ -470,8 +527,10 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         {showCopies ? (
           <>
             <RecipientField
+              accountId={sender.id}
               label={t("composer.cc")}
               addresses={cc}
+              resolvedAddresses={resolvedRecipientsByEmail}
               input={ccInput}
               error={recipientErrors.cc ? t("composer.invalidRecipient", { value: recipientErrors.cc }) : null}
               disabled={!editable}
@@ -479,11 +538,14 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
               onCommit={() => commitRecipient("cc")}
               onRemove={(index) => removeRecipient("cc", index)}
               onEditLast={(address, index) => editLastRecipient("cc", address, index)}
+              onSelectContact={(contact) => selectContactRecipient("cc", contact)}
             />
             <Separator />
             <RecipientField
+              accountId={sender.id}
               label={t("composer.bcc")}
               addresses={bcc}
+              resolvedAddresses={resolvedRecipientsByEmail}
               input={bccInput}
               error={recipientErrors.bcc ? t("composer.invalidRecipient", { value: recipientErrors.bcc }) : null}
               disabled={!editable}
@@ -491,6 +553,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
               onCommit={() => commitRecipient("bcc")}
               onRemove={(index) => removeRecipient("bcc", index)}
               onEditLast={(address, index) => editLastRecipient("bcc", address, index)}
+              onSelectContact={(contact) => selectContactRecipient("bcc", contact)}
             />
             <Separator />
           </>
@@ -628,6 +691,24 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function hasTemplateContent(content: DraftContent) {
+  if (content.plainText.trim()) return true;
+  const html = content.html.trim();
+  if (html && html !== "<p></p>") return true;
+  try {
+    const document = JSON.parse(content.editorJson) as {
+      content?: Array<{ type?: string; content?: unknown[] }>;
+    };
+    const nodes = document.content ?? [];
+    return !(
+      nodes.length === 0
+      || (nodes.length === 1 && nodes[0]?.type === "paragraph" && !nodes[0].content?.length)
+    );
+  } catch {
+    return true;
+  }
 }
 
 type RecipientKind = "to" | "cc" | "bcc";

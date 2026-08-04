@@ -636,9 +636,11 @@ impl MailRuntime {
             generation,
             report_progress: false,
             candidates: std::sync::Mutex::new(Vec::new()),
+            contacts_changed: std::sync::atomic::AtomicBool::new(false),
         };
         let sink = repository.sync_sink();
-        self.provider
+        let result = self
+            .provider
             .synchronize_mailbox(
                 config,
                 &MailboxSyncTarget {
@@ -650,7 +652,11 @@ impl MailRuntime {
                 &sink,
                 &observer,
             )
-            .await
+            .await;
+        if observer.contacts_changed() {
+            self.emit_contacts_changed(account_id);
+        }
+        result
     }
 
     fn emit_local_change(&self, account_id: &str, mailbox_id: &str, message_ids: &[String]) {

@@ -2,7 +2,10 @@ use async_imap::types::Flag;
 use mail_parser::{Address, Message, MessageParser, MimeHeaders};
 
 use crate::{
-    core::{CommandError, CommandResult, MessageAddress, RemoteAttachment, RemoteMessage},
+    core::{
+        CommandError, CommandResult, ContactAddressRole, MessageAddress, RemoteAttachment,
+        RemoteContactAddress, RemoteMessage,
+    },
     protocols::sanitize_mail_html_with_cid_images,
 };
 
@@ -112,6 +115,7 @@ fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMes
             .and_then(|message| message.cc())
             .map(addresses)
             .unwrap_or_default(),
+        contact_addresses: message.map(all_contact_addresses).unwrap_or_default(),
         received_at: message
             .and_then(|message| message.date())
             .map(|value| value.to_timestamp())
@@ -192,4 +196,29 @@ fn addresses(address: &Address<'_>) -> Vec<MessageAddress> {
             })
         })
         .collect()
+}
+
+fn all_contact_addresses(message: &Message<'_>) -> Vec<RemoteContactAddress> {
+    let mut result = Vec::new();
+    append_contact_addresses(&mut result, ContactAddressRole::From, message.from());
+    append_contact_addresses(&mut result, ContactAddressRole::Sender, message.sender());
+    append_contact_addresses(&mut result, ContactAddressRole::ReplyTo, message.reply_to());
+    append_contact_addresses(&mut result, ContactAddressRole::To, message.to());
+    append_contact_addresses(&mut result, ContactAddressRole::Cc, message.cc());
+    append_contact_addresses(&mut result, ContactAddressRole::Bcc, message.bcc());
+    result
+}
+
+fn append_contact_addresses(
+    target: &mut Vec<RemoteContactAddress>,
+    role: ContactAddressRole,
+    values: Option<&Address<'_>>,
+) {
+    if let Some(values) = values {
+        target.extend(
+            addresses(values)
+                .into_iter()
+                .map(|address| RemoteContactAddress { role, address }),
+        );
+    }
 }

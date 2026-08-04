@@ -44,7 +44,7 @@ describe("useMailRuntimeEvents", () => {
         wrapper: createWrapper(client),
       },
     );
-    await waitFor(() => expect(handlers.size).toBe(8));
+    await waitFor(() => expect(handlers.size).toBe(9));
 
     act(() => handlers.get("mailbox-changed")?.({
       payload: { accountId: "account-two", mailboxId: "archive" } as never,
@@ -136,6 +136,14 @@ describe("useMailRuntimeEvents", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.pendingOperations("account-two") });
 
     invalidate.mockClear();
+    act(() => handlers.get("contacts-changed")?.({
+      payload: { accountId: "account-two" } as never,
+    }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.contactsForAccount("account-two") });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.messagesForAccount("account-two") });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: messageQueryKeys.account("account-two") });
+
+    invalidate.mockClear();
     act(() => handlers.get("sync-progress")?.({
       payload: { accountId: "account-two" } as never,
     }));
@@ -148,7 +156,7 @@ describe("useMailRuntimeEvents", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.accountRuntimes });
 
     rerender({ selectedAccountId: "account-two", selectedMailboxId: "archive" });
-    expect(listenMock).toHaveBeenCalledTimes(8);
+    expect(listenMock).toHaveBeenCalledTimes(9);
     invalidate.mockClear();
     act(() => handlers.get("send-job-changed")?.({
       payload: {

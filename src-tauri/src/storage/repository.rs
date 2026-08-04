@@ -5,8 +5,9 @@ use std::{
 };
 
 use crate::core::{
-    AttachmentSummary, CommandError, CommandResult, ContentAvailability, MailboxRole,
-    MailboxSummary, MessageAddress, MessageDetail, MessageListItem, MessageListPage, SyncInterval,
+    AddressPresentation, AttachmentSummary, CommandError, CommandResult, ContentAvailability,
+    MailboxRole, MailboxSummary, MessageAddress, MessageDetail, MessageListItem, MessageListPage,
+    SyncInterval,
 };
 use async_trait::async_trait;
 use sqlx::{
@@ -16,8 +17,9 @@ use sqlx::{
 };
 
 use super::{
-    CompositionDefinitionRepository, ContentStore, DraftRepository, MailboxRepository,
-    MailboxRoleRepository, OperationRepository, PreparedAttachmentFile, SendJobRepository,
+    normalize_email, CompositionDefinitionRepository, ContactIdentity, ContactRepository,
+    ContentStore, DraftRepository, MailboxRepository, MailboxRoleRepository, OperationRepository,
+    PreparedAttachmentFile, SendJobRepository,
 };
 
 pub const CONTENT_DATABASE_FILENAME: &str = "content.sqlite";
@@ -88,9 +90,9 @@ fn message_detail_from_rows(
         id: message.id,
         mailbox_id: location.mailbox_id,
         subject: message.subject,
-        from: decode_addresses(message.from_json)?,
-        to: decode_addresses(message.to_json)?,
-        cc: decode_addresses(message.cc_json)?,
+        from: decode_address_presentations(message.from_json)?,
+        to: decode_address_presentations(message.to_json)?,
+        cc: decode_address_presentations(message.cc_json)?,
         received_at: message.received_at,
         plain_text: body.as_ref().and_then(|value| value.plain_text.clone()),
         safe_html: body.and_then(|value| value.safe_html),
@@ -151,6 +153,12 @@ impl MailRepository {
         SyncSinkRepository {
             pool: self.pool.clone(),
             content: self.content.clone(),
+        }
+    }
+
+    pub fn contacts(&self) -> ContactRepository {
+        ContactRepository {
+            pool: self.pool.clone(),
         }
     }
 
@@ -250,6 +258,12 @@ impl SyncSinkRepository {
 }
 
 impl MailReadRepository {
+    fn contacts(&self) -> ContactRepository {
+        ContactRepository {
+            pool: self.pool.clone(),
+        }
+    }
+
     pub async fn notification_baseline_ready(&self, account_slot_id: &str) -> CommandResult<bool> {
         let ready = sqlx::query_scalar::<_, i64>(
             "SELECT notification_baseline_at IS NOT NULL FROM account_slots WHERE id = ?",
@@ -357,6 +371,8 @@ impl MailReadRepository {
         } else {
             None
         };
+        self.resolve_message_items(account_slot_id, &mut items)
+            .await?;
         Ok(MessageListPage {
             items: std::mem::take(&mut items),
             next_cursor,
@@ -459,6 +475,8 @@ impl MailReadRepository {
         } else {
             None
         };
+        self.resolve_message_items(account_slot_id, &mut items)
+            .await?;
         Ok(MessageListPage {
             items: std::mem::take(&mut items),
             next_cursor,
@@ -478,7 +496,56 @@ impl MailReadRepository {
         let body = self.message_body_row(message_id).await?;
         let attachments = self.attachment_summaries(message_id).await?;
 
-        message_detail_from_rows(message, location, body, attachments)
+        let mut detail = message_detail_from_rows(message, location, body, attachments)?;
+        self.resolve_message_detail(account_slot_id, &mut detail)
+            .await?;
+        Ok(detail)
+    }
+
+    async fn resolve_message_items(
+        &self,
+        account_slot_id: &str,
+        items: &mut [MessageListItem],
+    ) -> CommandResult<()> {
+        let emails = items
+            .iter()
+            .flat_map(|item| item.from.iter().map(|address| address.email.clone()))
+            .collect::<Vec<_>>();
+        let identities = self
+            .contacts()
+            .identities_for_emails(account_slot_id, &emails)
+            .await?;
+        for address in items.iter_mut().flat_map(|item| item.from.iter_mut()) {
+            apply_contact_identity(address, &identities);
+        }
+        Ok(())
+    }
+
+    async fn resolve_message_detail(
+        &self,
+        account_slot_id: &str,
+        detail: &mut MessageDetail,
+    ) -> CommandResult<()> {
+        let emails = detail
+            .from
+            .iter()
+            .chain(detail.to.iter())
+            .chain(detail.cc.iter())
+            .map(|address| address.email.clone())
+            .collect::<Vec<_>>();
+        let identities = self
+            .contacts()
+            .identities_for_emails(account_slot_id, &emails)
+            .await?;
+        for address in detail
+            .from
+            .iter_mut()
+            .chain(detail.to.iter_mut())
+            .chain(detail.cc.iter_mut())
+        {
+            apply_contact_identity(address, &identities);
+        }
+        Ok(())
     }
 
     async fn message_detail_row(
@@ -859,7 +926,7 @@ fn message_list_item_from_row(row: sqlx::sqlite::SqliteRow) -> CommandResult<Mes
         id: row.try_get("id").map_err(storage_read_error)?,
         mailbox_id: row.try_get("mailbox_id").map_err(storage_read_error)?,
         subject: row.try_get("subject").map_err(storage_read_error)?,
-        from: decode_addresses(row.try_get("from_json").map_err(storage_read_error)?)?,
+        from: decode_address_presentations(row.try_get("from_json").map_err(storage_read_error)?)?,
         received_at: row.try_get("internal_date").map_err(storage_read_error)?,
         preview: row.try_get("preview").map_err(storage_read_error)?,
         unread: row
@@ -891,6 +958,25 @@ pub(super) fn encode_json<T: serde::Serialize>(value: &T) -> CommandResult<Strin
 
 fn decode_addresses(value: String) -> CommandResult<Vec<MessageAddress>> {
     serde_json::from_str(&value).map_err(map_storage_err("storage.json_decode_failed"))
+}
+
+fn decode_address_presentations(value: String) -> CommandResult<Vec<AddressPresentation>> {
+    Ok(decode_addresses(value)?
+        .iter()
+        .map(AddressPresentation::from_header)
+        .collect())
+}
+
+fn apply_contact_identity(
+    address: &mut AddressPresentation,
+    identities: &std::collections::HashMap<String, ContactIdentity>,
+) {
+    let identity =
+        normalize_email(&address.email).and_then(|(_, normalized)| identities.get(&normalized));
+    address.contact_id = identity.map(|value| value.id.clone());
+    address.name = identity
+        .map(|value| value.name.clone())
+        .or_else(|| address.header_name.clone());
 }
 
 fn parse_cursor(value: &str) -> Option<(i64, String)> {
@@ -972,7 +1058,10 @@ pub(super) fn map_storage_err<E: std::fmt::Debug>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{MailSyncSink, RemoteMailbox, RemoteMessage, StoredMailbox};
+    use crate::core::{
+        ContactAddressRole, ContactDraft, MailSyncSink, RemoteContactAddress, RemoteMailbox,
+        RemoteMessage, StoredMailbox,
+    };
 
     #[tokio::test]
     async fn stylesheet_policy_migration_invalidates_only_cached_html_bodies() {
@@ -1711,7 +1800,7 @@ mod tests {
             .fetch_one(&repository.pool)
             .await
             .unwrap(),
-            "24"
+            "26"
         );
     }
 
@@ -1817,6 +1906,225 @@ mod tests {
         assert!(!existing_mailbox.notification_baseline_required);
     }
 
+    #[tokio::test]
+    async fn synchronized_contacts_are_account_scoped_and_override_header_names() {
+        let (directory, repository, mailbox) = repository_with_mailbox(11).await;
+        create_account_slot(directory.path(), "slot-b", 2)
+            .await
+            .unwrap();
+        let mut message = remote_message(1, 11, "Contact identity");
+        message.from = vec![MessageAddress {
+            name: Some("Header Alias".to_owned()),
+            email: "Alice@Example.COM".to_owned(),
+        }];
+        message.to = vec![MessageAddress {
+            name: None,
+            email: "bob@example.com".to_owned(),
+        }];
+        message.contact_addresses = vec![
+            RemoteContactAddress {
+                role: ContactAddressRole::From,
+                address: message.from[0].clone(),
+            },
+            RemoteContactAddress {
+                role: ContactAddressRole::To,
+                address: message.to[0].clone(),
+            },
+        ];
+
+        let inserted = repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &message)
+            .await
+            .unwrap();
+        assert!(inserted.contacts_changed);
+        let duplicate = repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &message)
+            .await
+            .unwrap();
+        assert!(!duplicate.contacts_changed);
+
+        let contacts = repository
+            .contacts()
+            .list_contacts("slot", "", None, 20)
+            .await
+            .unwrap();
+        assert_eq!(contacts.total, 2);
+        assert!(repository
+            .contacts()
+            .list_contacts("slot-b", "", None, 20)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+        let alice = contacts
+            .items
+            .into_iter()
+            .find(|contact| contact.email.eq_ignore_ascii_case("alice@example.com"))
+            .unwrap();
+        assert_eq!(alice.name, "Header Alias");
+        let mut renamed_message = message.clone();
+        renamed_message.from[0].name = Some("Changed Header".to_owned());
+        renamed_message.contact_addresses[0].address.name = Some("Changed Header".to_owned());
+        repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &renamed_message)
+            .await
+            .unwrap();
+        assert_eq!(
+            repository
+                .contacts()
+                .get_contact_summary("slot", &alice.id)
+                .await
+                .unwrap()
+                .name,
+            "Header Alias"
+        );
+        let alice = repository
+            .contacts()
+            .update_contact_name("slot", &alice.id, "Alice Local", alice.revision)
+            .await
+            .unwrap();
+        assert_eq!(alice.name, "Alice Local");
+        assert_eq!(
+            repository
+                .contacts()
+                .create_contact(
+                    "slot",
+                    &ContactDraft {
+                        name: "Duplicate".to_owned(),
+                        email: "alice@example.com".to_owned(),
+                    },
+                )
+                .await
+                .unwrap_err()
+                .code,
+            "contact.already_exists"
+        );
+
+        let listed_message = repository
+            .read()
+            .list_messages("slot", &mailbox.id, None, 20)
+            .await
+            .unwrap()
+            .items
+            .remove(0);
+        assert_eq!(listed_message.from[0].name.as_deref(), Some("Alice Local"));
+        assert_eq!(
+            listed_message.from[0].header_name.as_deref(),
+            Some("Changed Header")
+        );
+        assert_eq!(
+            listed_message.from[0].contact_id.as_deref(),
+            Some(alice.id.as_str())
+        );
+
+        let detail = repository
+            .contacts()
+            .get_contact_detail("slot", &alice.id, 20)
+            .await
+            .unwrap();
+        assert_eq!(detail.recent_messages.len(), 1);
+        assert_eq!(detail.recent_messages[0].subject, "Contact identity");
+    }
+
+    #[tokio::test]
+    async fn contact_backfill_indexes_messages_stored_before_contact_support() {
+        let (_directory, repository, mailbox) = repository_with_mailbox(12).await;
+        let mut message = remote_message(1, 12, "Historical contact");
+        message.from = vec![MessageAddress {
+            name: Some("Historical Header".to_owned()),
+            email: "history@example.com".to_owned(),
+        }];
+        repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &message)
+            .await
+            .unwrap();
+        assert_eq!(
+            repository
+                .contacts()
+                .list_contacts("slot", "", None, 20)
+                .await
+                .unwrap()
+                .total,
+            0
+        );
+
+        let batch = repository
+            .contacts()
+            .backfill_next_batch("slot")
+            .await
+            .unwrap();
+        assert_eq!(batch.processed, 1);
+        assert!(batch.changed);
+        assert!(batch.complete);
+        let contacts = repository
+            .contacts()
+            .list_contacts("slot", "history", None, 20)
+            .await
+            .unwrap();
+        assert_eq!(contacts.total, 1);
+        assert_eq!(contacts.items[0].name, "Historical Header");
+        assert!(
+            repository
+                .contacts()
+                .backfill_next_batch("slot")
+                .await
+                .unwrap()
+                .complete
+        );
+    }
+
+    #[tokio::test]
+    async fn contact_list_search_and_cursor_stay_bounded_with_ten_thousand_rows() {
+        let (_directory, repository, _mailbox) = repository_with_mailbox(13).await;
+        sqlx::raw_sql(
+            "WITH digits(value) AS (
+                VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)
+             ), numbered(value) AS (
+                SELECT a.value * 1000 + b.value * 100 + c.value * 10 + d.value
+                FROM digits a CROSS JOIN digits b CROSS JOIN digits c CROSS JOIN digits d
+             )
+             INSERT INTO contacts(
+                id, account_slot_id, normalized_email, email, name, name_source,
+                created_at, updated_at, revision
+             )
+             SELECT printf('contact-%05d', value), 'slot',
+                    printf('person-%05d@example.com', value),
+                    printf('person-%05d@example.com', value),
+                    printf('Person %05d', value), 'auto', 1, 1, 1
+             FROM numbered;",
+        )
+        .execute(&repository.pool)
+        .await
+        .unwrap();
+
+        let first = repository
+            .contacts()
+            .list_contacts("slot", "", None, 100)
+            .await
+            .unwrap();
+        assert_eq!(first.total, 10_000);
+        assert_eq!(first.items.len(), 100);
+        assert_eq!(first.items[0].name, "Person 00000");
+        let second = repository
+            .contacts()
+            .list_contacts("slot", "", first.next_cursor.as_deref(), 100)
+            .await
+            .unwrap();
+        assert_eq!(second.items.len(), 100);
+        assert_eq!(second.items[0].name, "Person 00100");
+        let search = repository
+            .contacts()
+            .list_contacts("slot", "09999", None, 20)
+            .await
+            .unwrap();
+        assert_eq!(search.total, 1);
+        assert_eq!(search.items[0].email, "person-09999@example.com");
+    }
+
     fn remote_message(uid: u32, uid_validity: u32, subject: &str) -> RemoteMessage {
         RemoteMessage {
             uid,
@@ -1825,6 +2133,7 @@ mod tests {
             from: vec![],
             to: vec![],
             cc: vec![],
+            contact_addresses: vec![],
             received_at: i64::from(uid),
             preview: "body".to_owned(),
             unread: true,
@@ -1884,6 +2193,7 @@ mod tests {
                     }],
                     to: vec![],
                     cc: vec![],
+                    contact_addresses: vec![],
                     received_at: 10,
                     preview: "Hello".to_owned(),
                     unread: true,
@@ -1948,6 +2258,7 @@ mod tests {
                     from: vec![],
                     to: vec![],
                     cc: vec![],
+                    contact_addresses: vec![],
                     received_at: 20,
                     preview: String::new(),
                     unread: false,

@@ -40,6 +40,7 @@ import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SearchField } from "@/components/ui/search-field";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, Text } from "@/components/ui/typography";
+import { ContactIdentity } from "@/features/contacts/ContactIdentity";
 import { cn } from "@/lib/utils";
 import { formatMessageListTimestamp } from "./messageDate";
 import { mailQueryKeys, messageQueryKeys } from "./mail-query-keys";
@@ -53,6 +54,8 @@ interface MessageListPaneProps {
   onSelect: (messageId: string) => void;
   onVisibleMessageIdsChange: (messageIds: string[]) => void;
   onMessageRemoved: (messageId: string) => void;
+  onOpenContact?: (contactId: string) => void;
+  onEditContact?: (contactId: string) => void;
   searchQuery: string;
   submittedSearchQuery: string;
   onSearchChange: (value: string) => void;
@@ -68,6 +71,8 @@ export function MessageListPane({
   onSelect,
   onVisibleMessageIdsChange,
   onMessageRemoved,
+  onOpenContact,
+  onEditContact,
   searchQuery,
   submittedSearchQuery,
   onSearchChange,
@@ -204,6 +209,8 @@ export function MessageListPane({
                 }}
                 onOpenInNewWindow={() => previewOperation.mutate(message)}
                 onToggleFlag={() => operation.mutate({ message, kind: "flag" })}
+                onOpenContact={onOpenContact}
+                onEditContact={onEditContact}
               />
             </MessageActionsContextMenu>
           ))}
@@ -239,6 +246,8 @@ interface MessageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"
   onClick: (clickCount: number) => void;
   onOpenInNewWindow: () => void;
   onToggleFlag: () => void;
+  onOpenContact?: (contactId: string) => void;
+  onEditContact?: (contactId: string) => void;
 }
 
 const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageRow({
@@ -250,6 +259,8 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
   onClick,
   onOpenInNewWindow,
   onToggleFlag,
+  onOpenContact,
+  onEditContact,
   className,
   ...props
 }, ref) {
@@ -275,7 +286,11 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
         <Stack className="min-w-0 flex-1" gap="xs">
           <Inline className="w-full">
             {message.unread ? <UnreadDot /> : null}
-            <Text className="min-w-0 flex-1 truncate font-semibold text-foreground">{sender?.name || sender?.email || "—"}</Text>
+            {sender ? (
+              <ContactIdentity address={sender} className="min-w-0 flex-1" onOpenContact={onOpenContact} onEditContact={onEditContact} focusable={false}>
+                <span className="block truncate text-sm font-semibold text-foreground">{sender.name || sender.email}</span>
+              </ContactIdentity>
+            ) : <Text className="min-w-0 flex-1 truncate font-semibold text-foreground">—</Text>}
             <Text className="shrink-0 text-[length:var(--ui-font-caption)]">{date}</Text>
           </Inline>
           <Text className="truncate text-[length:var(--ui-font-control)] font-medium text-foreground">{message.subject || noSubject}</Text>

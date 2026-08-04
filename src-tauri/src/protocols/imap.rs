@@ -16,9 +16,9 @@ use parse::{message_flag_state, parse_message_in_background, MessageParseInput};
 pub use provider::AsyncImapProvider;
 
 use crate::core::{
-    CommandError, CommandResult, ContentAvailability, ImapAccountConfig, MailSyncSink, MailboxRole,
-    MailboxSyncTarget, MessageListItem, RemoteMailbox, RemoteMessage, RemoteMessageState,
-    StoredMailbox, StoredMessageLocation, SyncNotice, SyncObserver,
+    AddressPresentation, CommandError, CommandResult, ContentAvailability, ImapAccountConfig,
+    MailSyncSink, MailboxRole, MailboxSyncTarget, MessageListItem, RemoteMailbox, RemoteMessage,
+    RemoteMessageState, StoredMailbox, StoredMessageLocation, SyncNotice, SyncObserver,
 };
 use async_imap::{
     types::{Flag, NameAttribute},
@@ -377,6 +377,9 @@ where
                 sink.upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
                     .await?
             };
+            if outcome.contacts_changed {
+                observer.notify(SyncNotice::ContactsChanged);
+            }
             if outcome.is_new_location {
                 observer.notify(SyncNotice::MessageArrived {
                     mailbox_id: context.mailbox.id.clone(),
@@ -599,7 +602,11 @@ fn message_list_item_from_remote(
         id: message_id,
         mailbox_id,
         subject: message.subject.clone(),
-        from: message.from.clone(),
+        from: message
+            .from
+            .iter()
+            .map(AddressPresentation::from_header)
+            .collect(),
         received_at: message.received_at,
         preview: message.preview.clone(),
         unread: message.unread,
@@ -641,6 +648,7 @@ fn map_imap_err<E: std::fmt::Debug>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::ContactAddressRole;
     use crate::protocols::imap::parse::parse_message;
     use mail_parser::MessageParser;
 
@@ -706,6 +714,46 @@ mod tests {
         assert_eq!(message.subject, "Hello");
         assert!(!message.unread);
         assert!(!message.safe_html.unwrap().contains("<script"));
+    }
+
+    #[test]
+    fn collects_every_observable_address_header_for_contacts() {
+        let raw = concat!(
+            "From: From Person <from@example.com>\r\n",
+            "Sender: sender@example.com\r\n",
+            "Reply-To: reply@example.com\r\n",
+            "To: to@example.com\r\n",
+            "Cc: cc@example.com\r\n",
+            "Bcc: bcc@example.com\r\n",
+            "Subject: Contact headers\r\n\r\n",
+            "Body"
+        );
+        let message = parse_message(
+            1,
+            1,
+            raw.len() as u64,
+            1,
+            std::iter::empty(),
+            raw.as_bytes(),
+            Some(raw.as_bytes().to_vec()),
+        )
+        .unwrap();
+        let values = message
+            .contact_addresses
+            .into_iter()
+            .map(|value| (value.role, value.address.email))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            values,
+            vec![
+                (ContactAddressRole::From, "from@example.com".to_owned()),
+                (ContactAddressRole::Sender, "sender@example.com".to_owned()),
+                (ContactAddressRole::ReplyTo, "reply@example.com".to_owned()),
+                (ContactAddressRole::To, "to@example.com".to_owned()),
+                (ContactAddressRole::Cc, "cc@example.com".to_owned()),
+                (ContactAddressRole::Bcc, "bcc@example.com".to_owned()),
+            ]
+        );
     }
 
     #[test]

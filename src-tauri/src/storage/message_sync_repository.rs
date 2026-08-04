@@ -10,6 +10,7 @@ use crate::core::{
 use super::repository::{
     encode_json, map_storage_err, now, role_to_db, storage_read_error, SyncSinkRepository,
 };
+use super::upsert_remote_message_contacts;
 
 const ATTACHMENT_INSERT_BATCH_SIZE: usize = 100;
 const RECONCILE_UID_INSERT_BATCH_SIZE: usize = 500;
@@ -241,6 +242,14 @@ impl MailSyncSink for SyncSinkRepository {
                 .map_err(map_storage_err("storage.attachment_write_failed"))?;
         }
 
+        let contacts_changed = upsert_remote_message_contacts(
+            &mut transaction,
+            account_slot_id,
+            &message_id,
+            &message.contact_addresses,
+        )
+        .await?;
+
         transaction
             .commit()
             .await
@@ -248,6 +257,7 @@ impl MailSyncSink for SyncSinkRepository {
         Ok(MessageUpsertOutcome {
             message_id,
             is_new_location,
+            contacts_changed,
         })
     }
 

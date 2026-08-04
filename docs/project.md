@@ -20,7 +20,7 @@
 
 ## 2. 产品与当前状态
 
-NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.1.1`。
+NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.2.0`。
 
 平台边界：
 
@@ -40,19 +40,26 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - Rust 清洗的 HTML/CSS 阅读、远程图片控制、标准 CID、受限 data 图片、误标 octet-stream 图片和 BMP。
 - 原始 EML、附件按需下载、安全另存为和受控系统打开。
 - 当前账户/当前文件夹 SQLite FTS5 搜索；Enter 或搜索按钮显式提交。
-- Tiptap/ProseMirror + CodeMirror 富文本写信、源码/预览、模板、签名、变量、回复/转发和内嵌图片。
+- Tiptap/ProseMirror + CodeMirror 富文本写信、源码/预览、带 To/Cc/Bcc 覆盖的模板、签名、变量、回复/转发和内嵌图片。
 - 关闭 Composer 时显式决定是否保存；持久化 SMTP 发件、Sent/Drafts APPEND 和 Drafts 定向刷新。
 - Windows/macOS 窗口壳、窗口状态记忆、独立设置/账户/定义/预览/原文窗口。
 - 中英文、系统/浅色/深色主题、主题色和分层通知偏好。
+- 账户隔离的本地联系人、既有邮件后台回填、收信自动沉淀、联系人工作区、最近往来、姓名优先、身份名片/复制/编辑和 Composer 联系人建议。
 - NextMail 自有通知窗口，以及 `v*` tag 触发的三平台 GitHub Release 工作流。
 
-尚未实现或未排期：
+当前实施状态：
+
+- 第二十五阶段联系人能力已完成代码、自动验证和用户验收，当前版本进入 `0.2.0`。
+
+详细范围以 [`iterations/0025`](./iterations/0025-contacts.md) 为准。数据、UI、邮件互动和质量收口只是同一阶段内的实施批次，整体通过用户验收后才结束第二十五阶段，不预占后续阶段编号。
+
+仍未排期：
 
 - IMAP IDLE、无 IDLE 轮询和秒级失败重试。
 - 会话聚合、跨账户搜索、统一收件箱、系统托盘。
-- POP3、Google/Microsoft OAuth、跨机账户重绑定。
+- 跨机账户重绑定。
 - 系统通知中心历史/勿扰集成、正式签名/公证、自动更新。
-- 联系人、规则、日历、PGP/S-MIME、EML/MBOX 导入导出和 Linux 深度适配。
+- 规则、日历、PGP/S-MIME、EML/MBOX 导入导出和 Linux 深度适配。
 
 这些只是长期记忆，不是自动生效的路线图。下一阶段以用户当前请求为准。
 
@@ -67,12 +74,12 @@ src/
   app/                  IPC、DTO、Query key、外观、语言、平台入口
   components/ui/        自有基础组件与滚动容器
   components/window/    跨平台标题栏
-  features/             accounts/composer/mail/notifications/onboarding/preferences
+  features/             accounts/composer/contacts/mail/notifications/onboarding/preferences
   locales/              zh-CN、en-US
   styles/               语义主题与全局样式
 src-tauri/
   capabilities/         各窗口最小权限
-  migrations/           只增不改的 SQLx 迁移，当前到 0024
+  migrations/           只增不改的 SQLx 迁移，当前到 0026
   src/core/             无 Tauri/SQLx/协议库依赖的 DTO、错误与 ports
   src/application/      账户生命周期与纯业务组合用例
   src/adapters/         JSON、Keyring、发现、连接测试和系统集成
@@ -134,13 +141,22 @@ attachments/<hash-prefix>/<hash>
 cache/attachment-open/...
 ```
 
-- SQLite schema metadata 当前为版本 24，迁移到 `0024`。
+- SQLite schema metadata 当前为版本 26，迁移到 `0026`；migration 编号是本地数据格式序号，不等于产品阶段编号。
 - `.nextmail-data.json` 的 `format_version` 当前为独立版本 1，不是 SQLite schema 版本。
 - 已发布迁移只允许新增，不得修改。
 - 所有账户业务数据按匿名 `account_slot_id` 隔离。
 - 多表可见状态使用 SQLx 事务；网络、MIME 和慢文件 I/O 不持有 SQLite 写锁。
 - 内部路径和内容哈希不返回 React。
 - 账户配置、本机偏好和窗口状态在系统应用配置区；密码及未来 Token 只进入服务名 `com.taurusxin.nextmail` 的系统凭据库。
+
+### 联系人投影
+
+- `contacts`、`message_contacts`、`contact_backfill_state` 全部按匿名 `account_slot_id` 隔离；邮箱规范化只清理首尾空白并折叠 ASCII 大小写，不做服务商别名合并。
+- IMAP 解析收集 `From`、`Sender`、`Reply-To`、`To`、`Cc`、`Bcc`，与邮件投影在同一短事务内幂等写入；首次自动创建优先采用有效的邮件头显示名，没有有效显示名时才取邮箱前缀。邮箱一旦匹配本地联系人，后续邮件头不得改写其姓名。
+- 既有邮件后台回填使用稳定 message rowid 游标，每批 200 封，只能从已持久化的 `From`、`To`、`Cc` 恢复；回填状态可中断续跑，变化事件按批次合并。
+- 联系人邮箱是不可变身份键，当前只允许新增与改名，不提供删除。否则旧邮件身份匹配会断开，并在后续同步时重新生成旧地址联系人。
+- 邮件持久化头部名称保持原样；读取时批量生成 `AddressPresentation`，展示优先级为当前账户联系人姓名、邮件头/草稿名称、邮箱。禁止 React 逐行查询或跨账户借用身份。
+- 联系人事件为 `contacts-changed { accountId, revision }`，只触发账户范围的联系人、邮件列表、详情和 Composer 查询失效，不携带联系人或邮件内容。
 
 ### 同步模型
 
@@ -163,11 +179,11 @@ cache/attachment-open/...
 - 保存后排入 Drafts APPEND；确认后只定向刷新 Drafts，失败由后续同步修复。
 - 回复/转发保持回复区、签名分隔、签名、空行、原始邮件元数据和完整原文的稳定边界。
 - 原文保存在 `nextmailOriginalMessage` 原子节点的 `sourceHtml`，不进入 ProseMirror 邮件表格 schema。
-- 模板/签名支持全局和账户范围；四场景配置默认模板，每个范围一个默认签名和自动插入开关。
+- 模板/签名支持全局和账户范围；模板可保存 To/Cc/Bcc、邮件标题和正文，所有邮件内容字段均可留空。手动选择或四场景规则自动套用时逐字段只覆盖模板中的非空值，空字段保留草稿原值；账户模板复用当前账户联系人建议，全局模板不读取账户联系人。每个范围一个默认签名和自动插入开关。
 - Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
 - SMTP 前生成不可变 MIME/Message-ID，写入 `raw/` 后创建持久化 `send_job`；重试复用相同 MIME。
 - SendWorker 账户内 FIFO、账户间轮转；全局最多两封、每账户最多一封。SMTP 成功后独立 APPEND Sent，归档失败不得再次发信。
-- 客户端头为 `X-Mailer: NextMail/0.1.1`；版本变化时同步核对 manifest 与此值。
+- 客户端头为 `X-Mailer: NextMail/0.2.0`；版本变化时同步核对 manifest 与此值。
 
 ## 6. 安全边界
 
@@ -254,7 +270,7 @@ git diff --check
 
 ### GitHub Release
 
-`.github/workflows/release.yml` 只响应 `v*` tag push，构建 Windows x64、Ubuntu 22.04 x64 和 macOS Universal；三者上传同一草稿 Release，全部成功后才公开。
+`.github/workflows/release.yml` 只响应 `v*` tag push，构建 Windows x64、Ubuntu 22.04 x64、macOS Intel x64 和 macOS Apple Silicon arm64；四组产物上传同一草稿 Release，全部成功后才公开。
 
 - 普通分支 push、pull request、手动 dispatch 不触发发布。
 - macOS ad-hoc identity `-` 不等于正式签名或公证。

@@ -34,7 +34,7 @@ const serverResult: MessageListItem = {
   id: "message-one",
   mailboxId: "inbox",
   subject: "Server-side result",
-  from: [{ name: "Alice", email: "alice@example.com" }],
+  from: [{ contactId: null, name: "Alice", headerName: "Alice", email: "alice@example.com" }],
   receivedAt: 1,
   preview: "The visible list fields do not contain the query.",
   unread: false,
@@ -55,6 +55,7 @@ beforeEach(() => {
     autoLoadRemoteImages: false,
     autoOpenDownloadedAttachments: true,
     autoLoadMoreMessages: true,
+    autoLoadMoreContacts: true,
   });
   vi.mocked(api.searchMessages).mockResolvedValue({
     items: [serverResult],

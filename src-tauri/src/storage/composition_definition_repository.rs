@@ -20,6 +20,7 @@ struct MailTemplateRow {
     account_slot_id: Option<String>,
     name: String,
     subject_template: String,
+    recipients_json: Option<String>,
     editor_json: String,
     html: String,
     plain_text: String,
@@ -61,7 +62,7 @@ impl CompositionDefinitionRepository {
     ) -> CommandResult<Vec<MailTemplate>> {
         let scope = definition_scope(account_id, account_slot_id)?;
         let rows = sqlx::query_as::<_, MailTemplateRow>(
-            "SELECT id, account_slot_id, name, subject_template, editor_json, html, plain_text, revision, updated_at \
+            "SELECT id, account_slot_id, name, subject_template, recipients_json, editor_json, html, plain_text, revision, updated_at \
              FROM mail_templates \
              WHERE (? IS NULL AND account_slot_id IS NULL) OR account_slot_id = ? \
              ORDER BY name COLLATE NOCASE, id",
@@ -71,10 +72,9 @@ impl CompositionDefinitionRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(|_| CommandError::new("template.list_failed"))?;
-        Ok(rows
-            .into_iter()
+        rows.into_iter()
             .map(|row| template_from_row(row, scope, account_id))
-            .collect())
+            .collect()
     }
 
     pub async fn create_mail_template(
@@ -86,15 +86,18 @@ impl CompositionDefinitionRepository {
         let scope = definition_scope(account_id, account_slot_id)?;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
+        let recipients_json = serde_json::to_string(&draft.recipients)
+            .map_err(|_| CommandError::new("template.create_failed"))?;
         sqlx::query(
             "INSERT INTO mail_templates( \
-                 id, account_slot_id, name, subject_template, editor_json, html, plain_text, created_at, updated_at \
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 id, account_slot_id, name, subject_template, recipients_json, editor_json, html, plain_text, created_at, updated_at \
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(account_slot_id)
         .bind(&draft.name)
         .bind(&draft.subject)
+        .bind(recipients_json)
         .bind(&draft.content.editor_json)
         .bind(&draft.content.html)
         .bind(&draft.content.plain_text)
@@ -116,15 +119,18 @@ impl CompositionDefinitionRepository {
         expected_revision: u64,
     ) -> CommandResult<MailTemplate> {
         let scope = definition_scope(account_id, account_slot_id)?;
+        let recipients_json = serde_json::to_string(&draft.recipients)
+            .map_err(|_| CommandError::new("template.update_failed"))?;
         let result = sqlx::query(
             "UPDATE mail_templates SET \
-                 name = ?, subject_template = ?, editor_json = ?, html = ?, plain_text = ?, \
+                 name = ?, subject_template = ?, recipients_json = ?, editor_json = ?, html = ?, plain_text = ?, \
                  revision = revision + 1, updated_at = ? \
              WHERE id = ? AND ((? IS NULL AND account_slot_id IS NULL) OR account_slot_id = ?) \
                  AND revision = ?",
         )
         .bind(&draft.name)
         .bind(&draft.subject)
+        .bind(recipients_json)
         .bind(&draft.content.editor_json)
         .bind(&draft.content.html)
         .bind(&draft.content.plain_text)
@@ -351,7 +357,7 @@ impl CompositionDefinitionRepository {
         account_slot_id: &str,
     ) -> CommandResult<Vec<MailTemplate>> {
         let rows = sqlx::query_as::<_, MailTemplateRow>(
-            "SELECT id, account_slot_id, name, subject_template, editor_json, html, plain_text, revision, updated_at \
+            "SELECT id, account_slot_id, name, subject_template, recipients_json, editor_json, html, plain_text, revision, updated_at \
              FROM mail_templates WHERE account_slot_id IS NULL OR account_slot_id = ? \
              ORDER BY name COLLATE NOCASE, id",
         )
@@ -359,8 +365,7 @@ impl CompositionDefinitionRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(|_| CommandError::new("template.list_failed"))?;
-        Ok(rows
-            .into_iter()
+        rows.into_iter()
             .map(|row| {
                 let is_account = row.account_slot_id.is_some();
                 template_from_row(
@@ -373,7 +378,7 @@ impl CompositionDefinitionRepository {
                     is_account.then_some(account_id),
                 )
             })
-            .collect())
+            .collect()
     }
 
     pub async fn available_mail_signatures(
@@ -747,7 +752,7 @@ impl CompositionDefinitionRepository {
         scope: CompositionDefinitionScope,
     ) -> CommandResult<MailTemplate> {
         let row = sqlx::query_as::<_, MailTemplateRow>(
-            "SELECT id, account_slot_id, name, subject_template, editor_json, html, plain_text, revision, updated_at \
+            "SELECT id, account_slot_id, name, subject_template, recipients_json, editor_json, html, plain_text, revision, updated_at \
              FROM mail_templates \
              WHERE id = ? AND ((? IS NULL AND account_slot_id IS NULL) OR account_slot_id = ?)",
         )
@@ -758,7 +763,7 @@ impl CompositionDefinitionRepository {
         .await
         .map_err(|_| CommandError::new("template.read_failed"))?
         .ok_or_else(|| CommandError::new("template.not_found"))?;
-        Ok(template_from_row(row, scope, account_id))
+        template_from_row(row, scope, account_id)
     }
 
     async fn mail_signature(
@@ -880,13 +885,19 @@ fn template_from_row(
     row: MailTemplateRow,
     scope: CompositionDefinitionScope,
     account_id: Option<&str>,
-) -> MailTemplate {
-    MailTemplate {
+) -> CommandResult<MailTemplate> {
+    let recipients = row
+        .recipients_json
+        .map(|value| serde_json::from_str(&value))
+        .transpose()
+        .map_err(|_| CommandError::new("template.read_failed"))?;
+    Ok(MailTemplate {
         id: row.id,
         scope,
         account_id: account_id.map(str::to_owned),
         name: row.name,
         subject: row.subject_template,
+        recipients,
         content: DraftContent {
             editor_json: row.editor_json,
             html: row.html,
@@ -894,7 +905,7 @@ fn template_from_row(
         },
         revision: row.revision as u64,
         updated_at: row.updated_at,
-    }
+    })
 }
 
 fn signature_from_row(
@@ -920,6 +931,7 @@ fn signature_from_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::{DraftRecipientFields, MessageAddress};
     use crate::storage::{create_account_slot, initialize_content_database, MailRepository};
 
     fn content(value: &str) -> DraftContent {
@@ -956,6 +968,14 @@ mod tests {
                 &MailTemplateDraft {
                     name: "Global".to_owned(),
                     subject: "Hello".to_owned(),
+                    recipients: DraftRecipientFields {
+                        to: vec![MessageAddress {
+                            name: Some("Recipient".to_owned()),
+                            email: "recipient@example.com".to_owned(),
+                        }],
+                        cc: Vec::new(),
+                        bcc: Vec::new(),
+                    },
                     content: content("Shared body"),
                 },
             )
@@ -968,6 +988,7 @@ mod tests {
                 &MailTemplateDraft {
                     name: "Account".to_owned(),
                     subject: String::new(),
+                    recipients: Default::default(),
                     content: content("Private body"),
                 },
             )
@@ -989,6 +1010,10 @@ mod tests {
 
         assert_eq!(global.len(), 1);
         assert_eq!(global[0].scope, CompositionDefinitionScope::Global);
+        assert_eq!(
+            global[0].recipients.as_ref().unwrap().to[0].email,
+            "recipient@example.com"
+        );
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].account_id.as_deref(), Some("account-one"));
         assert!(second.is_empty());
@@ -1182,6 +1207,7 @@ mod tests {
                 &MailTemplateDraft {
                     name: "Shared".to_owned(),
                     subject: String::new(),
+                    recipients: Default::default(),
                     content: content("Shared"),
                 },
             )

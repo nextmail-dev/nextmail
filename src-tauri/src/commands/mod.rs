@@ -4,15 +4,17 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, Webvi
 use crate::{
     domain::{
         AccountConnectionDraft, AccountDraft, AccountManagementDetail, AccountRemovalImpact,
-        AccountRuntimeSummary, AccountSummary, AppAbout, AppearancePreferences, AttachmentSummary,
-        BootstrapStatus, ComposerBootstrap, CompositionSceneRule, CompositionSceneRuleDraft,
-        ConnectionTestResult, DataDirectoryValidation, DiscoveredAccountConfig,
-        DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem, DraftRecipientFields,
-        MailSignature, MailSignatureDraft, MailTemplate, MailTemplateDraft, MailboxRole,
-        MailboxSummary, MessageComposeAction, MessageDetail, MessageListPage, NewMailNotification,
-        NotificationPreferences, PendingOperationSummary, PreparedInlineImage, ReadingPreferences,
-        RenderedMailSignature, RenderedMailTemplate, SendJobSummary, SignaturePreferences,
-        SignaturePreferencesDraft, SyncInterval, SyncProgress,
+        AccountRuntimeSummary, AccountSummary, AddressPresentation, AppAbout,
+        AppearancePreferences, AttachmentSummary, BootstrapStatus, ComposerBootstrap,
+        CompositionSceneRule, CompositionSceneRuleDraft, ConnectionTestResult, ContactDetail,
+        ContactDraft, ContactListPage, ContactSummary, DataDirectoryValidation,
+        DiscoveredAccountConfig, DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem,
+        DraftRecipientFields, MailSignature, MailSignatureDraft, MailTemplate, MailTemplateDraft,
+        MailboxRole, MailboxSummary, MessageAddress, MessageComposeAction, MessageDetail,
+        MessageListPage, NewMailNotification, NotificationPreferences, PendingOperationSummary,
+        PreparedInlineImage, ReadingPreferences, RenderedMailSignature, RenderedMailTemplate,
+        SendJobSummary, SignaturePreferences, SignaturePreferencesDraft, SyncInterval,
+        SyncProgress,
     },
     error::CommandResult,
     state::AppState,
@@ -837,6 +839,103 @@ pub async fn get_message_detail(
     state
         .mail
         .get_message_detail(&account_id, &message_id, mailbox_id.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn list_contacts(
+    state: State<'_, AppState>,
+    account_id: String,
+    query: String,
+    cursor: Option<String>,
+    limit: u32,
+) -> CommandResult<ContactListPage> {
+    state
+        .mail
+        .list_contacts(&account_id, &query, cursor.as_deref(), limit)
+        .await
+}
+
+#[tauri::command]
+pub async fn list_contact_suggestions(
+    state: State<'_, AppState>,
+    account_id: String,
+    query: String,
+    limit: u32,
+) -> CommandResult<Vec<ContactSummary>> {
+    state
+        .mail
+        .list_contact_suggestions(&account_id, &query, limit)
+        .await
+}
+
+#[tauri::command]
+pub async fn resolve_contact_addresses(
+    state: State<'_, AppState>,
+    account_id: String,
+    addresses: Vec<MessageAddress>,
+) -> CommandResult<Vec<AddressPresentation>> {
+    state
+        .mail
+        .resolve_contact_addresses(&account_id, &addresses)
+        .await
+}
+
+#[tauri::command]
+pub async fn get_contact_detail(
+    state: State<'_, AppState>,
+    account_id: String,
+    contact_id: String,
+) -> CommandResult<ContactDetail> {
+    state
+        .mail
+        .get_contact_detail(&account_id, &contact_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn create_contact(
+    state: State<'_, AppState>,
+    account_id: String,
+    draft: ContactDraft,
+) -> CommandResult<ContactSummary> {
+    state.mail.create_contact(&account_id, &draft).await
+}
+
+#[tauri::command]
+pub async fn update_contact_name(
+    state: State<'_, AppState>,
+    account_id: String,
+    contact_id: String,
+    name: String,
+    expected_revision: u64,
+) -> CommandResult<ContactSummary> {
+    state
+        .mail
+        .update_contact_name(&account_id, &contact_id, &name, expected_revision)
+        .await
+}
+
+#[tauri::command]
+pub async fn open_contact_composer(
+    state: State<'_, AppState>,
+    account_id: String,
+    contact_id: String,
+) -> CommandResult<String> {
+    let contact = state
+        .mail
+        .get_contact_detail(&account_id, &contact_id)
+        .await?
+        .contact;
+    state
+        .composer
+        .open_composer_to_contact(
+            &account_id,
+            crate::domain::MessageAddress {
+                name: Some(contact.name),
+                email: contact.email,
+            },
+        )
         .await
 }
 

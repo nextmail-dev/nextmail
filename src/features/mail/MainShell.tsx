@@ -12,6 +12,7 @@ import { AppShell, Page, Stack } from "@/components/ui/layout";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Toast } from "@/components/ui/toast";
 import { Text } from "@/components/ui/typography";
+import { ContactsWorkspace } from "@/features/contacts/ContactsWorkspace";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { MailboxPane } from "./MailboxPane";
 import { MessageListPane } from "./MessageListPane";
@@ -43,6 +44,10 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   });
   const accounts = accountsQuery.data ?? [];
   const [composeError, setComposeError] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState<"mail" | "contacts">("mail");
+  const [requestedContactId, setRequestedContactId] = useState("");
+  const [requestedContactEdit, setRequestedContactEdit] = useState<{ contactId: string; requestId: number } | null>(null);
+  const contactEditRequestIdRef = useRef(0);
   const [sentNotice, setSentNotice] = useState<{ id: string; subject: string } | null>(null);
   // Kept in a ref (not state): it only feeds selectAfterRemoval, so updating it
   // must not re-render MainShell (and the heavy MessageViewer) on every arrival.
@@ -68,6 +73,20 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     lastSelectedAccountId,
     onError: setComposeError,
   });
+  const navigateToMessage = useCallback((target: Parameters<typeof navigateToMailLocation>[0]) => {
+    setWorkspace("mail");
+    navigateToMailLocation(target);
+  }, [navigateToMailLocation]);
+  const openContact = useCallback((contactId: string) => {
+    setRequestedContactId(contactId);
+    setWorkspace("contacts");
+  }, []);
+  const editContact = useCallback((contactId: string) => {
+    contactEditRequestIdRef.current += 1;
+    setRequestedContactId(contactId);
+    setRequestedContactEdit({ contactId, requestId: contactEditRequestIdRef.current });
+    setWorkspace("contacts");
+  }, []);
   const {
     folderPaneCollapsed,
     folderPaneMax,
@@ -83,7 +102,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     selectedAccountId,
     selectedMailboxId,
     onSent: setSentNotice,
-    onNavigate: navigateToMailLocation,
+    onNavigate: navigateToMessage,
   });
   const progressQuery = useQuery({
     queryKey: mailQueryKeys.syncProgress(selectedAccountId),
@@ -171,8 +190,11 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
         />
         <MailboxPane
           mailboxes={mailboxesQuery.data ?? []}
-          selectedMailboxId={selectedMailboxId}
-          onSelect={selectMailbox}
+          selectedMailboxId={workspace === "mail" ? selectedMailboxId : ""}
+          onSelect={(mailboxId) => {
+            setWorkspace("mail");
+            selectMailbox(mailboxId);
+          }}
           progress={progressQuery.data}
           error={mailboxesQuery.error}
           onCompose={() => {
@@ -180,6 +202,11 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
             setComposeError(null);
             void api.openComposer(selectedAccountId)
               .catch((error) => setComposeError(normalizeCommandError(error).code));
+          }}
+          contactsSelected={workspace === "contacts"}
+          onSelectContacts={() => {
+            setRequestedContactId("");
+            setWorkspace("contacts");
           }}
           onReceive={receive}
           receiving={receiving}
@@ -205,34 +232,50 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
         collapseLabel={t("mail.collapseFolderPane")}
         expandLabel={t("mail.expandFolderPane")}
       />
-      <Page className="grid min-h-0 bg-card" style={{ gridTemplateColumns: `${messagePaneWidth}px 0 minmax(360px,1fr)` }}>
-        <Page className="flex min-h-0 flex-col bg-card">
-          <MessageListPane
-            accountId={selectedAccountId}
-            mailboxId={selectedMailboxId}
-            mailbox={selectedMailbox}
-            mailboxes={mailboxesQuery.data ?? []}
-            selectedMessageId={selectedMessageId}
-            onSelect={setSelectedMessageId}
-            onVisibleMessageIdsChange={handleVisibleMessageIdsChange}
-            onMessageRemoved={selectAfterRemoval}
-            searchQuery={searchQuery}
-            submittedSearchQuery={submittedSearchQuery}
-            onSearchChange={setSearchQuery}
-            onSearchSubmit={setSubmittedSearchQuery}
-          />
+      {workspace === "contacts" ? (
+        <ContactsWorkspace
+          accountId={selectedAccountId}
+          listPaneWidth={messagePaneWidth}
+          listPaneMax={messagePaneMax}
+          onListPaneWidthChange={setMessagePaneWidth}
+          onNavigateToMessage={navigateToMessage}
+          requestedContactId={requestedContactId}
+          requestedContactEdit={requestedContactEdit}
+        />
+      ) : (
+        <Page className="grid min-h-0 bg-card" style={{ gridTemplateColumns: `${messagePaneWidth}px 0 minmax(360px,1fr)` }}>
+          <Page className="flex min-h-0 flex-col bg-card">
+            <MessageListPane
+              accountId={selectedAccountId}
+              mailboxId={selectedMailboxId}
+              mailbox={selectedMailbox}
+              mailboxes={mailboxesQuery.data ?? []}
+              selectedMessageId={selectedMessageId}
+              onSelect={setSelectedMessageId}
+              onVisibleMessageIdsChange={handleVisibleMessageIdsChange}
+              onMessageRemoved={selectAfterRemoval}
+              onOpenContact={openContact}
+              onEditContact={editContact}
+              searchQuery={searchQuery}
+              submittedSearchQuery={submittedSearchQuery}
+              onSearchChange={setSearchQuery}
+              onSearchSubmit={setSubmittedSearchQuery}
+            />
+          </Page>
+          <ResizeHandle value={messagePaneWidth} min={310} max={messagePaneMax} onValueChange={setMessagePaneWidth} label={t("mail.resizeMessagePane")} />
+          <Page className="flex min-h-0 flex-col bg-card">
+            <MessageViewer
+              accountId={selectedAccountId}
+              mailboxId={selectedMailboxId}
+              messageId={selectedMessageId}
+              mailboxes={mailboxesQuery.data ?? []}
+              onMessageRemoved={selectAfterRemoval}
+              onOpenContact={openContact}
+              onEditContact={editContact}
+            />
+          </Page>
         </Page>
-        <ResizeHandle value={messagePaneWidth} min={310} max={messagePaneMax} onValueChange={setMessagePaneWidth} label={t("mail.resizeMessagePane")} />
-        <Page className="flex min-h-0 flex-col bg-card">
-          <MessageViewer
-            accountId={selectedAccountId}
-            mailboxId={selectedMailboxId}
-            messageId={selectedMessageId}
-            mailboxes={mailboxesQuery.data ?? []}
-            onMessageRemoved={selectAfterRemoval}
-          />
-        </Page>
-      </Page>
+      )}
 
       {composeError ? (
         <Alert className="fixed right-4 bottom-4 z-40 max-w-sm bg-popover shadow-xl" tone="danger">

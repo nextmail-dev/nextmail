@@ -70,7 +70,7 @@ Cargo.toml                 # workspace，仅组织 Rust members
 crates/
   nextmail-core/           # 领域模型、Repository/Provider ports、用例、稳定错误
   nextmail-storage/        # SQLx Repository、迁移、raw/attachment/cache 内容存储
-  nextmail-protocols/      # IMAP/TLS、MIME 解析、HTML 清洗；未来承载 SMTP/POP3 Adapter
+  nextmail-protocols/      # IMAP/TLS、MIME 解析与 HTML 清洗等协议 Adapter
 src-tauri/                 # Tauri 命令/事件、窗口、Keyring、本机配置和 Worker 装配
 ```
 
@@ -221,7 +221,7 @@ Rust 使用 Ammonia 的白名单 Builder 作为第一层，并增加邮件专用
 - 已读、星标、移动、复制、删除、归档和离线操作队列。
 - 写信、草稿、SMTP 发件、签名和模板。
 - FTS 搜索和会话聚合。
-- POP3、OAuth、托盘和通知。
+- 托盘和通知。
 
 ## 十三、实施顺序
 

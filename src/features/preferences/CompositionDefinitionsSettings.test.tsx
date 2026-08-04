@@ -47,6 +47,7 @@ const existingTemplate: MailTemplate = {
   accountId: null,
   name: "Follow up",
   subject: "Next steps",
+  recipients: null,
   content: {
     editorJson: '{"type":"doc","content":[{"type":"paragraph"}]}',
     html: "<p>Existing body</p>",

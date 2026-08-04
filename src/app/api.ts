@@ -6,15 +6,21 @@ import type {
   AccountRuntimeSummary,
   AccountSummary,
   AppearancePreferences,
+  AddressPresentation,
   BootstrapStatus,
   CommandError,
   ConnectionTestResult,
+  ContactDetail,
+  ContactDraft,
+  ContactListPage,
+  ContactSummary,
   DataDirectoryValidation,
   DiscoveredAccountConfig,
   AppAbout,
   AccountManagementDetail,
   AttachmentSummary,
   MailboxSummary,
+  MessageAddress,
   MessageDetail,
   MessageListPage,
   SyncInterval,
@@ -151,6 +157,32 @@ export const api = {
   }),
   getMessageDetail: (accountId: string, messageId: string, mailboxId: string) =>
     invoke<MessageDetail>("get_message_detail", { accountId, messageId, mailboxId }),
+  listContacts: (
+    accountId: string,
+    query: string,
+    cursor: string | null,
+    limit = 50,
+  ) => invoke<ContactListPage>("list_contacts", {
+    accountId, query, cursor, limit,
+  }),
+  listContactSuggestions: (accountId: string, query: string, limit = 8) =>
+    invoke<ContactSummary[]>("list_contact_suggestions", { accountId, query, limit }),
+  resolveContactAddresses: (accountId: string, addresses: MessageAddress[]) =>
+    invoke<AddressPresentation[]>("resolve_contact_addresses", { accountId, addresses }),
+  getContactDetail: (accountId: string, contactId: string) =>
+    invoke<ContactDetail>("get_contact_detail", { accountId, contactId }),
+  createContact: (accountId: string, draft: ContactDraft) =>
+    invoke<ContactSummary>("create_contact", { accountId, draft }),
+  updateContactName: (
+    accountId: string,
+    contactId: string,
+    name: string,
+    expectedRevision: number,
+  ) => invoke<ContactSummary>("update_contact_name", {
+    accountId, contactId, name, expectedRevision,
+  }),
+  openContactComposer: (accountId: string, contactId: string) =>
+    invoke<string>("open_contact_composer", { accountId, contactId }),
   requestMessageBody: (accountId: string, messageId: string, mailboxId: string) =>
     invoke<MessageDetail>("request_message_body", { accountId, messageId, mailboxId }),
   getSyncProgress: (accountId: string) =>

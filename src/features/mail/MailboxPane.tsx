@@ -15,6 +15,7 @@ import {
   Settings,
   ShieldAlert,
   Trash2,
+  UsersRound,
 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -50,6 +51,8 @@ interface MailboxPaneProps {
   progress?: SyncProgress;
   error?: unknown;
   onCompose: () => void;
+  contactsSelected?: boolean;
+  onSelectContacts?: () => void;
   onReceive: () => void;
   receiving: boolean;
   folderActionBusy?: boolean;
@@ -73,6 +76,8 @@ export function MailboxPane({
   progress,
   error,
   onCompose,
+  contactsSelected = false,
+  onSelectContacts = () => {},
   onReceive,
   receiving,
   folderActionBusy = false,
@@ -150,6 +155,23 @@ export function MailboxPane({
           {collapsed ? null : t("mail.compose")}
         </Button>
       </Inline>
+      <Button
+        variant="ghost"
+        className={collapsed
+          ? contactsSelected
+            ? "mx-auto size-11 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
+            : "mx-auto size-11 flex-none justify-center p-0"
+          : contactsSelected
+            ? "h-10 w-full flex-none justify-start bg-primary/10 px-3 text-primary hover:bg-primary/15"
+            : "h-10 w-full flex-none justify-start px-3"}
+        aria-label={t("contacts.title")}
+        title={collapsed ? t("contacts.title") : undefined}
+        aria-current={contactsSelected ? "page" : undefined}
+        onClick={onSelectContacts}
+      >
+        <UsersRound className="size-[18px] shrink-0" strokeWidth={1.8} />
+        {collapsed ? null : <Text className="text-[length:var(--ui-font-control)] text-inherit">{t("contacts.title")}</Text>}
+      </Button>
       {collapsed ? (
         <Inline className="w-full justify-center">
           <Button
