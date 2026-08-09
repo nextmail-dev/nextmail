@@ -47,7 +47,7 @@ vi.mock("@/app/api", () => ({
       pendingOperations: 0,
       canRemove: true,
     }),
-    getAppAbout: vi.fn().mockResolvedValue({ name: "NextMail", version: "0.2.2" }),
+    getAppAbout: vi.fn().mockResolvedValue({ name: "NextMail", version: "0.2.3" }),
     getReadingPreferences: vi.fn().mockResolvedValue({
       autoLoadRemoteImages: false,
       autoOpenDownloadedAttachments: true,
@@ -64,7 +64,7 @@ vi.mock("@/app/api", () => ({
     setDesktopPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
     checkForUpdate: vi.fn().mockResolvedValue({
       available: false,
-      currentVersion: "0.2.2",
+      currentVersion: "0.2.3",
       version: null,
       notes: null,
     }),
@@ -225,7 +225,7 @@ describe("SettingsApp", () => {
     fireEvent.click(await screen.findByRole("button", { name: "About" }));
     expect(screen.getByRole("checkbox", { name: "Automatically check for updates at startup" })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
-    expect(await screen.findByText("You're up to date (0.2.2)")).toBeInTheDocument();
+    expect(await screen.findByText("You're up to date (0.2.3)")).toBeInTheDocument();
     expect(api.checkForUpdate).toHaveBeenCalledOnce();
   });
 

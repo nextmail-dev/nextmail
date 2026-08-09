@@ -2,6 +2,13 @@
 
 NextMail 的版本变更记录。版本号遵循 [Semantic Versioning](https://semver.org/)。
 
+## [0.2.3] - 2026-08-09
+
+### 修复
+
+- 适配 Geo API 包含 `ip`、`type` 与 `country_code` 的新响应格式。
+- Updater 同时配置 GitHub 直连与 NextMail 反代清单，按地区选择主地址并在失败时尝试备用地址。
+
 ## [0.2.2] - 2026-08-09
 
 ### 新增

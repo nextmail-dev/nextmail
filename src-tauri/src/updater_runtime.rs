@@ -17,11 +17,11 @@ struct GeoResponse {
 }
 
 pub async fn check(app: &AppHandle) -> CommandResult<UpdateCheckResult> {
-    let (public_key, endpoint) = updater_configuration().await?;
+    let (public_key, endpoints) = updater_configuration().await?;
     let updater = app
         .updater_builder()
         .pubkey(public_key)
-        .endpoints(vec![endpoint])
+        .endpoints(endpoints)
         .map_err(|_| CommandError::new("update.not_configured"))?
         .build()
         .map_err(|_| CommandError::new("update.not_configured"))?;
@@ -47,11 +47,11 @@ pub async fn check(app: &AppHandle) -> CommandResult<UpdateCheckResult> {
 }
 
 pub async fn install(app: &AppHandle) -> CommandResult<()> {
-    let (public_key, endpoint) = updater_configuration().await?;
+    let (public_key, endpoints) = updater_configuration().await?;
     let updater = app
         .updater_builder()
         .pubkey(public_key)
-        .endpoints(vec![endpoint])
+        .endpoints(endpoints)
         .map_err(|_| CommandError::new("update.not_configured"))?
         .build()
         .map_err(|_| CommandError::new("update.not_configured"))?;
@@ -67,16 +67,17 @@ pub async fn install(app: &AppHandle) -> CommandResult<()> {
     app.restart()
 }
 
-async fn updater_configuration() -> CommandResult<(&'static str, Url)> {
+async fn updater_configuration() -> CommandResult<(&'static str, Vec<Url>)> {
     let public_key = option_env!("NEXTMAIL_UPDATER_PUBLIC_KEY")
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| CommandError::new("update.not_configured"))?;
-    let endpoint = update_endpoint(is_mainland_china().await);
-    Ok((
-        public_key,
-        Url::parse(endpoint).map_err(|_| CommandError::new("update.not_configured"))?,
-    ))
+    let endpoints = update_endpoints(is_mainland_china().await)
+        .into_iter()
+        .map(Url::parse)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| CommandError::new("update.not_configured"))?;
+    Ok((public_key, endpoints))
 }
 
 async fn is_mainland_china() -> bool {
@@ -104,11 +105,11 @@ fn geo_response_is_mainland_china(body: &[u8]) -> bool {
         .is_ok_and(|response| response.country_code.eq_ignore_ascii_case("CN"))
 }
 
-fn update_endpoint(mainland_china: bool) -> &'static str {
+fn update_endpoints(mainland_china: bool) -> [&'static str; 2] {
     if mainland_china {
-        CN_UPDATE_ENDPOINT
+        [CN_UPDATE_ENDPOINT, DIRECT_UPDATE_ENDPOINT]
     } else {
-        DIRECT_UPDATE_ENDPOINT
+        [DIRECT_UPDATE_ENDPOINT, CN_UPDATE_ENDPOINT]
     }
 }
 
@@ -117,15 +118,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_mainland_china_uses_proxy_manifest() {
-        assert_eq!(update_endpoint(true), CN_UPDATE_ENDPOINT);
-        assert_eq!(update_endpoint(false), DIRECT_UPDATE_ENDPOINT);
+    fn regional_endpoint_order_keeps_the_other_transport_as_backup() {
+        assert_eq!(
+            update_endpoints(true),
+            [CN_UPDATE_ENDPOINT, DIRECT_UPDATE_ENDPOINT]
+        );
+        assert_eq!(
+            update_endpoints(false),
+            [DIRECT_UPDATE_ENDPOINT, CN_UPDATE_ENDPOINT]
+        );
         assert!(CN_UPDATE_ENDPOINT.starts_with("https://proxy.next-mail.app/https://github.com/"));
     }
 
     #[test]
     fn geo_response_requires_explicit_cn_country_code() {
-        assert!(geo_response_is_mainland_china(br#"{"country_code":"CN"}"#));
+        assert!(geo_response_is_mainland_china(
+            br#"{"ip":"a.b.c.d","type":"ipv4","country_code":"CN"}"#
+        ));
         assert!(geo_response_is_mainland_china(br#"{"country_code":"cn"}"#));
         assert!(!geo_response_is_mainland_china(br#"{"country_code":"US"}"#));
         assert!(!geo_response_is_mainland_china(br#"{"country":"CN"}"#));

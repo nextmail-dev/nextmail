@@ -20,7 +20,7 @@
 </div>
 
 > [!IMPORTANT]
-> NextMail 当前处于 `0.2.2` 预览阶段。Windows 10 22H2+ x64 是主要实机验收平台，macOS 12+ 是目标平台。项目会为 Linux 生成早期测试包，但尚未对 Linux 进行深度适配或实机验收。
+> NextMail 当前处于 `0.2.3` 预览阶段。Windows 10 22H2+ x64 是主要实机验收平台，macOS 12+ 是目标平台。项目会为 Linux 生成早期测试包，但尚未对 Linux 进行深度适配或实机验收。
 
 ## 应用预览
 

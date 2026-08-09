@@ -187,7 +187,7 @@ export function SettingsApp() {
             readingError={readingMutation.error}
             desktopError={desktopMutation.error}
             accounts={accountsQuery.data ?? []}
-            version={aboutQuery.data?.version ?? "0.2.2"}
+            version={aboutQuery.data?.version ?? "0.2.3"}
             onChange={updatePreferences}
             onReadingChange={updateReadingPreferences}
             onDesktopChange={updateDesktopPreferences}

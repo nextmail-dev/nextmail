@@ -277,7 +277,7 @@ mod tests {
         let updater = serde_json::from_value::<tauri_plugin_updater::Config>(updater_config)
             .expect("updater plugin config must deserialize during app startup");
 
-        assert_eq!(updater.endpoints.len(), 1);
+        assert_eq!(updater.endpoints.len(), 2);
     }
 
     #[test]

@@ -14,13 +14,13 @@
 2. 执行 `git status --short` 和 `git log -3 --oneline --decorate`，确认当前 HEAD、远端关系和用户未提交修改。
 3. 阅读本次任务涉及的源码、配置、迁移和测试；需要历史范围或设计理由时，再查相应 iteration/ADR。
 4. 只实施用户明确给出的当前计划，不从“后续设想”中自行选择功能。
-5. 每次新的开发计划先在 `docs/iterations/` 建立或更新按日期和主题命名的计划文档，写清状态、范围、非目标和验证门禁；不再分配阶段编号。实施结果、验证与验收继续写回同一文件。
+5. 每次新的开发计划先在 `docs/iterations/` 建立或更新按 `YYYY-MM-DD-NN-主题.md` 命名的计划文档，`NN` 从 `01` 起表示当天实施顺序；写清状态、范围、非目标和验证门禁，不再分配全局阶段编号。实施结果、验证与验收继续写回同一文件。
 6. 不得 reset、覆盖、清理或顺手提交用户已有修改；出现重叠时先说明。
 7. 按风险完成验证，交付结果和必要的实机验收步骤。
 
 ## 2. 产品与当前状态
 
-NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.2.2`。
+NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.2.3`。
 
 平台边界：
 
@@ -47,14 +47,14 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - 账户隔离的本地联系人、既有邮件后台回填、收信自动沉淀、联系人工作区、最近往来、姓名优先、身份名片/复制/编辑/删除和 Composer 联系人建议。
 - 邮件与联系人列表支持 Ctrl/Cmd、Shift 范围多选及针对当前选择的右键操作。
 - NextMail 自有通知窗口、跨平台托盘、可持久化关闭偏好，以及 `v*` tag 触发的三平台 GitHub Release 工作流。
-- 基于 Tauri Updater 的签名更新检查与安装；中国大陆按 Geo 结果切换到 NextMail GitHub 反代，其他地区及定位失败回退 GitHub 直连。
+- 基于 Tauri Updater 的签名更新检查与安装；中国大陆优先 NextMail GitHub 反代，其他地区及定位失败优先 GitHub 直连，两种传输地址互为备用。
 
 当前实施状态：
 
-- `0.2.2` 已完成“托盘、设置分组与自动更新”的实现、自动验证和用户验收。
+- `0.2.3` 已完成 Geo 新响应与 updater 主备清单适配。
 - 当前没有活动开发计划。
 
-最近完成记录见 [`2026-08-09-tray-settings-and-auto-update`](./iterations/2026-08-09-tray-settings-and-auto-update.md)；上一批阅读与批量操作记录见 [`2026-08-09-reading-and-bulk-actions`](./iterations/2026-08-09-reading-and-bulk-actions.md)。
+最近完成记录见 [`2026-08-09-03-updater-endpoint-fallback`](./iterations/2026-08-09-03-updater-endpoint-fallback.md)；托盘与自动更新初始实现见 [`2026-08-09-02-tray-settings-and-auto-update`](./iterations/2026-08-09-02-tray-settings-and-auto-update.md)。
 
 仍未排期：
 
@@ -190,7 +190,7 @@ cache/attachment-open/...
 - Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
 - SMTP 前生成不可变 MIME/Message-ID，写入 `raw/` 后创建持久化 `send_job`；重试复用相同 MIME。
 - SendWorker 账户内 FIFO、账户间轮转；全局最多两封、每账户最多一封。SMTP 成功后独立 APPEND Sent，归档失败不得再次发信。
-- 客户端头为 `X-Mailer: NextMail/0.2.2`；版本变化时同步核对 manifest 与此值。
+- 客户端头为 `X-Mailer: NextMail/0.2.3`；版本变化时同步核对 manifest 与此值。
 
 ## 6. 安全边界
 
@@ -234,7 +234,7 @@ cache/attachment-open/...
 - 正式测试和测试语料长期保留；临时探针、凭据、日志、截图、coverage 和临时数据在验证后清理。
 - `dist/` 和 `src-tauri/target/` 是正常增量缓存，默认保留。
 - Git 历史承担逐提交细节；iteration 保留每次开发计划的范围、变更摘要、验证和验收。
-- 既有编号 iteration 作为历史保留；2026-08-09 起的新计划按日期和主题命名，不再使用阶段编号。状态使用“规划中”“实施中”“等待手动验收”“已验收”或明确的“未排期”。
+- 既有编号 iteration 作为历史保留；2026-08-09 起的新计划按 `YYYY-MM-DD-NN-主题.md` 命名，`NN` 只表示当天实施顺序，不是全局阶段编号。状态使用“规划中”“实施中”“等待手动验收”“已验收”或明确的“未排期”。
 - 不重新建立会话 handoff、独立 changes 流水账或重复的 architecture/technical-reference/master-plan。
 
 ## 9. 开发、验证与发布
@@ -283,7 +283,7 @@ git diff --check
 
 每次 Release 正文从根目录 `CHANGELOG.md` 提取与当前 tag 匹配的版本段落，不使用 GitHub 自动生成的固定日志。
 
-发布构建同时生成 Tauri updater 产物与标准 `latest.json`。全部平台完成后，工作流把 GitHub 下载 URL 前置 `https://proxy.next-mail.app/` 生成 `latest-cn.json`，再公开 Release。`TAURI_SIGNING_PRIVATE_KEY` 与密码只来自 GitHub Secrets，公开验证密钥由 `NEXTMAIL_UPDATER_PUBLIC_KEY` Repository Variable 注入并固化进客户端；缺少公开密钥或私钥时发布必须失败。
+发布构建同时生成 Tauri updater 产物与标准 `latest.json`。全部平台完成后，工作流把 GitHub 下载 URL 前置 `https://proxy.next-mail.app/` 生成 `latest-cn.json`，再公开 Release。客户端同时配置直连与反代清单：CN 优先反代，其他地区及 Geo 失败时优先直连，另一地址作为备用。`TAURI_SIGNING_PRIVATE_KEY` 与密码只来自 GitHub Secrets，公开验证密钥由 `NEXTMAIL_UPDATER_PUBLIC_KEY` Repository Variable 注入并固化进客户端；缺少公开密钥或私钥时发布必须失败。
 
 - 普通分支 push、pull request、手动 dispatch 不触发发布。
 - macOS ad-hoc identity `-` 不等于正式签名或公证。
@@ -307,7 +307,7 @@ git diff --check
 ## 11. iteration、ADR 与文档维护
 
 - `iterations/` 是历史入口：每份文件记录一次开发计划的范围、实施变更摘要、验证与验收。早期计划可能被后续计划取代，判断当前行为始终以本文和代码为准。
-- 每次新的开发计划建立一份按日期和主题命名的 iteration；后续实现批次直接追加到同一文件，不再分配阶段编号或创建独立 change 文档。
+- 每次新的开发计划建立一份按 `YYYY-MM-DD-NN-主题.md` 命名的 iteration；后续实现批次直接追加到同一文件，不再分配全局阶段编号或创建独立 change 文档。
 - ADR 只解释长期架构/安全理由，不是默认必读清单；索引见 [`adr/README.md`](./adr/README.md)。ADR 0001 作为已被取代的历史决策保留，当前单一 Tauri Rust package 边界以 ADR 0006 为准。
 - 当前能力、技术栈、目录、数据格式、运行语义、限制或开发约定变化时更新本文。
 - 重大架构/安全取舍新增 ADR；已有决定变化时更新状态和修订说明。

@@ -1,6 +1,6 @@
 [package]
 name = "nextmail"
-version = "0.2.2"
+version = "0.2.3"
 description = "The NextMail desktop client"
 authors = ["TaurusXin"]
 edition = "2021"
