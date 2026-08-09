@@ -40,6 +40,7 @@
 - 新增无第三方运行时依赖的 Node.js 清单生成器，根据当前 Tauri 真实产物命名识别 macOS arm64/x64、Linux AppImage/deb/rpm 和 Windows MSI/NSIS 签名，并生成兼容当前客户端的 11 个平台键。
 - 生成器严格校验 Tag、仓库名、发布时间、发布说明、签名内容、平台全集及直连/代理 URL 对应关系，任何必要签名缺失或重复都会阻止发布。
 - 最终任务使用 `softprops/action-gh-release@v3` 将两个清单上传至既有草稿 Release，并在资产上传完成后公开，移除了全部按 Tag 下载草稿 Release 的 `gh` 调用。
+- 首次重新运行在最终任务提取 Changelog 时暴露了 AWK 正则字面量的错误转义；两个提取步骤统一改用 `index()` 判断版本标题，避免字符串与正则字面量使用不同转义规则。
 
 ## 验证结果
 
@@ -49,3 +50,4 @@
 - `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/release.yml`：通过。
 - `git diff --check`：通过，仅有仓库既有的行尾转换提示。
 - 未在本地运行产品构建或 Tauri bundle；跨平台构建与草稿 Release 发布链将在重新推送 `v0.3.0` 后由 GitHub Actions 实际验证。
+- 首次远端运行的四个平台构建通过，最终任务在 `Extract changelog entry` 因 `unterminated regexp` 失败；已针对该根因修复，等待下一次 Tag 运行验证。

@@ -92,8 +92,8 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           awk -v version="$version" '
-            $0 ~ "^## \\[" version "\\]" { found=1; next }
-            found && /^## \[/ { exit }
+            index($0, "## [" version "]") == 1 { found=1; next }
+            found && index($0, "## [") == 1 { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
           test -s release-notes.md
@@ -178,8 +178,8 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           awk -v version="$version" '
-            $0 ~ "^## \\[" version "\\]" { found=1; next }
-            found && /^## \\[/ { exit }
+            index($0, "## [" version "]") == 1 { found=1; next }
+            found && index($0, "## [") == 1 { exit }
             found { print }
           ' CHANGELOG.md > "$RUNNER_TEMP/nextmail-updater/release-notes.md"
           test -s "$RUNNER_TEMP/nextmail-updater/release-notes.md"
