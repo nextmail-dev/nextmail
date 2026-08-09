@@ -13,7 +13,13 @@ import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
 import { useAppearancePreferences, useUpdateAppearancePreferences } from "@/app/appearance";
-import type { AccountSummary, AppearancePreferences, LanguagePreference, ReadingPreferences } from "@/app/types";
+import type {
+  AccountSummary,
+  AppearancePreferences,
+  DesktopPreferences,
+  LanguagePreference,
+  ReadingPreferences,
+} from "@/app/types";
 import { useRevealWindowWhenReady } from "@/app/windowReady";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -28,6 +34,7 @@ import { ThemeModePicker } from "@/components/ui/theme-mode-picker";
 import { Heading, Text } from "@/components/ui/typography";
 import { CompositionDefinitionsSettings } from "./CompositionDefinitionsSettings";
 import { NotificationSettings } from "./NotificationSettings";
+import { UpdateSettings } from "./UpdateSettings";
 
 type SettingsCategory =
   | "general"
@@ -67,6 +74,7 @@ export function SettingsApp() {
   const [category, setCategory] = useState<SettingsCategory>("general");
   const preferencesQuery = useAppearancePreferences();
   const readingPreferencesQuery = useQuery({ queryKey: ["reading-preferences"], queryFn: api.getReadingPreferences });
+  const desktopPreferencesQuery = useQuery({ queryKey: ["desktop-preferences"], queryFn: api.getDesktopPreferences });
   const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.listAccountSummaries });
   const aboutQuery = useQuery({ queryKey: ["about"], queryFn: api.getAppAbout });
   const mutation = useUpdateAppearancePreferences();
@@ -74,8 +82,15 @@ export function SettingsApp() {
     mutationFn: api.setReadingPreferences,
     onSuccess: (preferences) => queryClient.setQueryData(["reading-preferences"], preferences),
   });
+  const desktopMutation = useMutation({
+    mutationFn: api.setDesktopPreferences,
+    onSuccess: (preferences) => queryClient.setQueryData(["desktop-preferences"], preferences),
+  });
   useRevealWindowWhenReady(
-    !preferencesQuery.isPending && !readingPreferencesQuery.isPending && !accountsQuery.isPending,
+    !preferencesQuery.isPending
+      && !readingPreferencesQuery.isPending
+      && !desktopPreferencesQuery.isPending
+      && !accountsQuery.isPending,
   );
 
   function updatePreferences(preferences: AppearancePreferences) {
@@ -90,11 +105,37 @@ export function SettingsApp() {
     });
   }
 
-  if (preferencesQuery.isPending || readingPreferencesQuery.isPending || accountsQuery.isPending) {
+  function updateDesktopPreferences(preferences: DesktopPreferences) {
+    const previous = desktopPreferencesQuery.data;
+    queryClient.setQueryData(["desktop-preferences"], preferences);
+    desktopMutation.mutate(preferences, {
+      onError: () => queryClient.setQueryData(["desktop-preferences"], previous),
+    });
+  }
+
+  if (
+    preferencesQuery.isPending
+    || readingPreferencesQuery.isPending
+    || desktopPreferencesQuery.isPending
+    || accountsQuery.isPending
+  ) {
     return <AppShell className="fixed inset-0 z-[110] grid place-items-center bg-card"><Spinner size={24} /></AppShell>;
   }
-  if (preferencesQuery.isError || readingPreferencesQuery.isError || accountsQuery.isError || !preferencesQuery.data || !readingPreferencesQuery.data) {
-    const error = normalizeCommandError(preferencesQuery.error ?? readingPreferencesQuery.error ?? accountsQuery.error);
+  if (
+    preferencesQuery.isError
+    || readingPreferencesQuery.isError
+    || desktopPreferencesQuery.isError
+    || accountsQuery.isError
+    || !preferencesQuery.data
+    || !readingPreferencesQuery.data
+    || !desktopPreferencesQuery.data
+  ) {
+    const error = normalizeCommandError(
+      preferencesQuery.error
+      ?? readingPreferencesQuery.error
+      ?? desktopPreferencesQuery.error
+      ?? accountsQuery.error,
+    );
     return (
       <AppShell className="grid place-items-center bg-card p-8">
         <Alert tone="danger" title={t("errors.title")}>
@@ -142,11 +183,14 @@ export function SettingsApp() {
             category={category}
             preferences={preferences}
             readingPreferences={readingPreferencesQuery.data}
+            desktopPreferences={desktopPreferencesQuery.data}
             readingError={readingMutation.error}
+            desktopError={desktopMutation.error}
             accounts={accountsQuery.data ?? []}
-            version={aboutQuery.data?.version ?? "0.2.1"}
+            version={aboutQuery.data?.version ?? "0.2.2"}
             onChange={updatePreferences}
             onReadingChange={updateReadingPreferences}
+            onDesktopChange={updateDesktopPreferences}
           />
         </OverlayScrollArea>
       </Page>
@@ -158,34 +202,42 @@ function SettingsContent({
   category,
   preferences,
   readingPreferences,
+  desktopPreferences,
   readingError,
+  desktopError,
   accounts,
   version,
   onChange,
   onReadingChange,
+  onDesktopChange,
 }: {
   category: SettingsCategory;
   preferences: AppearancePreferences;
   readingPreferences: ReadingPreferences;
+  desktopPreferences: DesktopPreferences;
   readingError: unknown;
+  desktopError: unknown;
   accounts: AccountSummary[];
   version: string;
   onChange: (preferences: AppearancePreferences) => void;
   onReadingChange: (preferences: ReadingPreferences) => void;
+  onDesktopChange: (preferences: DesktopPreferences) => void;
 }) {
   const { t } = useTranslation();
   if (category === "general") {
     return (
       <SettingsSection category={category}>
-        <SelectField
-          label={t("preferences.language")}
-          value={preferences.language}
-          options={[
-            { value: "zh-CN", label: t("preferences.chinese") },
-            { value: "en-US", label: t("preferences.english") },
-          ]}
-          onValueChange={(language) => onChange({ ...preferences, language: language as LanguagePreference })}
-        />
+        <SettingsGroup title={t("settings.group.interface")}>
+          <SelectField
+            label={t("preferences.language")}
+            value={preferences.language}
+            options={[
+              { value: "zh-CN", label: t("preferences.chinese") },
+              { value: "en-US", label: t("preferences.english") },
+            ]}
+            onValueChange={(language) => onChange({ ...preferences, language: language as LanguagePreference })}
+          />
+        </SettingsGroup>
       </SettingsSection>
     );
   }
@@ -199,22 +251,24 @@ function SettingsContent({
     }
     return (
       <SettingsSection category={category}>
-        <ThemeModePicker
-          label={t("preferences.theme")}
-          value={preferences.theme}
-          options={[
-            { value: "system", label: t("preferences.system") },
-            { value: "light", label: t("preferences.light") },
-            { value: "dark", label: t("preferences.dark") },
-          ]}
-          onValueChange={(theme) => onChange({ ...preferences, theme })}
-        />
-        <ThemeColorPicker
-          label={t("preferences.themeColor")}
-          value={preferences.accentColor}
-          options={colorOptions}
-          onValueChange={(accentColor) => onChange({ ...preferences, accentColor })}
-        />
+        <SettingsGroup title={t("settings.group.theme")}>
+          <ThemeModePicker
+            label={t("preferences.theme")}
+            value={preferences.theme}
+            options={[
+              { value: "system", label: t("preferences.system") },
+              { value: "light", label: t("preferences.light") },
+              { value: "dark", label: t("preferences.dark") },
+            ]}
+            onValueChange={(theme) => onChange({ ...preferences, theme })}
+          />
+          <ThemeColorPicker
+            label={t("preferences.themeColor")}
+            value={preferences.accentColor}
+            options={colorOptions}
+            onValueChange={(accentColor) => onChange({ ...preferences, accentColor })}
+          />
+        </SettingsGroup>
       </SettingsSection>
     );
   }
@@ -222,30 +276,30 @@ function SettingsContent({
     const error = readingError ? normalizeCommandError(readingError) : null;
     return (
       <SettingsSection category={category}>
-        <Stack className="rounded-lg bg-muted/60 p-5" gap="sm">
-          <Checkbox
+        <SettingsGroup title={t("settings.group.contentPrivacy")}>
+          <PreferenceToggle
             checked={readingPreferences.autoLoadRemoteImages}
             label={t("settings.autoLoadRemoteImages")}
+            description={t("settings.autoLoadRemoteImagesDescription")}
             onCheckedChange={(autoLoadRemoteImages) => onReadingChange({ ...readingPreferences, autoLoadRemoteImages })}
           />
-          <Text className="pl-[28px] text-xs">{t("settings.autoLoadRemoteImagesDescription")}</Text>
-        </Stack>
-        <Stack className="rounded-lg bg-muted/60 p-5" gap="sm">
-          <Checkbox
+        </SettingsGroup>
+        <SettingsGroup title={t("settings.group.attachments")}>
+          <PreferenceToggle
             checked={readingPreferences.autoOpenDownloadedAttachments}
             label={t("settings.autoOpenDownloadedAttachments")}
+            description={t("settings.autoOpenDownloadedAttachmentsDescription")}
             onCheckedChange={(autoOpenDownloadedAttachments) => onReadingChange({ ...readingPreferences, autoOpenDownloadedAttachments })}
           />
-          <Text className="pl-[28px] text-xs">{t("settings.autoOpenDownloadedAttachmentsDescription")}</Text>
-        </Stack>
-        <Stack className="rounded-lg bg-muted/60 p-5" gap="sm">
-          <Checkbox
+        </SettingsGroup>
+        <SettingsGroup title={t("settings.group.listBehavior")}>
+          <PreferenceToggle
             checked={readingPreferences.autoLoadMoreMessages}
             label={t("settings.autoLoadMoreMessages")}
+            description={t("settings.autoLoadMoreMessagesDescription")}
             onCheckedChange={(autoLoadMoreMessages) => onReadingChange({ ...readingPreferences, autoLoadMoreMessages })}
           />
-          <Text className="pl-[28px] text-xs">{t("settings.autoLoadMoreMessagesDescription")}</Text>
-        </Stack>
+        </SettingsGroup>
         {error ? (
           <Alert tone="danger" title={t("errors.title")}>
             {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
@@ -269,17 +323,33 @@ function SettingsContent({
     );
   }
   if (category === "advanced") {
-    const error = readingError ? normalizeCommandError(readingError) : null;
+    const error = readingError || desktopError
+      ? normalizeCommandError(readingError ?? desktopError)
+      : null;
     return (
       <SettingsSection category={category}>
-        <Stack className="rounded-lg bg-muted/60 p-5" gap="sm">
-          <Checkbox
+        <SettingsGroup title={t("settings.group.tray")}>
+          <PreferenceToggle
+            checked={desktopPreferences.minimizeToTray}
+            label={t("settings.minimizeToTray")}
+            description={t("settings.minimizeToTrayDescription")}
+            onCheckedChange={(minimizeToTray) => onDesktopChange({ ...desktopPreferences, minimizeToTray })}
+          />
+          <PreferenceToggle
+            checked={desktopPreferences.askBeforeExit}
+            label={t("settings.askBeforeExit")}
+            description={t("settings.askBeforeExitDescription")}
+            onCheckedChange={(askBeforeExit) => onDesktopChange({ ...desktopPreferences, askBeforeExit })}
+          />
+        </SettingsGroup>
+        <SettingsGroup title={t("settings.group.listBehavior")}>
+          <PreferenceToggle
             checked={readingPreferences.autoLoadMoreContacts}
             label={t("settings.autoLoadMoreContacts")}
+            description={t("settings.autoLoadMoreContactsDescription")}
             onCheckedChange={(autoLoadMoreContacts) => onReadingChange({ ...readingPreferences, autoLoadMoreContacts })}
           />
-          <Text className="pl-[28px] text-xs">{t("settings.autoLoadMoreContactsDescription")}</Text>
-        </Stack>
+        </SettingsGroup>
         {error ? (
           <Alert tone="danger" title={t("errors.title")}>
             {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
@@ -291,11 +361,20 @@ function SettingsContent({
   if (category === "about") {
     return (
       <SettingsSection category={category}>
-        <Stack className="rounded-lg bg-muted/60 p-5" gap="sm">
-          <Heading level={2}>NextMail</Heading>
-          <Text>{t("about.version", { version })}</Text>
-          <Text>{t("about.description")}</Text>
-        </Stack>
+        <SettingsGroup title={t("settings.group.application")}>
+          <Stack gap="sm">
+            <Heading level={2}>NextMail</Heading>
+            <Text>{t("about.version", { version })}</Text>
+            <Text>{t("about.description")}</Text>
+          </Stack>
+        </SettingsGroup>
+        <SettingsGroup title={t("settings.group.updates")}>
+          <UpdateSettings
+            preferences={desktopPreferences}
+            onChange={onDesktopChange}
+            saveError={desktopError}
+          />
+        </SettingsGroup>
       </SettingsSection>
     );
   }
@@ -319,6 +398,34 @@ function SettingsSection({ category, children }: { category: SettingsCategory; c
         <Text>{t(`settings.categoryDescription.${category}`)}</Text>
       </Stack>
       <Stack className="pt-2" gap="lg">{children}</Stack>
+    </Stack>
+  );
+}
+
+function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Stack className="rounded-lg bg-muted/60 p-5" gap="md">
+      <Heading level={2} className="text-base">{title}</Heading>
+      {children}
+    </Stack>
+  );
+}
+
+function PreferenceToggle({
+  checked,
+  label,
+  description,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  label: string;
+  description: string;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <Stack gap="sm">
+      <Checkbox checked={checked} label={label} onCheckedChange={onCheckedChange} />
+      <Text className="pl-[28px] text-xs">{description}</Text>
     </Stack>
   );
 }

@@ -37,6 +37,9 @@ import type {
   MailboxRole,
   MessageComposeAction,
   ReadingPreferences,
+  DesktopPreferences,
+  MainCloseAction,
+  UpdateCheckResult,
   NotificationPreferences,
   NewMailNotification,
   MailSignature,
@@ -67,6 +70,14 @@ export const api = {
     invoke<ReadingPreferences>("get_reading_preferences"),
   setReadingPreferences: (preferences: ReadingPreferences) =>
     invoke<ReadingPreferences>("set_reading_preferences", { preferences }),
+  getDesktopPreferences: () =>
+    invoke<DesktopPreferences>("get_desktop_preferences"),
+  setDesktopPreferences: (preferences: DesktopPreferences) =>
+    invoke<DesktopPreferences>("set_desktop_preferences", { preferences }),
+  resolveMainClose: (action: MainCloseAction, remember: boolean) =>
+    invoke<void>("resolve_main_close", { action, remember }),
+  checkForUpdate: () => invoke<UpdateCheckResult>("check_for_update"),
+  installUpdate: () => invoke<void>("install_update"),
   getNotificationPreferences: () =>
     invoke<NotificationPreferences>("get_notification_preferences"),
   setNotificationPreferences: (preferences: NotificationPreferences) =>

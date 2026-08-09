@@ -11,6 +11,8 @@ mod notification_runtime;
 pub mod protocols;
 mod state;
 pub mod storage;
+mod tray_runtime;
+mod updater_runtime;
 mod window_titles;
 
 use std::{io, sync::Arc};
@@ -25,6 +27,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
@@ -47,8 +50,12 @@ pub fn run() {
             let state = state::AppState::from_handle(app.handle())?;
             app.manage(state);
             create_main_window(app)?;
+            if let Err(error) = tray_runtime::setup(app.handle()) {
+                tracing::warn!(%error, "system tray setup failed");
+            }
             Ok(())
         })
+        .on_window_event(tray_runtime::handle_main_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::get_bootstrap_status,
             commands::validate_data_directory,
@@ -57,6 +64,11 @@ pub fn run() {
             commands::set_appearance_preferences,
             commands::get_reading_preferences,
             commands::set_reading_preferences,
+            commands::get_desktop_preferences,
+            commands::set_desktop_preferences,
+            commands::resolve_main_close,
+            commands::check_for_update,
+            commands::install_update,
             commands::get_notification_preferences,
             commands::set_notification_preferences,
             commands::get_new_mail_notification,
@@ -255,6 +267,17 @@ mod tests {
         let directives = csp.split(';').map(str::trim).collect::<Vec<_>>();
         assert!(directives.contains(&"style-src 'self' 'unsafe-inline'"));
         assert!(directives.contains(&"script-src 'self'"));
+    }
+
+    #[test]
+    fn updater_plugin_config_deserializes_during_startup() {
+        let config: Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("valid Tauri config");
+        let updater_config = config["plugins"]["updater"].clone();
+        let updater = serde_json::from_value::<tauri_plugin_updater::Config>(updater_config)
+            .expect("updater plugin config must deserialize during app startup");
+
+        assert_eq!(updater.endpoints.len(), 1);
     }
 
     #[test]

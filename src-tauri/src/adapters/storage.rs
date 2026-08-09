@@ -11,11 +11,12 @@ use tempfile::NamedTempFile;
 use crate::{
     core::{
         AccountsConfigStore, AppearancePreferencesStore, BootstrapConfigStore,
-        NotificationPreferencesConfigStore, ReadingPreferencesConfigStore,
+        DesktopPreferencesConfigStore, NotificationPreferencesConfigStore,
+        ReadingPreferencesConfigStore,
     },
     domain::{
         AccountsFile, AppearancePreferences, BootstrapConfig, DataDirectoryMarker,
-        LanguagePreference, NotificationPreferences, ReadingPreferences,
+        DesktopPreferences, LanguagePreference, NotificationPreferences, ReadingPreferences,
     },
     error::{CommandError, CommandResult},
 };
@@ -61,6 +62,10 @@ impl AppPaths {
 
     pub fn reading_preferences_file(&self) -> PathBuf {
         self.config_dir.join("reading-preferences.json")
+    }
+
+    pub fn desktop_preferences_file(&self) -> PathBuf {
+        self.config_dir.join("desktop-preferences.json")
     }
 
     pub fn notification_preferences_file(&self) -> PathBuf {
@@ -213,6 +218,44 @@ impl ReadingPreferencesConfigStore for ReadingPreferencesStore {
 }
 
 #[derive(Clone)]
+pub struct DesktopPreferencesStore {
+    path: PathBuf,
+}
+
+impl DesktopPreferencesStore {
+    pub fn new(paths: &AppPaths) -> Self {
+        Self {
+            path: paths.desktop_preferences_file(),
+        }
+    }
+
+    pub fn load(&self) -> CommandResult<DesktopPreferences> {
+        Ok(
+            read_optional_json(&self.path, "storage.desktop_preferences_corrupt")?
+                .unwrap_or_default(),
+        )
+    }
+
+    pub fn save(&self, value: &DesktopPreferences) -> CommandResult<()> {
+        write_json_atomic(
+            &self.path,
+            value,
+            "storage.desktop_preferences_write_failed",
+        )
+    }
+}
+
+impl DesktopPreferencesConfigStore for DesktopPreferencesStore {
+    fn load(&self) -> CommandResult<DesktopPreferences> {
+        DesktopPreferencesStore::load(self)
+    }
+
+    fn save(&self, value: &DesktopPreferences) -> CommandResult<()> {
+        DesktopPreferencesStore::save(self, value)
+    }
+}
+
+#[derive(Clone)]
 pub struct NotificationPreferencesStore {
     path: PathBuf,
 }
@@ -357,6 +400,37 @@ mod tests {
         assert!(preferences.auto_open_downloaded_attachments);
         assert!(preferences.auto_load_more_messages);
         assert!(preferences.auto_load_more_contacts);
+    }
+
+    #[test]
+    fn desktop_preferences_default_and_round_trip() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let paths = AppPaths {
+            config_dir: directory.path().to_owned(),
+            default_data_dir: directory.path().join("data"),
+        };
+        let store = DesktopPreferencesStore::new(&paths);
+
+        assert_eq!(
+            store.load().expect("default desktop preferences"),
+            DesktopPreferences::default()
+        );
+        let preferences = DesktopPreferences {
+            minimize_to_tray: true,
+            ask_before_exit: false,
+            auto_check_updates: false,
+        };
+        store.save(&preferences).expect("save desktop preferences");
+        assert_eq!(store.load().expect("load desktop preferences"), preferences);
+    }
+
+    #[test]
+    fn legacy_desktop_preferences_receive_safe_defaults() {
+        let preferences: DesktopPreferences = serde_json::from_str("{}").expect("deserialize");
+
+        assert!(!preferences.minimize_to_tray);
+        assert!(preferences.ask_before_exit);
+        assert!(preferences.auto_check_updates);
     }
 
     #[test]

@@ -16,7 +16,7 @@ export function WindowTitlebar({ kind }: { kind: WindowKind }) {
   );
   const appWindow = getCurrentWindow();
   const background = kind === "main"
-    ? "linear-gradient(90deg, var(--sidebar) 0 var(--shell-sidebar-width, 300px), var(--card) var(--shell-sidebar-width, 300px) 100%)"
+    ? "linear-gradient(90deg, var(--sidebar) 0 var(--shell-sidebar-width, 300px), var(--main-titlebar-right, var(--card)) var(--shell-sidebar-width, 300px) 100%)"
     : kind === "settings"
       ? "linear-gradient(90deg, var(--sidebar) 0 240px, var(--card) 240px 100%)"
       : "var(--card)";

@@ -17,12 +17,13 @@ use crate::{
     },
     core::{
         AccountsConfigStore, AppearancePreferencesStore, BootstrapConfigStore,
-        NotificationPreferencesConfigStore, ReadingPreferencesConfigStore,
+        DesktopPreferencesConfigStore, NotificationPreferencesConfigStore,
+        ReadingPreferencesConfigStore,
     },
     domain::{
         AccountConnectionDraft, AccountDraft, AccountRecord, AccountSummary, AccountsFile,
         AppearancePreferences, BootstrapConfig, BootstrapStage, BootstrapStatus,
-        ConnectionTestResult, DataDirectoryMarker, DataDirectoryValidation,
+        ConnectionTestResult, DataDirectoryMarker, DataDirectoryValidation, DesktopPreferences,
         DiscoveredAccountConfig, NotificationPreferences, ReadingPreferences,
     },
     error::{CommandError, CommandResult},
@@ -34,6 +35,7 @@ pub struct AppService {
     accounts: Arc<dyn AccountsConfigStore>,
     preferences: Arc<dyn AppearancePreferencesStore>,
     reading_preferences: Arc<dyn ReadingPreferencesConfigStore>,
+    desktop_preferences: Arc<dyn DesktopPreferencesConfigStore>,
     notification_preferences: Arc<dyn NotificationPreferencesConfigStore>,
     credentials: Arc<dyn CredentialStore>,
     connection_tester: Arc<dyn ConnectionTester>,
@@ -45,6 +47,7 @@ pub struct AppConfigStores {
     accounts: Arc<dyn AccountsConfigStore>,
     preferences: Arc<dyn AppearancePreferencesStore>,
     reading_preferences: Arc<dyn ReadingPreferencesConfigStore>,
+    desktop_preferences: Arc<dyn DesktopPreferencesConfigStore>,
     notification_preferences: Arc<dyn NotificationPreferencesConfigStore>,
 }
 
@@ -54,6 +57,7 @@ impl AppConfigStores {
         accounts: Arc<dyn AccountsConfigStore>,
         preferences: Arc<dyn AppearancePreferencesStore>,
         reading_preferences: Arc<dyn ReadingPreferencesConfigStore>,
+        desktop_preferences: Arc<dyn DesktopPreferencesConfigStore>,
         notification_preferences: Arc<dyn NotificationPreferencesConfigStore>,
     ) -> Self {
         Self {
@@ -61,6 +65,7 @@ impl AppConfigStores {
             accounts,
             preferences,
             reading_preferences,
+            desktop_preferences,
             notification_preferences,
         }
     }
@@ -78,6 +83,7 @@ impl AppService {
             accounts: stores.accounts,
             preferences: stores.preferences,
             reading_preferences: stores.reading_preferences,
+            desktop_preferences: stores.desktop_preferences,
             notification_preferences: stores.notification_preferences,
             paths,
             credentials,
@@ -198,6 +204,18 @@ impl AppService {
         preferences: ReadingPreferences,
     ) -> CommandResult<ReadingPreferences> {
         self.reading_preferences.save(&preferences)?;
+        Ok(preferences)
+    }
+
+    pub fn get_desktop_preferences(&self) -> CommandResult<DesktopPreferences> {
+        self.desktop_preferences.load()
+    }
+
+    pub fn set_desktop_preferences(
+        &self,
+        preferences: DesktopPreferences,
+    ) -> CommandResult<DesktopPreferences> {
+        self.desktop_preferences.save(&preferences)?;
         Ok(preferences)
     }
 
@@ -763,8 +781,8 @@ mod tests {
 
     use super::*;
     use crate::adapters::{
-        AccountsStore, BootstrapStore, NotificationPreferencesStore, PreferencesStore,
-        ReadingPreferencesStore,
+        AccountsStore, BootstrapStore, DesktopPreferencesStore, NotificationPreferencesStore,
+        PreferencesStore, ReadingPreferencesStore,
     };
 
     #[derive(Default)]
@@ -853,12 +871,14 @@ mod tests {
         let accounts = Arc::new(AccountsStore::new(&paths));
         let preferences = Arc::new(PreferencesStore::new(&paths));
         let reading_preferences = Arc::new(ReadingPreferencesStore::new(&paths));
+        let desktop_preferences = Arc::new(DesktopPreferencesStore::new(&paths));
         let notification_preferences = Arc::new(NotificationPreferencesStore::new(&paths));
         let stores = AppConfigStores::new(
             bootstrap,
             accounts,
             preferences,
             reading_preferences,
+            desktop_preferences,
             notification_preferences,
         );
         let service = AppService::new(

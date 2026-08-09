@@ -17,5 +17,6 @@
 - [0013：显式账户同步调度](./0013-explicit-account-sync-scheduling.md)
 - [0014：账户级有界 IMAP 会话协调](./0014-bounded-account-imap-sessions.md)
 - [0015：在线 IMAP 文件夹结构操作与独立本地顺序](./0015-online-imap-folder-mutations-and-local-order.md)
+- [0016：签名更新与区域化传输地址](./0016-signed-updates-and-regional-delivery.md)
 
 ADR 0001 仅作为被取代的历史决策保留，当前 Rust 边界以 0006 为准。ADR 0007 的凭据事务和匿名数据槽仍有效；同步调度以 0013 为准，会话并发以 0014 为准。

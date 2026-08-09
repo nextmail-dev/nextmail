@@ -2,7 +2,8 @@ use async_trait::async_trait;
 
 use super::{
     AccountsFile, AppearancePreferences, BootstrapConfig, CommandResult, ConnectionSecurity,
-    MailboxRole, MessageAddress, MessageListItem, NotificationPreferences, ReadingPreferences,
+    DesktopPreferences, MailboxRole, MessageAddress, MessageListItem, NotificationPreferences,
+    ReadingPreferences,
 };
 
 pub trait AccountsConfigStore: Send + Sync {
@@ -58,6 +59,11 @@ pub struct RemoteMailbox {
     pub total_count: u32,
     pub unread_count: u32,
     pub highest_modseq: Option<u64>,
+}
+
+pub trait DesktopPreferencesConfigStore: Send + Sync {
+    fn load(&self) -> CommandResult<DesktopPreferences>;
+    fn save(&self, value: &DesktopPreferences) -> CommandResult<()>;
 }
 
 #[derive(Clone, Debug)]

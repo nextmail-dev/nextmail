@@ -20,7 +20,7 @@
 
 ## 2. 产品与当前状态
 
-NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.2.1`。
+NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.2.2`。
 
 平台边界：
 
@@ -46,20 +46,22 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - 中英文、系统/浅色/深色主题、主题色和分层通知偏好。
 - 账户隔离的本地联系人、既有邮件后台回填、收信自动沉淀、联系人工作区、最近往来、姓名优先、身份名片/复制/编辑/删除和 Composer 联系人建议。
 - 邮件与联系人列表支持 Ctrl/Cmd、Shift 范围多选及针对当前选择的右键操作。
-- NextMail 自有通知窗口，以及 `v*` tag 触发的三平台 GitHub Release 工作流。
+- NextMail 自有通知窗口、跨平台托盘、可持久化关闭偏好，以及 `v*` tag 触发的三平台 GitHub Release 工作流。
+- 基于 Tauri Updater 的签名更新检查与安装；中国大陆按 Geo 结果切换到 NextMail GitHub 反代，其他地区及定位失败回退 GitHub 直连。
 
 当前实施状态：
 
-- `0.2.1` 已完成当前计划“阅读体验与批量操作修正”的实现、自动验证和用户验收。
+- `0.2.2` 已完成“托盘、设置分组与自动更新”的实现、自动验证和用户验收。
+- 当前没有活动开发计划。
 
-当前范围以 [`2026-08-09-reading-and-bulk-actions`](./iterations/2026-08-09-reading-and-bulk-actions.md) 为准；第二十五阶段联系人历史记录继续保留在 [`iterations/0025`](./iterations/0025-contacts.md)。
+最近完成记录见 [`2026-08-09-tray-settings-and-auto-update`](./iterations/2026-08-09-tray-settings-and-auto-update.md)；上一批阅读与批量操作记录见 [`2026-08-09-reading-and-bulk-actions`](./iterations/2026-08-09-reading-and-bulk-actions.md)。
 
 仍未排期：
 
 - IMAP IDLE、无 IDLE 轮询和秒级失败重试。
-- 会话聚合、跨账户搜索、统一收件箱、系统托盘。
+- 会话聚合、跨账户搜索、统一收件箱。
 - 跨机账户重绑定。
-- 系统通知中心历史/勿扰集成、正式签名/公证、自动更新。
+- 系统通知中心历史/勿扰集成、正式代码签名与公证。
 - 规则、日历、PGP/S-MIME、EML/MBOX 导入导出和 Linux 深度适配。
 
 这些只是长期记忆，不是自动生效的路线图。下一次开发以用户当前计划为准。
@@ -68,7 +70,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 
 前端使用 React 19、TypeScript 5.8、Vite 7、TanStack Query 5、react-i18next、Tailwind CSS 4、Radix Primitives、Tiptap/ProseMirror 3.27.3、CodeMirror 6、Vitest、Testing Library 和 jsdom。
 
-桌面/Rust 使用 Tauri 2、Tokio、async-imap 0.11、lettre 0.11、mail-parser 0.11、mail-builder 0.4、SQLx 0.9、SQLite WAL/FTS5、rustls 0.23、keyring 4.1、Ammonia 4 和 cssparser 0.37。精确版本以 lockfile 和 manifest 为准。
+桌面/Rust 使用 Tauri 2、Tauri Updater、Tokio、async-imap 0.11、lettre 0.11、mail-parser 0.11、mail-builder 0.4、SQLx 0.9、SQLite WAL/FTS5、rustls 0.23、keyring 4.1、Ammonia 4 和 cssparser 0.37。精确版本以 lockfile 和 manifest 为准。
 
 ```text
 src/
@@ -129,6 +131,8 @@ docs/adr/                按需查阅的长期架构决策
 - 窗口状态由 Rust 侧 `window-state` 保存；动态标签映射为公共类别，通知窗口不保存。
 - Windows 使用 React 自绘控制；macOS 使用 Overlay 和原生交通灯。
 - 业务窗口标题随语言变化；主窗口和通知保留 `NextMail`。
+- 系统托盘由 Rust 创建并按界面语言更新菜单；Windows/macOS 左键显示主窗口，右键提供显示、设置、退出。Linux 受 Tauri/AppIndicator 限制不产生托盘点击事件，左键显示菜单并通过“显示主界面”恢复窗口。
+- 主窗口关闭请求由 Rust 统一拦截。默认询问最小化到托盘或退出；关闭询问后由设备级偏好直接隐藏或退出。托盘不可用时不得隐藏成无法恢复的窗口，托盘菜单“退出”作为明确动作不二次询问。
 
 ## 5. 数据、同步与协议记忆
 
@@ -141,6 +145,8 @@ raw/<hash-prefix>/<hash>
 attachments/<hash-prefix>/<hash>
 cache/attachment-open/...
 ```
+
+设备级托盘、关闭与更新偏好保存在系统应用配置区的 `config/desktop-preferences.json`，不随邮件数据目录迁移。
 
 - SQLite schema metadata 当前为版本 26，迁移到 `0026`；migration 编号是本地数据格式序号，不等于产品阶段编号。
 - `.nextmail-data.json` 的 `format_version` 当前为独立版本 1，不是 SQLite schema 版本。
@@ -184,7 +190,7 @@ cache/attachment-open/...
 - Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
 - SMTP 前生成不可变 MIME/Message-ID，写入 `raw/` 后创建持久化 `send_job`；重试复用相同 MIME。
 - SendWorker 账户内 FIFO、账户间轮转；全局最多两封、每账户最多一封。SMTP 成功后独立 APPEND Sent，归档失败不得再次发信。
-- 客户端头为 `X-Mailer: NextMail/0.2.1`；版本变化时同步核对 manifest 与此值。
+- 客户端头为 `X-Mailer: NextMail/0.2.2`；版本变化时同步核对 manifest 与此值。
 
 ## 6. 安全边界
 
@@ -200,6 +206,7 @@ cache/attachment-open/...
 - 只有正文实际引用且成功内联的 MIME part 才从附件列表排除。
 - 富 HTML 粘贴必须先经 Rust 清洗和选择器作用域限定。
 - 日志不得记录 `CommandError.params`、凭据、Token、邮件正文或服务器原始响应。
+- Updater 只接受内置公开密钥验证成功的签名产物，不提供无签名降级。Geo 结果只用于本次清单路由，不持久化或写日志；反代只能改变传输地址，不能改变更新信任根。完整决策见 [ADR 0016](./adr/0016-signed-updates-and-regional-delivery.md)。
 
 任何邮件内容、协议、凭据、Capability、外链、文件或网络权限放宽都属于安全变更，必须补针对性测试；重大取舍新增或修订 ADR。
 
@@ -276,6 +283,8 @@ git diff --check
 
 每次 Release 正文从根目录 `CHANGELOG.md` 提取与当前 tag 匹配的版本段落，不使用 GitHub 自动生成的固定日志。
 
+发布构建同时生成 Tauri updater 产物与标准 `latest.json`。全部平台完成后，工作流把 GitHub 下载 URL 前置 `https://proxy.next-mail.app/` 生成 `latest-cn.json`，再公开 Release。`TAURI_SIGNING_PRIVATE_KEY` 与密码只来自 GitHub Secrets，公开验证密钥由 `NEXTMAIL_UPDATER_PUBLIC_KEY` Repository Variable 注入并固化进客户端；缺少公开密钥或私钥时发布必须失败。
+
 - 普通分支 push、pull request、手动 dispatch 不触发发布。
 - macOS ad-hoc identity `-` 不等于正式签名或公证。
 - 不为测试工作流随意创建/推送 tag。
@@ -283,7 +292,7 @@ git diff --check
 
 ## 10. 长期记忆与已知限制
 
-- SQLite schema 24 与数据目录标记格式 1 是独立概念。
+- SQLite schema 26 与数据目录标记格式 1 是独立概念。
 - 默认同步全部可选文件夹邮件头，正文按需；全文开关不是新调度入口。
 - 每账户三条 IMAP 会话预算，完整同步只占两条。
 - 搜索只覆盖当前账户/当前文件夹，不做跨账户或会话聚合。
@@ -292,7 +301,8 @@ git diff --check
 - 前端没有 ESLint/Prettier，也没有普通分支或 PR CI。
 - 日志按日滚动，但没有保留/自动清理策略。
 - 远程图片代理/缓存、CSS 背景图和 Web Font 未实现。
-- 正式代码签名、公证和自动更新未实现。
+- Windows 正式代码签名与 Apple Developer 签名/公证仍未实现；updater 产物签名只用于应用内更新完整性，不能替代操作系统代码签名与公证。
+- Linux 托盘的底层 AppIndicator 不提供图标点击事件，无法像 Windows/macOS 一样用单击直接恢复主窗口；左键打开菜单后选择“显示主界面”。
 
 ## 11. iteration、ADR 与文档维护
 

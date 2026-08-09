@@ -12,19 +12,22 @@ import {
   useAppearancePreferences,
   useUpdateAppearancePreferences,
 } from "./appearance";
-import type { AppearancePreferences, ReadingPreferences } from "./types";
+import type { AppearancePreferences, DesktopPreferences, MainCloseAction, ReadingPreferences } from "./types";
 import { AccountStep } from "../features/onboarding/AccountStep";
 import { DataDirectoryStep } from "../features/onboarding/DataDirectoryStep";
 import { MainShell } from "../features/mail/MainShell";
 import { WelcomeStep } from "../features/onboarding/WelcomeStep";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Modal } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { IconTile } from "@/components/ui/icon-tile";
 import { AppShell, Page, Stack } from "@/components/ui/layout";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/typography";
 import { WindowTitlebar, type WindowKind } from "@/components/window/WindowTitlebar";
+import { StartupUpdateChecker } from "@/features/preferences/UpdateSettings";
 
 const ComposerApp = lazy(() =>
   import("@/features/composer/ComposerApp").then((module) => ({ default: module.ComposerApp })),
@@ -117,12 +120,15 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <AppearanceEventBridge />
       <ReadingPreferencesEventBridge />
+      <DesktopPreferencesEventBridge />
       <AccountsEventBridge />
       {kind === "main" ? (
         <WindowFrame kind={kind}>
           <WindowContentBoundary kind={kind}>
             {windowContent}
           </WindowContentBoundary>
+          <MainCloseDialog />
+          <StartupUpdateChecker />
         </WindowFrame>
       ) : (
         <WindowContentBoundary kind={kind}>
@@ -204,6 +210,82 @@ function ReadingPreferencesEventBridge() {
     return () => { void unlisten.then((dispose) => dispose()); };
   }, [queryCache]);
   return null;
+}
+
+function DesktopPreferencesEventBridge() {
+  const queryCache = useQueryClient();
+  useEffect(() => {
+    const unlisten = listen<DesktopPreferences>("desktop-preferences-changed", (event) => {
+      queryCache.setQueryData(["desktop-preferences"], event.payload);
+    });
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, [queryCache]);
+  return null;
+}
+
+function MainCloseDialog() {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [remember, setRemember] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unlisten = listen("main-close-confirmation-requested", () => {
+      setRemember(false);
+      setCloseError(null);
+      setOpen(true);
+    });
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, []);
+
+  async function resolve(action: MainCloseAction) {
+    setBusy(true);
+    setCloseError(null);
+    try {
+      await api.resolveMainClose(action, remember);
+      setOpen(false);
+    } catch (error) {
+      reportCaughtError("window.main-close-resolution", error);
+      setCloseError(normalizeCommandError(error).code);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(nextOpen) => { if (!busy) setOpen(nextOpen); }}
+      title={t("desktop.closeTitle")}
+      closeLabel={t("common.close")}
+    >
+      <Stack className="pt-4" gap="lg">
+        <Text>{t("desktop.closeDescription")}</Text>
+        <Checkbox
+          checked={remember}
+          label={t("desktop.rememberCloseChoice")}
+          onCheckedChange={setRemember}
+        />
+        {closeError ? (
+          <Alert tone="danger" title={t("errors.title")}>
+            {t(`errors.${closeError}`, { defaultValue: t("common.unexpectedError") })}
+          </Alert>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={() => void resolve("quit")}>
+            {t("desktop.quit")}
+          </Button>
+          <Button disabled={busy} onClick={() => void resolve("minimize_to_tray")}>
+            {t("desktop.minimizeToTrayAction")}
+          </Button>
+        </div>
+      </Stack>
+    </Modal>
+  );
 }
 
 function AccountsEventBridge() {

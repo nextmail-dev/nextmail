@@ -7,17 +7,18 @@ use crate::{
         AccountRuntimeSummary, AccountSummary, AddressPresentation, AppAbout,
         AppearancePreferences, AttachmentSummary, BootstrapStatus, ComposerBootstrap,
         CompositionSceneRule, CompositionSceneRuleDraft, ConnectionTestResult, ContactDetail,
-        ContactDraft, ContactListPage, ContactSummary, DataDirectoryValidation,
+        ContactDraft, ContactListPage, ContactSummary, DataDirectoryValidation, DesktopPreferences,
         DiscoveredAccountConfig, DraftAttachmentSummary, DraftContent, DraftDetail, DraftListItem,
         DraftRecipientFields, MailSignature, MailSignatureDraft, MailTemplate, MailTemplateDraft,
-        MailboxRole, MailboxSummary, MessageAddress, MessageComposeAction, MessageDetail,
-        MessageListPage, NewMailNotification, NotificationPreferences, PendingOperationSummary,
-        PreparedInlineImage, ReadingPreferences, RenderedMailSignature, RenderedMailTemplate,
-        SendJobSummary, SignaturePreferences, SignaturePreferencesDraft, SyncInterval,
-        SyncProgress,
+        MailboxRole, MailboxSummary, MainCloseAction, MessageAddress, MessageComposeAction,
+        MessageDetail, MessageListPage, NewMailNotification, NotificationPreferences,
+        PendingOperationSummary, PreparedInlineImage, ReadingPreferences, RenderedMailSignature,
+        RenderedMailTemplate, SendJobSummary, SignaturePreferences, SignaturePreferencesDraft,
+        SyncInterval, SyncProgress, UpdateCheckResult,
     },
     error::CommandResult,
     state::AppState,
+    tray_runtime, updater_runtime,
     window_titles::{update_open_window_titles, window_title, WindowTitleKind},
 };
 
@@ -55,6 +56,7 @@ pub fn set_appearance_preferences(
 ) -> CommandResult<AppearancePreferences> {
     let preferences = state.service.set_preferences(preferences)?;
     update_open_window_titles(&app, &preferences.language);
+    tray_runtime::update_language(&app, &preferences.language);
     emit_or_log(&app, "appearance-preferences-changed", &preferences);
     Ok(preferences)
 }
@@ -73,6 +75,49 @@ pub fn set_reading_preferences(
     let preferences = state.service.set_reading_preferences(preferences)?;
     emit_or_log(&app, "reading-preferences-changed", &preferences);
     Ok(preferences)
+}
+
+#[tauri::command]
+pub fn get_desktop_preferences(state: State<'_, AppState>) -> CommandResult<DesktopPreferences> {
+    state.service.get_desktop_preferences()
+}
+
+#[tauri::command]
+pub fn set_desktop_preferences(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    preferences: DesktopPreferences,
+) -> CommandResult<DesktopPreferences> {
+    let preferences = state.service.set_desktop_preferences(preferences)?;
+    emit_or_log(&app, "desktop-preferences-changed", &preferences);
+    Ok(preferences)
+}
+
+#[tauri::command]
+pub fn resolve_main_close(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    action: MainCloseAction,
+    remember: bool,
+) -> CommandResult<()> {
+    if remember {
+        let mut preferences = state.service.get_desktop_preferences()?;
+        preferences.ask_before_exit = false;
+        preferences.minimize_to_tray = action == MainCloseAction::MinimizeToTray;
+        let preferences = state.service.set_desktop_preferences(preferences)?;
+        emit_or_log(&app, "desktop-preferences-changed", &preferences);
+    }
+    tray_runtime::apply_main_close_action(&app, action)
+}
+
+#[tauri::command]
+pub async fn check_for_update(app: AppHandle) -> CommandResult<UpdateCheckResult> {
+    updater_runtime::check(&app).await
+}
+
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> CommandResult<()> {
+    updater_runtime::install(&app).await
 }
 
 #[tauri::command]
@@ -389,6 +434,15 @@ fn truncate_log_field(mut value: String, max_bytes: usize) -> String {
 
 #[tauri::command]
 pub async fn open_settings_window(state: State<'_, AppState>, app: AppHandle) -> CommandResult<()> {
+    open_settings_window_inner(&state, &app).await
+}
+
+pub(crate) async fn open_settings_window_from_tray(app: AppHandle) -> CommandResult<()> {
+    let state = app.state::<AppState>();
+    open_settings_window_inner(&state, &app).await
+}
+
+async fn open_settings_window_inner(state: &AppState, app: &AppHandle) -> CommandResult<()> {
     // Window creation must not run inside the synchronous WebView IPC callback on Windows.
     // Yielding here keeps this path aligned with the working composer-window lifecycle.
     tokio::task::yield_now().await;
@@ -405,7 +459,7 @@ pub async fn open_settings_window(state: State<'_, AppState>, app: AppHandle) ->
     }
 
     let builder = WebviewWindowBuilder::new(
-        &app,
+        app,
         "settings",
         WebviewUrl::App("index.html?window=settings".into()),
     )

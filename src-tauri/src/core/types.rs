@@ -86,6 +86,41 @@ impl Default for ReadingPreferences {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopPreferences {
+    pub minimize_to_tray: bool,
+    pub ask_before_exit: bool,
+    pub auto_check_updates: bool,
+}
+
+impl Default for DesktopPreferences {
+    fn default() -> Self {
+        Self {
+            minimize_to_tray: false,
+            ask_before_exit: true,
+            auto_check_updates: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MainCloseAction {
+    MinimizeToTray,
+    Quit,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub available: bool,
+    pub current_version: String,
+    pub version: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationDisplayMode {
     Stacked,

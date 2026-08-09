@@ -350,6 +350,22 @@
     "autoLoadMoreMessagesDescription": "开启后，邮件列表接近底部时会自动载入下一页；关闭后可使用列表底部的“加载更多”。",
     "autoLoadMoreContacts": "滚动到底时自动加载更多联系人",
     "autoLoadMoreContactsDescription": "开启后，联系人列表接近底部时会自动载入下一页；关闭后可使用列表底部的“加载更多联系人”。",
+    "minimizeToTray": "关闭主界面时最小化到托盘",
+    "minimizeToTrayDescription": "关闭退出询问后，此选项决定关闭主界面是隐藏到托盘还是退出应用。",
+    "askBeforeExit": "退出时询问",
+    "askBeforeExitDescription": "关闭主界面时询问要最小化到托盘还是退出。选择“不再询问”会关闭此选项并记住本次选择。",
+    "autoCheckUpdates": "启动时自动检测更新",
+    "autoCheckUpdatesDescription": "NextMail 启动完成后在后台检查新版本；发现更新时仍由您确认安装。",
+    "group": {
+      "interface": "界面语言",
+      "theme": "界面主题",
+      "contentPrivacy": "内容与隐私",
+      "attachments": "附件",
+      "listBehavior": "列表行为",
+      "tray": "托盘图标",
+      "application": "应用信息",
+      "updates": "软件更新"
+    },
     "category": {
       "general": "通用",
       "appearance": "外观",
@@ -370,6 +386,26 @@
       "advanced": "管理列表加载、存储、连接与其他运行选项。",
       "about": "查看 NextMail 的版本和产品信息。"
     }
+  },
+  "desktop": {
+    "closeTitle": "关闭 NextMail",
+    "closeDescription": "要将主界面最小化到托盘，还是退出 NextMail？",
+    "rememberCloseChoice": "不再询问并记住本次选择",
+    "minimizeToTrayAction": "最小化到托盘",
+    "quit": "退出"
+  },
+  "updates": {
+    "check": "检测更新",
+    "checking": "正在检测更新",
+    "upToDate": "当前已是最新版本（{{version}}）",
+    "available": "发现新版本 {{version}}",
+    "availableTitle": "NextMail {{version}} 已可用",
+    "availableDescription": "下载完成后 NextMail 将重启并安装更新。",
+    "releaseNotes": "版本说明",
+    "noReleaseNotes": "此版本没有提供额外说明。",
+    "install": "下载并安装",
+    "installing": "正在下载并安装",
+    "later": "稍后"
   },
   "notifications": {
     "enabled": "新邮件通知",
@@ -598,6 +634,8 @@
     "storage.bootstrap_write_failed": "首次启动配置无法保存。",
     "storage.reading_preferences_corrupt": "无法读取邮件阅读偏好。",
     "storage.reading_preferences_write_failed": "无法保存邮件阅读偏好。",
+    "storage.desktop_preferences_corrupt": "无法读取桌面行为偏好。",
+    "storage.desktop_preferences_write_failed": "无法保存桌面行为偏好。",
     "storage.notification_preferences_corrupt": "无法读取通知偏好。",
     "storage.notification_preferences_write_failed": "无法保存通知偏好。",
     "storage.notification_baseline_read_failed": "无法读取新邮件通知基线。",
@@ -681,6 +719,13 @@
     "draft.discard_failed": "关闭草稿时无法确认其保留状态，请重试。",
     "composer.window_create_failed": "无法打开写信窗口，请重试。",
     "settings.window_create_failed": "无法打开设置窗口，请重试。",
+    "window.main_unavailable": "主界面当前不可用。",
+    "window.main_hide_failed": "无法将主界面最小化到托盘。",
+    "tray.unavailable": "系统托盘当前不可用，请选择退出或稍后重试。",
+    "update.not_configured": "自动更新尚未配置验证密钥。",
+    "update.check_failed": "无法检测更新，请检查网络后重试。",
+    "update.not_available": "此更新已不可用，请重新检测。",
+    "update.install_failed": "无法下载或安装更新，请稍后重试。",
     "accounts.window_create_failed": "无法打开账户管理窗口，请重试。",
     "message.raw_window_create_failed": "无法打开原始邮件窗口，请重试。",
     "message.preview_window_create_failed": "无法打开邮件预览窗口，请重试。",

@@ -4,7 +4,7 @@ use tauri::AppHandle;
 
 use crate::{
     adapters::{
-        AccountsStore, AppPaths, BootstrapStore, MailConnectionTester,
+        AccountsStore, AppPaths, BootstrapStore, DesktopPreferencesStore, MailConnectionTester,
         NotificationPreferencesStore, PreferencesStore, ReadingPreferencesStore,
         SystemAttachmentOpener, SystemCredentialStore, SystemExternalLinkOpener,
     },
@@ -33,12 +33,14 @@ impl AppState {
         let accounts = Arc::new(AccountsStore::new(&paths));
         let preferences = Arc::new(PreferencesStore::new(&paths));
         let reading_preferences = Arc::new(ReadingPreferencesStore::new(&paths));
+        let desktop_preferences = Arc::new(DesktopPreferencesStore::new(&paths));
         let notification_preferences = Arc::new(NotificationPreferencesStore::new(&paths));
         let stores = AppConfigStores::new(
             bootstrap,
             accounts,
             preferences,
             reading_preferences,
+            desktop_preferences,
             notification_preferences,
         );
         let service = Arc::new(AppService::new(

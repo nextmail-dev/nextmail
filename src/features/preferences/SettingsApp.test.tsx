@@ -47,15 +47,28 @@ vi.mock("@/app/api", () => ({
       pendingOperations: 0,
       canRemove: true,
     }),
-    getAppAbout: vi.fn().mockResolvedValue({ name: "NextMail", version: "0.2.1" }),
+    getAppAbout: vi.fn().mockResolvedValue({ name: "NextMail", version: "0.2.2" }),
     getReadingPreferences: vi.fn().mockResolvedValue({
       autoLoadRemoteImages: false,
       autoOpenDownloadedAttachments: true,
       autoLoadMoreMessages: true,
       autoLoadMoreContacts: true,
     }),
+    getDesktopPreferences: vi.fn().mockResolvedValue({
+      minimizeToTray: false,
+      askBeforeExit: true,
+      autoCheckUpdates: true,
+    }),
     setAppearancePreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
     setReadingPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
+    setDesktopPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
+    checkForUpdate: vi.fn().mockResolvedValue({
+      available: false,
+      currentVersion: "0.2.2",
+      version: null,
+      notes: null,
+    }),
+    installUpdate: vi.fn().mockResolvedValue(undefined),
     getNotificationPreferences: vi.fn().mockResolvedValue({
       enabled: true,
       displayMode: "stacked",
@@ -176,6 +189,44 @@ describe("SettingsApp", () => {
         expect.anything(),
       ),
     );
+  });
+
+  it("groups tray close preferences under More", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SettingsApp />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "More" }));
+    expect(screen.getByRole("heading", { name: "Tray icon" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Minimize to tray when closing the main window" })).not.toBeChecked();
+    const askToggle = screen.getByRole("checkbox", { name: "Ask before exiting" });
+    expect(askToggle).toBeChecked();
+    fireEvent.click(askToggle);
+
+    await waitFor(() =>
+      expect(api.setDesktopPreferences).toHaveBeenCalledWith(
+        expect.objectContaining({ askBeforeExit: false }),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("checks for updates from About", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SettingsApp />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "About" }));
+    expect(screen.getByRole("checkbox", { name: "Automatically check for updates at startup" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+    expect(await screen.findByText("You're up to date (0.2.2)")).toBeInTheDocument();
+    expect(api.checkForUpdate).toHaveBeenCalledOnce();
   });
 
   it("renders notification preferences instead of a placeholder", async () => {

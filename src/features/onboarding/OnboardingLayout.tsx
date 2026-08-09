@@ -1,4 +1,4 @@
-import type { PropsWithChildren, ReactNode } from "react";
+import { useLayoutEffect, type PropsWithChildren, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AppearancePreferences } from "@/app/types";
@@ -24,6 +24,12 @@ export function OnboardingLayout({
   aside,
 }: OnboardingLayoutProps) {
   const { t } = useTranslation();
+  useLayoutEffect(() => {
+    document.documentElement.style.setProperty("--main-titlebar-right", "var(--background)");
+    return () => {
+      document.documentElement.style.removeProperty("--main-titlebar-right");
+    };
+  }, []);
   return (
     <AppShell className="-mt-[var(--titlebar-height)] grid h-[calc(100%+var(--titlebar-height))] grid-cols-[minmax(260px,300px)_minmax(0,1fr)]">
       <Page className="flex min-h-0 flex-col justify-between bg-sidebar px-7 pt-[calc(var(--titlebar-height)+2rem)] pb-8">
@@ -45,7 +51,7 @@ export function OnboardingLayout({
         </Surface>
       </Page>
       <OverlayScrollArea className="min-h-0 bg-background" viewportClassName="pr-3">
-        <Page className="min-h-full px-[clamp(44px,7vw,104px)] pt-[calc(var(--titlebar-height)+clamp(42px,7vh,76px))] pb-[clamp(42px,7vh,76px)]">
+        <Page className="min-h-full px-[clamp(44px,7vw,104px)] pt-[clamp(42px,7vh,76px)] pb-[clamp(42px,7vh,76px)]">
           {children}
         </Page>
       </OverlayScrollArea>

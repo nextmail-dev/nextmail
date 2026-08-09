@@ -350,6 +350,22 @@
     "autoLoadMoreMessagesDescription": "When enabled, the next page loads automatically near the bottom of the message list. Turn it off to use the Load more button instead.",
     "autoLoadMoreContacts": "Load more contacts at the end of the list",
     "autoLoadMoreContactsDescription": "When enabled, the next page loads automatically near the bottom of the contact list. Turn it off to use the Load more contacts button instead.",
+    "minimizeToTray": "Minimize to tray when closing the main window",
+    "minimizeToTrayDescription": "When exit confirmation is disabled, this setting decides whether closing the main window hides it in the tray or exits the app.",
+    "askBeforeExit": "Ask before exiting",
+    "askBeforeExitDescription": "Ask whether to minimize to the tray or quit when closing the main window. Choosing Don't ask again disables this option and remembers that choice.",
+    "autoCheckUpdates": "Automatically check for updates at startup",
+    "autoCheckUpdatesDescription": "NextMail checks for a new version in the background after startup. Installation still requires your confirmation.",
+    "group": {
+      "interface": "Interface language",
+      "theme": "Interface theme",
+      "contentPrivacy": "Content and privacy",
+      "attachments": "Attachments",
+      "listBehavior": "List behavior",
+      "tray": "Tray icon",
+      "application": "Application information",
+      "updates": "Software updates"
+    },
     "category": {
       "general": "General",
       "appearance": "Appearance",
@@ -370,6 +386,26 @@
       "advanced": "Manage list loading, storage, connection, and other runtime options.",
       "about": "View the NextMail version and product information."
     }
+  },
+  "desktop": {
+    "closeTitle": "Close NextMail",
+    "closeDescription": "Would you like to minimize the main window to the tray or quit NextMail?",
+    "rememberCloseChoice": "Don't ask again and remember this choice",
+    "minimizeToTrayAction": "Minimize to tray",
+    "quit": "Quit"
+  },
+  "updates": {
+    "check": "Check for updates",
+    "checking": "Checking for updates",
+    "upToDate": "You're up to date ({{version}})",
+    "available": "Version {{version}} is available",
+    "availableTitle": "NextMail {{version}} is available",
+    "availableDescription": "NextMail will restart and install the update after the download completes.",
+    "releaseNotes": "Release notes",
+    "noReleaseNotes": "No additional notes were provided for this release.",
+    "install": "Download and install",
+    "installing": "Downloading and installing",
+    "later": "Later"
   },
   "notifications": {
     "enabled": "New mail notifications",
@@ -599,6 +635,8 @@
     "storage.bootstrap_write_failed": "The setup settings could not be saved.",
     "storage.reading_preferences_corrupt": "Reading preferences could not be read.",
     "storage.reading_preferences_write_failed": "Reading preferences could not be saved.",
+    "storage.desktop_preferences_corrupt": "Desktop behavior preferences could not be read.",
+    "storage.desktop_preferences_write_failed": "Desktop behavior preferences could not be saved.",
     "storage.notification_preferences_corrupt": "Notification preferences could not be read.",
     "storage.notification_preferences_write_failed": "Notification preferences could not be saved.",
     "storage.notification_baseline_read_failed": "The new mail notification baseline could not be read.",
@@ -682,6 +720,13 @@
     "draft.discard_failed": "The draft retention state could not be confirmed. Try closing it again.",
     "composer.window_create_failed": "The composer window could not be opened. Try again.",
     "settings.window_create_failed": "The settings window could not be opened. Try again.",
+    "window.main_unavailable": "The main window is currently unavailable.",
+    "window.main_hide_failed": "The main window could not be minimized to the tray.",
+    "tray.unavailable": "The system tray is unavailable. Quit NextMail or try again later.",
+    "update.not_configured": "Automatic updates do not have a verification key configured yet.",
+    "update.check_failed": "NextMail could not check for updates. Check your connection and try again.",
+    "update.not_available": "This update is no longer available. Check again.",
+    "update.install_failed": "NextMail could not download or install the update. Try again later.",
     "accounts.window_create_failed": "The account management window could not be opened. Try again.",
     "message.raw_window_create_failed": "The message source window could not be opened. Try again.",
     "message.preview_window_create_failed": "The message preview window could not be opened. Try again.",

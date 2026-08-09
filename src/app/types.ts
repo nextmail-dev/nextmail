@@ -60,6 +60,21 @@ export interface ReadingPreferences {
   autoLoadMoreContacts: boolean;
 }
 
+export interface DesktopPreferences {
+  minimizeToTray: boolean;
+  askBeforeExit: boolean;
+  autoCheckUpdates: boolean;
+}
+
+export type MainCloseAction = "minimize_to_tray" | "quit";
+
+export interface UpdateCheckResult {
+  available: boolean;
+  currentVersion: string;
+  version: string | null;
+  notes: string | null;
+}
+
 export type NotificationDisplayMode = "stacked" | "replace";
 
 export interface NotificationAccountSetting {
