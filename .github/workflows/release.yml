@@ -28,21 +28,25 @@ jobs:
             platform: macos-15-intel
             macos: true
             rust-targets: x86_64-apple-darwin
+            updater-signatures: macos-x64
             args: --target x86_64-apple-darwin -- --locked
           - name: macOS Apple Silicon arm64
             platform: macos-15
             macos: true
             rust-targets: aarch64-apple-darwin
+            updater-signatures: macos-arm64
             args: --target aarch64-apple-darwin -- --locked
           - name: Linux x64
             platform: ubuntu-22.04
             macos: false
             rust-targets: ""
+            updater-signatures: linux-x64
             args: -- --locked
           - name: Windows x64
             platform: windows-latest
             macos: false
             rust-targets: ""
+            updater-signatures: windows-x64
             args: -- --locked
 
     runs-on: ${{ matrix.platform }}
@@ -124,7 +128,28 @@ jobs:
           releaseDraft: true
           prerelease: false
           generateReleaseNotes: false
+          uploadUpdaterJson: false
           args: ${{ matrix.args }}
+
+      - name: Collect updater signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p updater-signatures
+          while IFS= read -r -d '' signature; do
+            destination="updater-signatures/$(basename "$signature")"
+            test ! -e "$destination"
+            cp "$signature" "$destination"
+          done < <(find src-tauri/target -type f -name '*.sig' -print0)
+          test -n "$(find updater-signatures -type f -name '*.sig' -print -quit)"
+
+      - name: Upload updater signatures
+        uses: actions/upload-artifact@v7
+        with:
+          name: updater-signatures-${{ matrix.updater-signatures }}
+          path: updater-signatures/*.sig
+          if-no-files-found: error
+          retention-days: 1
 
   publish:
     name: Publish GitHub Release
@@ -133,58 +158,51 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Normalize updater manifests
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Download updater signatures
+        uses: actions/download-artifact@v8
+        with:
+          pattern: updater-signatures-*
+          path: ${{ runner.temp }}/nextmail-updater/signatures
+          merge-multiple: true
+
+      - name: Extract changelog entry
+        shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/nextmail-updater"
-          gh release download "$GITHUB_REF_NAME" \
-            --pattern latest.json \
-            --dir "$RUNNER_TEMP/nextmail-updater"
-          gh api "repos/$GH_REPO/releases/tags/$GITHUB_REF_NAME" \
-            > "$RUNNER_TEMP/nextmail-updater/release.json"
-          jq --slurpfile release "$RUNNER_TEMP/nextmail-updater/release.json" '
-            ($release[0].assets
-              | map({ key: .url, value: .browser_download_url })
-              | from_entries) as $download_urls
-            | .platforms |= with_entries(
-                .value.url = ($download_urls[.value.url] // .value.url)
-              )
-          ' "$RUNNER_TEMP/nextmail-updater/latest.json" \
-            > "$RUNNER_TEMP/nextmail-updater/latest-normalized.json"
-          mv "$RUNNER_TEMP/nextmail-updater/latest-normalized.json" \
-            "$RUNNER_TEMP/nextmail-updater/latest.json"
-
           version="${GITHUB_REF_NAME#v}"
-          direct_prefix="https://github.com/$GH_REPO/releases/download/$GITHUB_REF_NAME/"
-          jq -e --arg version "$version" --arg prefix "$direct_prefix" '
-            (.version == $version)
-            and (.platforms | length > 0)
-            and all(.platforms[];
-              ((.signature | length) > 0) and (.url | startswith($prefix)))
-          ' "$RUNNER_TEMP/nextmail-updater/latest.json" > /dev/null
+          awk -v version="$version" '
+            $0 ~ "^## \\[" version "\\]" { found=1; next }
+            found && /^## \\[/ { exit }
+            found { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/nextmail-updater/release-notes.md"
+          test -s "$RUNNER_TEMP/nextmail-updater/release-notes.md"
 
-          jq '
-            .platforms |= with_entries(
-              .value.url = ("https://proxy.next-mail.app/" + .value.url)
-            )
-          ' "$RUNNER_TEMP/nextmail-updater/latest.json" \
-            > "$RUNNER_TEMP/nextmail-updater/latest-cn.json"
-          proxy_prefix="https://proxy.next-mail.app/$direct_prefix"
-          jq -e --arg prefix "$proxy_prefix" '
-            (.platforms | length > 0)
-            and all(.platforms[];
-              ((.signature | length) > 0) and (.url | startswith($prefix)))
-          ' "$RUNNER_TEMP/nextmail-updater/latest-cn.json" > /dev/null
+      - name: Generate updater manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node .github/scripts/generate-updater-manifests.mjs \
+            --tag "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signatures "$RUNNER_TEMP/nextmail-updater/signatures" \
+            --notes "$RUNNER_TEMP/nextmail-updater/release-notes.md" \
+            --output "$RUNNER_TEMP/nextmail-updater/manifests"
 
-          gh release upload "$GITHUB_REF_NAME" \
-            "$RUNNER_TEMP/nextmail-updater/latest.json" \
-            "$RUNNER_TEMP/nextmail-updater/latest-cn.json" \
-            --clobber
-
-      - name: Publish completed release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+      - name: Upload manifests and publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            ${{ runner.temp }}/nextmail-updater/manifests/latest.json
+            ${{ runner.temp }}/nextmail-updater/manifests/latest-cn.json
+          token: ${{ secrets.GITHUB_TOKEN }}

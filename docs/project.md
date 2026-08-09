@@ -52,11 +52,11 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 
 当前实施状态：
 
-- `0.3.0` 已完成 updater 清单规范化、独立安全更新窗口、全局对话框层级修正、设置选择项交互优化与分段 MIME 附件名兼容。
+- `0.3.0` 已完成独立安全更新窗口、全局对话框层级修正、设置选择项交互优化与分段 MIME 附件名兼容；首次发布任务在草稿 Release 的 updater 清单规范化步骤失败，工作流已改为自行汇总签名并生成清单，正通过重新创建并推送 `v0.3.0` Tag 实际验证。
 - 新应用图标及各平台尺寸资产已刷新并验收。
-- 当前没有活动开发计划。
+- 当前活动计划是修复 Release 工作流的 updater 清单生成与发布时序。
 
-最近完成记录见 [`2026-08-09-07-app-icon-refresh`](./iterations/2026-08-09-07-app-icon-refresh.md) 与 [`2026-08-09-06-segmented-mime-filenames`](./iterations/2026-08-09-06-segmented-mime-filenames.md)。
+当前计划见 [`2026-08-09-08-updater-manifest-generation`](./iterations/2026-08-09-08-updater-manifest-generation.md)；最近完成记录见 [`2026-08-09-07-app-icon-refresh`](./iterations/2026-08-09-07-app-icon-refresh.md)。
 
 仍未排期：
 
@@ -289,7 +289,7 @@ git diff --check
 
 每次 Release 正文从根目录 `CHANGELOG.md` 提取与当前 tag 匹配的版本段落，不使用 GitHub 自动生成的固定日志。
 
-发布构建同时生成 Tauri updater 产物与标准 `latest.json`。全部平台完成后，工作流依据 Release 资产元数据把 `tauri-action` 写入的资产 API URL 规范化为公开 `browser_download_url`，覆盖上传标准 `latest.json`；再从同一清单派生 `latest-cn.json`，只为每个公开下载 URL 前置 `https://proxy.next-mail.app/`，最后公开 Release。覆盖前必须验证版本、平台、签名和 tag 下载前缀。客户端同时配置直连与反代清单：CN 优先反代，其他地区及 Geo 失败时优先直连，另一地址作为备用。`TAURI_SIGNING_PRIVATE_KEY` 与密码只来自 GitHub Secrets，公开验证密钥由 `NEXTMAIL_UPDATER_PUBLIC_KEY` Repository Variable 注入并固化进客户端；缺少公开密钥或私钥时发布必须失败。
+发布构建由 `tauri-action` 生成、签名并上传各平台 updater 产物，但不使用其自动 `latest.json`。每个构建任务把本地 `.sig` 作为 workflow artifact 交给最终发布任务；最终任务从对应 `CHANGELOG.md` 版本段落、当前 Tag、固定平台映射和实际签名自行生成标准 `latest.json`，再派生只为每个公开下载 URL 前置 `https://proxy.next-mail.app/` 的 `latest-cn.json`。两个清单必须通过版本、11 个平台键、签名和 Tag 下载前缀验证，随后在同一步上传并公开草稿 Release，任何缺失或歧义都保持草稿并失败。客户端同时配置直连与反代清单：CN 优先反代，其他地区及 Geo 失败时优先直连，另一地址作为备用。`TAURI_SIGNING_PRIVATE_KEY` 与密码只来自 GitHub Secrets，公开验证密钥由 `NEXTMAIL_UPDATER_PUBLIC_KEY` Repository Variable 注入并固化进客户端；缺少公开密钥或私钥时发布必须失败。
 
 - 普通分支 push、pull request、手动 dispatch 不触发发布。
 - macOS ad-hoc identity `-` 不等于正式签名或公证。

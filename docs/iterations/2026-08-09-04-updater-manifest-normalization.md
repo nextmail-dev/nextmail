@@ -41,3 +41,7 @@
 ## 验收
 
 - 2026-08-09：用户验收通过；本次只提交并推送 workflow 与文档，不修改版本或创建发布 tag。
+
+## 后续修订
+
+- 2026-08-09：`v0.3.0` 首次使用该流程时发现，最终任务无法按 Tag 读取尚未公开的草稿 Release，`gh release download` 返回 HTTP 404。后续发布流程由 [`2026-08-09-08-updater-manifest-generation`](./2026-08-09-08-updater-manifest-generation.md) 取代，不再下载并规范化 `tauri-action` 的清单。

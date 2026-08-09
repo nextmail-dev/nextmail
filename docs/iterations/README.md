@@ -41,3 +41,4 @@
 | [2026-08-09-05](./2026-08-09-05-ui-dialog-settings-update-window.md) | 模态层、设置选择项与更新窗口 | 已验收 |
 | [2026-08-09-06](./2026-08-09-06-segmented-mime-filenames.md) | 分段 MIME 附件文件名兼容 | 已验收 |
 | [2026-08-09-07](./2026-08-09-07-app-icon-refresh.md) | 应用图标更新 | 已验收 |
+| [2026-08-09-08](./2026-08-09-08-updater-manifest-generation.md) | Updater 清单自行生成与 v0.3.0 重新发布 | 实施中 |

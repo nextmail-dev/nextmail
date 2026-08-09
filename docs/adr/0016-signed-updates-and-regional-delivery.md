@@ -4,7 +4,7 @@
 
 日期：2026-08-09
 
-修订：2026-08-09，补充独立更新窗口与不可信 Release notes 渲染边界。
+修订：2026-08-09，补充独立更新窗口与不可信 Release notes 渲染边界；改为由发布工作流从签名产物自行生成 updater 清单。
 
 ## 背景
 
@@ -16,7 +16,7 @@ Updater 会执行新二进制或安装包，因此更新来源属于高风险供
 
 - 使用官方 Tauri Updater；所有更新产物必须由发布私钥签名，客户端使用构建时注入并固化进二进制的公开密钥验证。签名失败、密钥缺失或清单异常一律停止，不提供无签名降级。
 - 私钥与可选密码只保存为 `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` GitHub Actions Secrets；公开密钥通过 `NEXTMAIL_UPDATER_PUBLIC_KEY` Repository Variable 注入发布构建。工作流在任一关键配置缺失时失败，不把密钥内容写入日志或仓库。
-- GitHub Release 保留标准 `latest.json`。`tauri-action` 汇总各平台签名后可能写入 GitHub Release Assets API URL；发布完成前，工作流必须依据同一 Release 的资产元数据把它们规范化为公开 `browser_download_url` 并覆盖 `latest.json`，再派生 `latest-cn.json`，只为公开下载 URL 前置 `https://proxy.next-mail.app/`；平台映射、签名和版本元数据不变。
+- GitHub Release 保留标准 `latest.json`。`tauri-action` 只负责生成、签名和上传各平台 updater 产物，不上传自动生成的清单；每个平台把本地 `.sig` 作为受当前 workflow run 隔离的 artifact 交给最终发布任务。最终任务以当前 Tag、对应 `CHANGELOG.md` 段落、固定平台映射和实际签名自行生成 `latest.json`，再派生 `latest-cn.json`，只为公开下载 URL 前置 `https://proxy.next-mail.app/`。版本、完整平台集合、签名、URL 前缀全部验证成功后，两个清单才与草稿 Release 一并公开；任一产物缺失或重复均停止发布。
 - 客户端以 4 秒上限请求 `https://api.next-mail.app/api/v1/geo`，响应中的 `ip` 与 `type` 仅为附加信息，区域判断只读取 `country_code`。明确返回 CN 时按代理 `latest-cn.json`、GitHub `latest.json` 排序；非 CN、超时、非成功状态或无效响应按 GitHub `latest.json`、代理 `latest-cn.json` 排序，使两种传输地址互为备用。地理结果不持久化、不写日志、不进入账户数据。
 - React 只调用稳定的检查/安装 Command 并接收版本、可用性和发布说明 DTO；Geo 请求、清单选择、下载、签名验证、安装和重启均留在 Rust。前端不获得 updater、任意网络、Shell 或进程权限。
 - 启动自动检查只提示可用版本，不静默安装；下载和安装必须由用户明确触发。
