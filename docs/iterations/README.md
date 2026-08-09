@@ -40,3 +40,4 @@
 | [2026-08-09-04](./2026-08-09-04-updater-manifest-normalization.md) | Updater 清单 URL 规范化 | 已验收 |
 | [2026-08-09-05](./2026-08-09-05-ui-dialog-settings-update-window.md) | 模态层、设置选择项与更新窗口 | 已验收 |
 | [2026-08-09-06](./2026-08-09-06-segmented-mime-filenames.md) | 分段 MIME 附件文件名兼容 | 已验收 |
+| [2026-08-09-07](./2026-08-09-07-app-icon-refresh.md) | 应用图标更新 | 已验收 |

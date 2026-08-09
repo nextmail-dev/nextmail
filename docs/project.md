@@ -53,9 +53,10 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 当前实施状态：
 
 - `0.3.0` 已完成 updater 清单规范化、独立安全更新窗口、全局对话框层级修正、设置选择项交互优化与分段 MIME 附件名兼容。
+- 新应用图标及各平台尺寸资产已刷新并验收。
 - 当前没有活动开发计划。
 
-最近完成记录见 [`2026-08-09-06-segmented-mime-filenames`](./iterations/2026-08-09-06-segmented-mime-filenames.md) 与 [`2026-08-09-05-ui-dialog-settings-update-window`](./iterations/2026-08-09-05-ui-dialog-settings-update-window.md)。
+最近完成记录见 [`2026-08-09-07-app-icon-refresh`](./iterations/2026-08-09-07-app-icon-refresh.md) 与 [`2026-08-09-06-segmented-mime-filenames`](./iterations/2026-08-09-06-segmented-mime-filenames.md)。
 
 仍未排期：
 
@@ -94,6 +95,7 @@ src-tauri/
   src/mail_runtime.rs   账户 Supervisor 门面
   src/composer_runtime.rs
   src/notification_runtime.rs
+app-icon.png                README 展示与 Tauri 各平台图标的唯一源图
 testdata/mail-rendering/ 正式邮件保真与恶意内容回归语料
 docs/project.md          本文
 docs/iterations/         每次迭代范围、变更摘要、验证与验收
@@ -219,6 +221,7 @@ cache/attachment-open/...
 - 新生产文案同时提供 `zh-CN` 与 `en-US`，缺失时回退英文。
 - UI 不显示调试说明、内部阶段名或临时占位文案。
 - Windows 使用 Segoe UI/Microsoft YaHei UI，macOS 使用系统 UI/PingFang SC。
+- 根目录 `app-icon.png` 是 README 与 Tauri 应用图标的唯一源图；更新后使用 `pnpm tauri icon app-icon.png` 统一刷新 `src-tauri/icons/`，不手工维护不同平台尺寸。
 - 自绘标题栏只保留拖动区域与 Windows 窗口控制，不在左上角重复显示当前业务窗口名称；macOS 继续保留原生交通灯。
 - 所有模态与阻塞进度遮罩统一使用全局对话框层级，覆盖完整 WebView、位于 Windows 自绘标题栏之上并显式退出拖动命中区域；设置页布尔项以复选框、标题和说明组成内容包裹式圆角点击区域，提供明确 hover、focus、选中与禁用反馈。
 - 纵向滚动统一使用 `OverlayScrollArea` 覆盖滑块；文件夹列表是唯一默认自动隐藏例外。
