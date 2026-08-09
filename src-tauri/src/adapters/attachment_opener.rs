@@ -35,6 +35,13 @@ pub fn open_prepared_attachment(
     }
 }
 
+pub fn reveal_prepared_attachment(
+    opener: &dyn AttachmentOpener,
+    attachment: &PreparedAttachmentFile,
+) -> CommandResult<()> {
+    opener.reveal(&attachment.path)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -84,5 +91,19 @@ mod tests {
         open_prepared_attachment(&opener, &attachment).unwrap();
 
         assert_eq!(*opener.actions.lock().unwrap(), vec!["open"]);
+    }
+
+    #[test]
+    fn reveal_action_always_uses_the_system_file_manager() {
+        let opener = FakeOpener::default();
+        let attachment = PreparedAttachmentFile {
+            path: "report.pdf".into(),
+            file_name: "report.pdf".to_owned(),
+            high_risk: false,
+        };
+
+        reveal_prepared_attachment(&opener, &attachment).unwrap();
+
+        assert_eq!(*opener.actions.lock().unwrap(), vec!["reveal"]);
     }
 }

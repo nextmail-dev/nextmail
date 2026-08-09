@@ -125,6 +125,7 @@
     "noFolders": "No folders yet",
     "messages": "Messages",
     "folderSummary": "{{total}} messages · {{unread}} unread",
+    "selectedCount": "{{count}} messages selected",
     "notSynced": "Mail has not been synced yet",
     "notSyncedDescription": "Your account is securely connected. Messages will appear here after syncing begins.",
     "noMessages": "No messages in this folder",
@@ -191,6 +192,10 @@
     "attachmentPrimaryAction": "Open or download {{name}}",
     "saveAttachmentAs": "Save {{name}} as",
     "saveAs": "Save as",
+    "revealAttachment": "Show {{name}} in folder",
+    "showInFolder": "Show in folder",
+    "showRecipients": "Show recipients",
+    "hideRecipients": "Hide recipients",
     "ccRecipients": "Cc: {{recipients}}",
     "attachmentOverview": "Attachments: {{count}} · {{size}}",
     "createRootFolder": "New folder",
@@ -250,7 +255,9 @@
     "copyName": "Copy name",
     "copyEmail": "Copy email address",
     "copyFullAddress": "Copy name and email",
-    "openContact": "Open contact"
+    "openContact": "Open contact",
+    "selectedCount": "{{count}} contacts selected",
+    "deleteSelected": "Delete {{count}} contacts"
   },
   "composer": {
     "windowTitle": "Compose",

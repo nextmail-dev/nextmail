@@ -125,6 +125,7 @@
     "noFolders": "尚无文件夹",
     "messages": "邮件",
     "folderSummary": "{{total}} 封邮件 · {{unread}} 封未读",
+    "selectedCount": "已选择 {{count}} 封邮件",
     "notSynced": "尚未同步邮件",
     "notSyncedDescription": "账户已安全连接。开始同步后，邮件会显示在这里。",
     "noMessages": "此文件夹没有邮件",
@@ -191,6 +192,10 @@
     "attachmentPrimaryAction": "打开或下载 {{name}}",
     "saveAttachmentAs": "将 {{name}} 另存为",
     "saveAs": "另存为",
+    "revealAttachment": "在文件夹中显示 {{name}}",
+    "showInFolder": "在文件夹中显示",
+    "showRecipients": "展开收件人",
+    "hideRecipients": "收起收件人",
     "ccRecipients": "抄送：{{recipients}}",
     "attachmentOverview": "附件：{{count}} 个 · {{size}}",
     "createRootFolder": "新建文件夹",
@@ -250,7 +255,9 @@
     "copyName": "复制姓名",
     "copyEmail": "复制邮箱地址",
     "copyFullAddress": "复制姓名和邮箱",
-    "openContact": "打开联系人"
+    "openContact": "打开联系人",
+    "selectedCount": "已选择 {{count}} 位联系人",
+    "deleteSelected": "删除 {{count}} 位联系人"
   },
   "composer": {
     "windowTitle": "写邮件",

@@ -47,7 +47,7 @@ vi.mock("@/app/api", () => ({
       pendingOperations: 0,
       canRemove: true,
     }),
-    getAppAbout: vi.fn().mockResolvedValue({ name: "NextMail", version: "0.2.0" }),
+    getAppAbout: vi.fn().mockResolvedValue({ name: "NextMail", version: "0.2.1" }),
     getReadingPreferences: vi.fn().mockResolvedValue({
       autoLoadRemoteImages: false,
       autoOpenDownloadedAttachments: true,

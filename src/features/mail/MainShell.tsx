@@ -17,7 +17,7 @@ import { AccountSwitcher } from "./AccountSwitcher";
 import { MailboxPane } from "./MailboxPane";
 import { MessageListPane } from "./MessageListPane";
 import { MessageViewer } from "./MessageViewer";
-import { nextMessageIdAfterRemoval } from "./message-selection";
+import { nextMessageIdAfterRemoval, nextMessageIdAfterRemovals } from "./message-selection";
 import { useMailboxSelection } from "./hooks/useMailboxSelection";
 import { useMailRuntimeEvents } from "./hooks/useMailRuntimeEvents";
 import { useMailboxActions } from "./hooks/useMailboxActions";
@@ -130,6 +130,13 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     setSelectedMessageId((current) => current === removedMessageId
       ? nextMessageIdAfterRemoval(visibleMessageIdsRef.current, removedMessageId)
       : current);
+  }, [setSelectedMessageId]);
+  const selectAfterRemovals = useCallback((removedMessageIds: string[]) => {
+    setSelectedMessageId((current) => nextMessageIdAfterRemovals(
+      visibleMessageIdsRef.current,
+      removedMessageIds,
+      current,
+    ));
   }, [setSelectedMessageId]);
 
   useEffect(() => {
@@ -253,7 +260,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
               selectedMessageId={selectedMessageId}
               onSelect={setSelectedMessageId}
               onVisibleMessageIdsChange={handleVisibleMessageIdsChange}
-              onMessageRemoved={selectAfterRemoval}
+              onMessagesRemoved={selectAfterRemovals}
               onOpenContact={openContact}
               onEditContact={editContact}
               searchQuery={searchQuery}

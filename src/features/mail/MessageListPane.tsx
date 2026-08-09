@@ -16,7 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { forwardRef, useEffect, type HTMLAttributes, type ReactElement, type ReactNode, type UIEvent } from "react";
+import { forwardRef, useEffect, type HTMLAttributes, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -40,6 +40,7 @@ import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SearchField } from "@/components/ui/search-field";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, Text } from "@/components/ui/typography";
+import { useListSelection } from "@/components/ui/use-list-selection";
 import { ContactIdentity } from "@/features/contacts/ContactIdentity";
 import { cn } from "@/lib/utils";
 import { formatMessageListTimestamp } from "./messageDate";
@@ -53,7 +54,7 @@ interface MessageListPaneProps {
   selectedMessageId: string;
   onSelect: (messageId: string) => void;
   onVisibleMessageIdsChange: (messageIds: string[]) => void;
-  onMessageRemoved: (messageId: string) => void;
+  onMessagesRemoved: (messageIds: string[]) => void;
   onOpenContact?: (contactId: string) => void;
   onEditContact?: (contactId: string) => void;
   searchQuery: string;
@@ -70,7 +71,7 @@ export function MessageListPane({
   selectedMessageId,
   onSelect,
   onVisibleMessageIdsChange,
-  onMessageRemoved,
+  onMessagesRemoved,
   onOpenContact,
   onEditContact,
   searchQuery,
@@ -103,22 +104,34 @@ export function MessageListPane({
   useEffect(() => {
     onVisibleMessageIdsChange(visibleMessageIds);
   }, [onVisibleMessageIdsChange, visibleMessageKey]);
+  const selection = useListSelection({
+    itemIds: visibleMessageIds,
+    primaryId: selectedMessageId,
+    resetKey: `${accountId}:${mailboxId}:${activeSearch}`,
+    onPrimaryChange: onSelect,
+  });
+  const selectedMessageIdSet = new Set(selection.orderedSelectedIds);
+  const selectedMessages = items.filter((message) => selectedMessageIdSet.has(message.id));
   const operation = useMutation({
     mutationFn: async (input: MessageListOperation) => {
-      const { message, kind, destination } = input;
-      if (kind === "read") await api.setMessageRead(accountId, mailboxId, [message.id], message.unread);
-      if (kind === "flag") await api.setMessageFlagged(accountId, mailboxId, [message.id], !message.flagged);
-      if (kind === "move" && destination) await api.moveMessages(accountId, mailboxId, destination, [message.id]);
-      if (kind === "copy" && destination) await api.copyMessages(accountId, mailboxId, destination, [message.id]);
-      if (kind === "archive") await api.archiveMessages(accountId, mailboxId, [message.id]);
-      if (kind === "delete") await api.deleteMessages(accountId, mailboxId, [message.id]);
+      const { messages, reference, kind, destination } = input;
+      const messageIds = messages.map((message) => message.id);
+      if (kind === "read") await api.setMessageRead(accountId, mailboxId, messageIds, reference.unread);
+      if (kind === "flag") await api.setMessageFlagged(accountId, mailboxId, messageIds, !reference.flagged);
+      if (kind === "move" && destination) await api.moveMessages(accountId, mailboxId, destination, messageIds);
+      if (kind === "copy" && destination) await api.copyMessages(accountId, mailboxId, destination, messageIds);
+      if (kind === "archive") await api.archiveMessages(accountId, mailboxId, messageIds);
+      if (kind === "delete") await api.deleteMessages(accountId, mailboxId, messageIds);
       return input;
     },
-    onSuccess: ({ kind, message }) => {
+    onSuccess: ({ kind, messages }) => {
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.mailboxes(accountId) });
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(accountId) });
       void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(accountId) });
-      if (["move", "archive", "delete"].includes(kind)) onMessageRemoved(message.id);
+      if (["move", "archive", "delete"].includes(kind)) {
+        selection.clear();
+        onMessagesRemoved(messages.map((message) => message.id));
+      }
     },
   });
   const composeOperation = useMutation({
@@ -152,7 +165,9 @@ export function MessageListPane({
         <Stack gap="xs">
           <Heading level={2} className="text-xl">{mailboxName}</Heading>
           <Text className="text-xs">
-            {t("mail.folderSummary", { total: mailbox?.totalCount ?? allItems.length, unread: mailbox?.unreadCount ?? 0 })}
+            {selection.orderedSelectedIds.length > 1
+              ? t("mail.selectedCount", { count: selection.orderedSelectedIds.length })
+              : t("mail.folderSummary", { total: mailbox?.totalCount ?? allItems.length, unread: mailbox?.unreadCount ?? 0 })}
           </Text>
         </Stack>
         <SearchField
@@ -183,37 +198,41 @@ export function MessageListPane({
           trackClassName="right-2 w-3"
           onViewportScroll={loadNextPageNearEnd}
         >
-          {items.map((message) => (
-            <MessageActionsContextMenu
-              key={message.id}
-              message={message}
-              currentMailbox={mailbox}
-              mailboxes={mailboxes}
-              pending={operation.isPending || composeOperation.isPending || editDraftOperation.isPending || previewOperation.isPending}
-              onCompose={(action) => composeOperation.mutate({ message, action })}
-              onOperate={(kind, destination) => operation.mutate({ message, kind, destination })}
-              onEditDraft={() => editDraftOperation.mutate(message)}
-              onOpenInNewWindow={() => previewOperation.mutate(message)}
-            >
-              <MessageRow
+          {items.map((message) => {
+            const operationMessages = selectedMessageIdSet.has(message.id) ? selectedMessages : [message];
+            return (
+              <MessageActionsContextMenu
+                key={message.id}
                 message={message}
-                selected={message.id === selectedMessageId}
-                yesterdayLabel={t("mail.yesterday")}
-                noSubject={t("mail.noSubject")}
-                starLabel={message.flagged ? t("mail.removeStar") : t("mail.addStar")}
-                onContextMenu={() => onSelect(message.id)}
-                onClick={(clickCount) => {
-                  if (clickCount > 1) return;
-                  onSelect(message.id === selectedMessageId ? "" : message.id);
-                  if (message.unread) operation.mutate({ message, kind: "read" });
-                }}
+                selectionCount={operationMessages.length}
+                currentMailbox={mailbox}
+                mailboxes={mailboxes}
+                pending={operation.isPending || composeOperation.isPending || editDraftOperation.isPending || previewOperation.isPending}
+                onCompose={(action) => composeOperation.mutate({ message, action })}
+                onOperate={(kind, destination) => operation.mutate({ messages: operationMessages, reference: message, kind, destination })}
+                onEditDraft={() => editDraftOperation.mutate(message)}
                 onOpenInNewWindow={() => previewOperation.mutate(message)}
-                onToggleFlag={() => operation.mutate({ message, kind: "flag" })}
-                onOpenContact={onOpenContact}
-                onEditContact={onEditContact}
-              />
-            </MessageActionsContextMenu>
-          ))}
+              >
+                <MessageRow
+                  message={message}
+                  selected={selection.isSelected(message.id)}
+                  yesterdayLabel={t("mail.yesterday")}
+                  noSubject={t("mail.noSubject")}
+                  starLabel={message.flagged ? t("mail.removeStar") : t("mail.addStar")}
+                  onContextMenu={() => selection.selectForContextMenu(message.id)}
+                  onClick={(event) => {
+                    if (event.detail > 1) return;
+                    selection.select(message.id, event);
+                    if (message.unread) operation.mutate({ messages: [message], reference: message, kind: "read" });
+                  }}
+                  onOpenInNewWindow={() => previewOperation.mutate(message)}
+                  onToggleFlag={() => operation.mutate({ messages: [message], reference: message, kind: "flag" })}
+                  onOpenContact={onOpenContact}
+                  onEditContact={onEditContact}
+                />
+              </MessageActionsContextMenu>
+            );
+          })}
           {query.hasNextPage && !autoLoadMore ? (
             <Button variant="ghost" className="mx-auto my-3" loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>
               {t("mail.loadMore")}
@@ -243,7 +262,7 @@ interface MessageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"
   yesterdayLabel: string;
   noSubject: string;
   starLabel: string;
-  onClick: (clickCount: number) => void;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   onOpenInNewWindow: () => void;
   onToggleFlag: () => void;
   onOpenContact?: (contactId: string) => void;
@@ -277,7 +296,7 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
       <Button
         variant="ghost"
         className="h-auto min-w-0 flex-1 items-start rounded-none bg-transparent px-6 py-4 pr-12 text-left hover:bg-transparent"
-        onClick={(event) => onClick(event.detail)}
+        onClick={onClick}
         onDoubleClick={(event) => {
           event.preventDefault();
           onOpenInNewWindow();
@@ -318,13 +337,15 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
 type MessageListOperationKind = "read" | "flag" | "move" | "copy" | "archive" | "delete";
 
 interface MessageListOperation {
-  message: MessageListItem;
+  messages: MessageListItem[];
+  reference: MessageListItem;
   kind: MessageListOperationKind;
   destination?: string;
 }
 
 function MessageActionsContextMenu({
   message,
+  selectionCount,
   currentMailbox,
   mailboxes,
   pending,
@@ -335,6 +356,7 @@ function MessageActionsContextMenu({
   children,
 }: {
   message: MessageListItem;
+  selectionCount: number;
   currentMailbox?: MailboxSummary;
   mailboxes: MailboxSummary[];
   pending: boolean;
@@ -348,20 +370,21 @@ function MessageActionsContextMenu({
   const destinations = mailboxes.filter((mailbox) => mailbox.selectable && mailbox.id !== message.mailboxId);
   const canArchive = mailboxes.some((mailbox) => mailbox.role === "archive" && mailbox.id !== message.mailboxId);
   const isDraft = currentMailbox?.role === "drafts";
+  const single = selectionCount === 1;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem disabled={pending} onSelect={onOpenInNewWindow}><ExternalLink size={16} />{t("mail.openInNewWindow")}</ContextMenuItem>
-        {!isDraft ? (
+        {single ? <ContextMenuItem disabled={pending} onSelect={onOpenInNewWindow}><ExternalLink size={16} />{t("mail.openInNewWindow")}</ContextMenuItem> : null}
+        {single && !isDraft ? (
           <>
             <ContextMenuItem disabled={pending} onSelect={() => onCompose("reply")}><Reply size={16} />{t("mail.reply")}</ContextMenuItem>
             <ContextMenuItem disabled={pending} onSelect={() => onCompose("reply_all")}><ReplyAll size={16} />{t("mail.replyAll")}</ContextMenuItem>
             <ContextMenuItem disabled={pending} onSelect={() => onCompose("forward")}><Forward size={16} />{t("mail.forward")}</ContextMenuItem>
           </>
         ) : null}
-        {isDraft ? <ContextMenuItem disabled={pending} onSelect={onEditDraft}><FilePenLine size={16} />{t("mail.editDraft")}</ContextMenuItem> : null}
-        <ContextMenuSeparator />
+        {single && isDraft ? <ContextMenuItem disabled={pending} onSelect={onEditDraft}><FilePenLine size={16} />{t("mail.editDraft")}</ContextMenuItem> : null}
+        {single ? <ContextMenuSeparator /> : null}
         <ContextMenuItem disabled={pending} onSelect={() => onOperate("read")}>
           {message.unread ? <MailOpen size={16} /> : <Mail size={16} />}
           {message.unread ? t("mail.markRead") : t("mail.markUnread")}

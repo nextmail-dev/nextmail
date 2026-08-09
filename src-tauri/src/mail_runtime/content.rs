@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    adapters::open_prepared_attachment,
+    adapters::{open_prepared_attachment, reveal_prepared_attachment},
     core::{AttachmentSummary, CommandError, CommandResult, MailSyncSink, MessageDetail},
 };
 use tauri::Emitter;
@@ -215,6 +215,17 @@ impl MailRuntime {
             .prepare_message_attachment(account_id, attachment_id)
             .await?;
         open_prepared_attachment(self.attachment_opener.as_ref(), &prepared)
+    }
+
+    pub async fn reveal_message_attachment(
+        &self,
+        account_id: &str,
+        attachment_id: &str,
+    ) -> CommandResult<()> {
+        let prepared = self
+            .prepare_message_attachment(account_id, attachment_id)
+            .await?;
+        reveal_prepared_attachment(self.attachment_opener.as_ref(), &prepared)
     }
 
     pub async fn save_message_attachment_as(

@@ -7,16 +7,14 @@ import i18n from "@/app/i18n";
 import { MessageViewer } from "./MessageViewer";
 import { messageQueryKeys } from "./mail-query-keys";
 
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(vi.fn()) }));
-
 vi.mock("@/app/api", () => ({
   api: {
     getMessageDetail: vi.fn().mockResolvedValue({
       id: "message-one",
       mailboxId: "inbox",
       subject: "Attachment",
-      from: [{ name: "Alice", email: "alice@example.com" }],
-      to: [{ name: null, email: "user@example.com" }],
+      from: [{ contactId: null, name: "Alice", headerName: "Alice", email: "alice@example.com" }],
+      to: [{ contactId: null, name: null, headerName: null, email: "user@example.com" }],
       cc: [],
       receivedAt: 1,
       plainText: "Please see the attachment.",
@@ -48,6 +46,8 @@ vi.mock("@/app/api", () => ({
       size: 2048,
       availability: "available",
     }),
+    requestMessageBody: vi.fn(),
+    revealMessageAttachment: vi.fn().mockResolvedValue(undefined),
     openRawMessageWindow: vi.fn().mockResolvedValue(undefined),
     openMessagePreviewWindow: vi.fn().mockResolvedValue(undefined),
   },
@@ -62,9 +62,53 @@ beforeAll(async () => {
   await i18n.changeLanguage("en-US");
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("MessageViewer", () => {
+  it("shows only a spinner while the message body is loading", async () => {
+    vi.mocked(api.getMessageDetail).mockResolvedValueOnce({
+      id: "message-loading",
+      mailboxId: "inbox",
+      subject: "Loading body",
+      from: [{ contactId: null, name: "Alice", headerName: "Alice", email: "alice@example.com" }],
+      to: [{ contactId: null, name: null, headerName: null, email: "user@example.com" }],
+      cc: [],
+      receivedAt: 1,
+      plainText: null,
+      safeHtml: null,
+      bodyAvailability: "missing",
+      attachments: [],
+      remoteImagesBlocked: false,
+      revision: 1,
+      unread: false,
+      flagged: false,
+      pendingOperation: false,
+    });
+    vi.mocked(api.requestMessageBody).mockImplementationOnce(() => new Promise(() => undefined));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <MessageViewer
+          accountId="account-one"
+          mailboxId="inbox"
+          messageId="message-loading"
+          mailboxes={[]}
+          onMessageRemoved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Loading body" });
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(screen.queryByText("The message body has not been downloaded")).not.toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
   it("keeps the message subject and addressing selectable", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -90,6 +134,30 @@ describe("MessageViewer", () => {
     const recipient = screen.getByLabelText("user@example.com");
     expect(recipient.closest(".select-text")).not.toBeNull();
     expect(recipient).toHaveClass("bg-muted/55");
+  });
+
+  it("collapses overflowing recipients to one row until explicitly expanded", async () => {
+    const scrollHeight = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(56);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageViewer
+          accountId="account-one"
+          mailboxId="inbox"
+          messageId="message-one"
+          mailboxes={[]}
+          onMessageRemoved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    const toggle = await screen.findByRole("button", { name: "Show recipients" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Hide recipients" })).toHaveAttribute("aria-expanded", "true");
+    scrollHeight.mockRestore();
   });
 
   it("invalidates the exact detail query after an attachment download", async () => {
@@ -145,6 +213,29 @@ describe("MessageViewer", () => {
       expect(api.openRawMessageWindow).toHaveBeenCalledWith("account-one", "message-one");
     });
     expect(screen.queryByRole("dialog", { name: "Message source" })).not.toBeInTheDocument();
+  });
+
+  it("reveals an attachment through the account-scoped command", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageViewer
+          accountId="account-one"
+          mailboxId="inbox"
+          messageId="message-one"
+          mailboxes={[]}
+          onMessageRemoved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show report.pdf in folder" }));
+    await waitFor(() => expect(api.revealMessageAttachment).toHaveBeenCalledWith(
+      "account-one",
+      "attachment-one",
+    ));
   });
 
   it("hides reply and forward controls for a Drafts message", async () => {

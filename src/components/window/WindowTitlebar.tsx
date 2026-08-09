@@ -8,12 +8,7 @@ import { detectDesktopPlatform } from "@/app/platform";
 
 export type WindowKind = "main" | "composer" | "settings" | "accounts" | "message-preview" | "raw-message" | "definition";
 
-interface WindowTitlebarProps {
-  kind: WindowKind;
-  title?: string;
-}
-
-export function WindowTitlebar({ kind, title }: WindowTitlebarProps) {
+export function WindowTitlebar({ kind }: { kind: WindowKind }) {
   const { t } = useTranslation();
   const isMac = useMemo(
     () => detectDesktopPlatform() === "macos",
@@ -38,12 +33,7 @@ export function WindowTitlebar({ kind, title }: WindowTitlebarProps) {
         if (!isMac) void appWindow.toggleMaximize();
       }}
     >
-      <span
-        className="pointer-events-none min-w-0 flex-1 truncate px-4 text-xs font-medium text-muted-foreground"
-        data-tauri-drag-region
-      >
-        {title}
-      </span>
+      <span className="min-w-0 flex-1" data-tauri-drag-region />
       {isMac ? null : (
         <nav className="ml-auto flex h-full" aria-label={t("common.windowControls")}>
           <WindowControl label={t("common.minimize")} onClick={() => void appWindow.minimize()}>

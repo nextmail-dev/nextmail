@@ -113,7 +113,7 @@ describe("MessageListPane", () => {
     ));
   });
 
-  it("clears the current selection when the selected row is clicked again", async () => {
+  it("keeps the current row selected when it is clicked again", async () => {
     vi.mocked(api.listMessages).mockResolvedValue({ items: [serverResult], nextCursor: null });
     const onSelect = vi.fn();
     const queryClient = new QueryClient({
@@ -128,7 +128,7 @@ describe("MessageListPane", () => {
           selectedMessageId="message-one"
           onSelect={onSelect}
           onVisibleMessageIdsChange={vi.fn()}
-          onMessageRemoved={vi.fn()}
+          onMessagesRemoved={vi.fn()}
           searchQuery=""
           submittedSearchQuery=""
           onSearchChange={vi.fn()}
@@ -138,7 +138,7 @@ describe("MessageListPane", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /Alice.*Server-side result/i }));
-    expect(onSelect).toHaveBeenCalledWith("");
+    expect(onSelect).toHaveBeenCalledWith("message-one");
   });
 
   it("opens a message in an independent window from double click or the context menu", async () => {
@@ -155,7 +155,7 @@ describe("MessageListPane", () => {
           selectedMessageId=""
           onSelect={vi.fn()}
           onVisibleMessageIdsChange={vi.fn()}
-          onMessageRemoved={vi.fn()}
+          onMessagesRemoved={vi.fn()}
           searchQuery=""
           submittedSearchQuery=""
           onSearchChange={vi.fn()}
@@ -176,6 +176,60 @@ describe("MessageListPane", () => {
     await waitFor(() => expect(api.openMessagePreviewWindow).toHaveBeenCalledWith(
       "account-one", "inbox", "message-one",
     ));
+  });
+
+  it("applies a context-menu operation to the current multi-selection", async () => {
+    const second = {
+      ...serverResult,
+      id: "message-two",
+      subject: "Second message",
+      from: [{ ...serverResult.from[0], name: "Bob", email: "bob@example.com" }],
+    };
+    const third = {
+      ...serverResult,
+      id: "message-three",
+      subject: "Third message",
+      from: [{ ...serverResult.from[0], name: "Carol", email: "carol@example.com" }],
+    };
+    vi.mocked(api.listMessages).mockResolvedValue({ items: [serverResult, second, third], nextCursor: null });
+    const onMessagesRemoved = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane
+          accountId="account-one"
+          mailboxId="inbox"
+          mailboxes={[]}
+          selectedMessageId=""
+          onSelect={vi.fn()}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessagesRemoved={onMessagesRemoved}
+          searchQuery=""
+          submittedSearchQuery=""
+          onSearchChange={vi.fn()}
+          onSearchSubmit={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    const firstRow = await screen.findByRole("button", { name: /Alice.*Server-side result/i });
+    const secondRow = await screen.findByRole("button", { name: /Bob.*Second message/i });
+    const thirdRow = await screen.findByRole("button", { name: /Carol.*Third message/i });
+    fireEvent.click(firstRow);
+    fireEvent.click(thirdRow, { shiftKey: true });
+    fireEvent.click(secondRow, { ctrlKey: true });
+    fireEvent.click(secondRow, { ctrlKey: true });
+    fireEvent.contextMenu(secondRow);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+
+    await waitFor(() => expect(api.deleteMessages).toHaveBeenCalledWith(
+      "account-one",
+      "inbox",
+      ["message-one", "message-two", "message-three"],
+    ));
+    expect(onMessagesRemoved).toHaveBeenCalledWith(["message-one", "message-two", "message-three"]);
   });
 
   it("does not offer reply or forward actions for messages in Drafts", async () => {
@@ -203,7 +257,7 @@ describe("MessageListPane", () => {
           selectedMessageId=""
           onSelect={vi.fn()}
           onVisibleMessageIdsChange={vi.fn()}
-          onMessageRemoved={vi.fn()}
+          onMessagesRemoved={vi.fn()}
           searchQuery=""
           submittedSearchQuery=""
           onSearchChange={vi.fn()}
@@ -236,7 +290,7 @@ describe("MessageListPane", () => {
       selectedMessageId: "",
       onSelect: vi.fn(),
       onVisibleMessageIdsChange: vi.fn(),
-      onMessageRemoved: vi.fn(),
+      onMessagesRemoved: vi.fn(),
       searchQuery: "",
       submittedSearchQuery: "",
       onSearchChange: vi.fn(),
@@ -284,7 +338,7 @@ describe("MessageListPane", () => {
           selectedMessageId=""
           onSelect={vi.fn()}
           onVisibleMessageIdsChange={vi.fn()}
-          onMessageRemoved={vi.fn()}
+          onMessagesRemoved={vi.fn()}
           searchQuery=""
           submittedSearchQuery=""
           onSearchChange={vi.fn()}
@@ -320,7 +374,7 @@ function ControlledSearchPane() {
       selectedMessageId=""
       onSelect={vi.fn()}
       onVisibleMessageIdsChange={vi.fn()}
-      onMessageRemoved={vi.fn()}
+      onMessagesRemoved={vi.fn()}
       searchQuery={searchQuery}
       submittedSearchQuery={submittedSearchQuery}
       onSearchChange={setSearchQuery}

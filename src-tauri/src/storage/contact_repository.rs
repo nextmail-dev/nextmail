@@ -252,6 +252,67 @@ impl ContactRepository {
         self.get_contact_summary(account_slot_id, contact_id).await
     }
 
+    pub async fn delete_contacts(
+        &self,
+        account_slot_id: &str,
+        contact_ids: &[String],
+    ) -> CommandResult<()> {
+        let contact_ids = contact_ids
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        if contact_ids.is_empty() {
+            return Ok(());
+        }
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(map_storage_err("storage.contact_write_failed"))?;
+        let mut found = 0_i64;
+        for batch in contact_ids.chunks(CONTACT_IDENTITY_QUERY_BATCH_SIZE) {
+            let mut builder = QueryBuilder::<Sqlite>::new(
+                "SELECT COUNT(*) FROM contacts WHERE account_slot_id = ",
+            );
+            builder.push_bind(account_slot_id).push(" AND id IN (");
+            let mut separated = builder.separated(", ");
+            for contact_id in batch {
+                separated.push_bind(contact_id);
+            }
+            separated.push_unseparated(")");
+            found += builder
+                .build_query_scalar::<i64>()
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(map_storage_err("storage.contacts_read_failed"))?;
+        }
+        if found != contact_ids.len() as i64 {
+            return Err(CommandError::new("contact.not_found"));
+        }
+        for batch in contact_ids.chunks(CONTACT_IDENTITY_QUERY_BATCH_SIZE) {
+            let mut builder =
+                QueryBuilder::<Sqlite>::new("DELETE FROM contacts WHERE account_slot_id = ");
+            builder.push_bind(account_slot_id).push(" AND id IN (");
+            let mut separated = builder.separated(", ");
+            for contact_id in batch {
+                separated.push_bind(contact_id);
+            }
+            separated.push_unseparated(")");
+            builder
+                .build()
+                .execute(&mut *transaction)
+                .await
+                .map_err(map_storage_err("storage.contact_write_failed"))?;
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(map_storage_err("storage.contact_write_failed"))?;
+        Ok(())
+    }
+
     pub async fn get_contact_summary(
         &self,
         account_slot_id: &str,

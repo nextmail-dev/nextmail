@@ -1,6 +1,6 @@
 # AGENTS.md
 
-NextMail 是基于 Tauri 2、React 19 / TypeScript 5.8 和 Rust 的本地优先桌面邮件客户端，当前版本 0.2.0。本文件是给 AI 编码代理（Codex 等）的最小必读指令；完整实现事实、开发细则与项目记忆以 [`docs/project.md`](./docs/project.md) 为准，发生冲突时以代码与 `docs/project.md` 为准。
+NextMail 是基于 Tauri 2、React 19 / TypeScript 5.8 和 Rust 的本地优先桌面邮件客户端，当前版本 0.2.1。本文件是给 AI 编码代理（Codex 等）的最小必读指令；完整实现事实、开发细则与项目记忆以 [`docs/project.md`](./docs/project.md) 为准，发生冲突时以代码与 `docs/project.md` 为准。
 
 ## 仓库结构
 
@@ -9,7 +9,7 @@ NextMail 是基于 Tauri 2、React 19 / TypeScript 5.8 和 Rust 的本地优先�
 - `src/` — 前端（React / TS / Vite / TanStack Query / Tailwind 4 / Radix / Tiptap / CodeMirror）。
 - `src-tauri/` — 桌面与 Rust 后端，是仓库内**唯一**的 Rust package。
 - `docs/project.md` — 长期技术文档（事实来源）。
-- `docs/iterations/` — 每阶段范围、变更摘要、验证与验收。
+- `docs/iterations/` — 每次开发计划的范围、变更摘要、验证与验收；既有阶段编号仅作为历史保留。
 - `docs/adr/` — 长期架构/安全决策，按需查阅；当前单一 Tauri Rust package 边界以 ADR 0006 为准。
 - `testdata/mail-rendering/` — 邮件保真与恶意内容回归语料，长期保留。
 
@@ -113,12 +113,12 @@ git diff --check
 - 新依赖优先 MIT、Apache-2.0、BSD、ISC；其他许可先确认并按需更新 `docs/third-party-notices.md`。
 - 不提前开发当前范围外行为，不自行扩展依赖、安全策略或重大 UI 决策。
 - 正式测试与测试语料长期保留；临时探针、凭据、日志、截图、coverage 和临时数据在验证后清理。`dist/` 和 `src-tauri/target/` 是正常增量缓存，默认保留。
-- 只有用户明确决定发布时，才提交、推送并创建与应用版本一致的 `v<version>` tag；`v*` tag 触发三平台 Release 工作流，普通分支 push/PR/手动 dispatch 不触发发布。
+- 用户只要明确说“发布”且未指定版本，就以仓库最新有效 `vMAJOR.MINOR.PATCH` tag 为基准自动递增 patch 版本，同步应用版本后提交、推送、创建并推送新 tag；用户指定版本时使用指定版本。`v*` tag 触发三平台 Release 工作流，普通分支 push/PR/手动 dispatch 不触发发布。
 
 ## 文档维护
 
 - `docs/project.md` 是新会话唯一必读的长期技术文档。当前能力、技术栈、目录、数据格式、运行语义、限制或开发约定变化时更新本文。
-- 新阶段先在 `docs/iterations/` 新建对应文件，写清状态、范围、非目标和验证门禁；实施结果与验收写回同一文件。iteration 状态用“规划中 / 实施中 / 等待手动验收 / 已验收 / 未排期”，验收前不自行进入下一阶段。
+- 每次收到新的开发计划，先在 `docs/iterations/` 建立或更新一份按日期和主题命名的计划文档，写清状态、范围、非目标和验证门禁；不再分配阶段编号。既有编号 iteration 作为历史保留，实施结果与验收写回当前计划文档。状态用“规划中 / 实施中 / 等待手动验收 / 已验收 / 未排期”。
 - 重大架构/安全取舍新增 ADR；已有决定变化时更新状态和修订说明。
 - 不创建会话式交接文档、独立 change 流水账或重复的总体计划——Git 历史承担逐提交细节。
 
@@ -127,5 +127,5 @@ git diff --check
 1. 阅读 `docs/project.md`。
 2. 执行 `git status --short` 与 `git log -3 --oneline --decorate`，确认 HEAD、远端关系和未提交修改。
 3. 阅读任务涉及的源码、配置、迁移和测试；需要历史范围或设计理由时再查 iteration/ADR。
-4. 只实施用户明确给出的当前阶段，不从“后续设想”自行选择功能。
+4. 只实施用户明确给出的当前计划，不从“后续设想”自行选择功能。
 5. 按风险完成验证（`cargo fmt --check` / `cargo test` / `cargo clippy` / `pnpm test` / `pnpm build` / `git diff --check`），交付结果和必要的实机验收步骤。

@@ -567,6 +567,21 @@ impl MailRuntime {
         Ok(contact)
     }
 
+    pub async fn delete_contacts(
+        &self,
+        account_id: &str,
+        contact_ids: &[String],
+    ) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .contacts()
+            .delete_contacts(&account.data_slot_id, contact_ids)
+            .await?;
+        self.emit_contacts_changed(account_id);
+        Ok(())
+    }
+
     pub async fn resolve_notification_target(
         &self,
         candidate: &NewMailCandidate,

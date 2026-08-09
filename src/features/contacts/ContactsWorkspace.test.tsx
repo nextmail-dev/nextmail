@@ -12,6 +12,7 @@ vi.mock("@/app/api", () => ({
     getContactDetail: vi.fn(),
     createContact: vi.fn(),
     updateContactName: vi.fn(),
+    deleteContacts: vi.fn(),
     openContactComposer: vi.fn(),
     getReadingPreferences: vi.fn(),
   },
@@ -48,6 +49,7 @@ beforeEach(() => {
     }],
   });
   vi.mocked(api.openContactComposer).mockResolvedValue("draft-one");
+  vi.mocked(api.deleteContacts).mockResolvedValue(undefined);
   vi.mocked(api.getReadingPreferences).mockResolvedValue({
     autoLoadRemoteImages: false,
     autoOpenDownloadedAttachments: true,
@@ -77,7 +79,7 @@ describe("ContactsWorkspace", () => {
     );
 
     const contactRow = await screen.findByRole("button", { name: /Alice Local/ });
-    fireEvent.contextMenu(contactRow.querySelector("[aria-label]")!);
+    fireEvent.contextMenu(contactRow);
     fireEvent.click(await screen.findByText("Edit contact"));
     expect(await screen.findByRole("heading", { name: "Edit contact" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -92,6 +94,37 @@ describe("ContactsWorkspace", () => {
       mailboxId: "inbox",
       messageId: "message-one",
     });
+  });
+
+  it("deletes the current multi-selection from the row context menu", async () => {
+    const secondContact = { ...contact, id: "contact-two", name: "Bob Local", email: "bob@example.com" };
+    vi.mocked(api.listContacts).mockResolvedValue({ items: [contact, secondContact], nextCursor: null, total: 2 });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ContactsWorkspace
+          accountId="account-one"
+          listPaneWidth={360}
+          listPaneMax={520}
+          onListPaneWidthChange={vi.fn()}
+          onNavigateToMessage={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    const alice = await screen.findByRole("button", { name: /Alice Local/ });
+    const bob = await screen.findByRole("button", { name: /Bob Local/ });
+    fireEvent.click(alice);
+    fireEvent.click(bob, { ctrlKey: true });
+    expect(alice).toHaveAttribute("aria-pressed", "true");
+    expect(bob).toHaveAttribute("aria-pressed", "true");
+    fireEvent.contextMenu(bob);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete 2 contacts" }));
+
+    await waitFor(() => expect(api.deleteContacts).toHaveBeenCalledWith(
+      "account-one",
+      ["contact-one", "contact-two"],
+    ));
   });
 
   it("keeps the explicit load-more action when contact auto-pagination is disabled", async () => {

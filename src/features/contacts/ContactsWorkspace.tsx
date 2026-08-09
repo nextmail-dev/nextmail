@@ -1,12 +1,19 @@
-import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement, type UIEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock3, Mail, Pencil, Plus, Search, Send, UserRound, UsersRound } from "lucide-react";
+import { Clock3, Copy, Mail, Pencil, Plus, Search, Send, Trash2, UserRound, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
 import type { ContactDraft, ContactSummary, NotificationNavigationTarget } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TextField } from "@/components/ui/input";
 import { Inline, Page, Stack } from "@/components/ui/layout";
@@ -16,9 +23,10 @@ import { ResizeHandle } from "@/components/ui/resize-handle";
 import { SearchField } from "@/components/ui/search-field";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, Text } from "@/components/ui/typography";
+import { useListSelection } from "@/components/ui/use-list-selection";
 import { cn } from "@/lib/utils";
-import { mailQueryKeys } from "@/features/mail/mail-query-keys";
-import { ContactIdentity, ContactInitial } from "./ContactIdentity";
+import { mailQueryKeys, messageQueryKeys } from "@/features/mail/mail-query-keys";
+import { ContactIdentity, ContactInitial, writeClipboardText } from "./ContactIdentity";
 
 interface ContactsWorkspaceProps {
   accountId: string;
@@ -73,6 +81,15 @@ export function ContactsWorkspace({
     () => contactsQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [contactsQuery.data],
   );
+  const contactIds = contacts.map((contact) => contact.id);
+  const selection = useListSelection({
+    itemIds: contactIds,
+    primaryId: selectedContactId,
+    resetKey: `${accountId}:${submittedSearch}`,
+    onPrimaryChange: setSelectedContactId,
+  });
+  const selectedContactIdSet = new Set(selection.orderedSelectedIds);
+  const selectedContacts = contacts.filter((contact) => selectedContactIdSet.has(contact.id));
   const total = contactsQuery.data?.pages[0]?.total ?? 0;
   const readingPreferences = useQuery({
     queryKey: ["reading-preferences"],
@@ -139,6 +156,26 @@ export function ContactsWorkspace({
     mutationFn: (contactId: string) => api.openContactComposer(accountId, contactId),
     onError: (error) => setOperationError(normalizeCommandError(error).code),
   });
+  const deleteMutation = useMutation({
+    mutationFn: (contactIds: string[]) => api.deleteContacts(accountId, contactIds),
+    onSuccess: async (_result, deletedContactIds) => {
+      const deleted = new Set(deletedContactIds);
+      if (deleted.has(selectedContactId)) {
+        const selectedIndex = contacts.findIndex((contact) => contact.id === selectedContactId);
+        const next = contacts.slice(selectedIndex + 1).find((contact) => !deleted.has(contact.id))
+          ?? contacts.slice(0, Math.max(0, selectedIndex)).reverse().find((contact) => !deleted.has(contact.id));
+        setSelectedContactId(next?.id ?? "");
+      }
+      selection.clear();
+      setOperationError(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: mailQueryKeys.contactsForAccount(accountId) }),
+        queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(accountId) }),
+        queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(accountId) }),
+      ]);
+    },
+    onError: (error) => setOperationError(normalizeCommandError(error).code),
+  });
 
   return (
     <Page
@@ -150,7 +187,11 @@ export function ContactsWorkspace({
           <Inline className="justify-between">
             <Stack gap="xs">
               <Heading level={2}>{t("contacts.title")}</Heading>
-              <Text className="text-xs">{t("contacts.count", { count: total })}</Text>
+              <Text className="text-xs">
+                {selection.orderedSelectedIds.length > 1
+                  ? t("contacts.selectedCount", { count: selection.orderedSelectedIds.length })
+                  : t("contacts.count", { count: total })}
+              </Text>
             </Stack>
             <Button
               size="icon"
@@ -209,30 +250,41 @@ export function ContactsWorkspace({
             viewportClassName="pr-2"
             onViewportScroll={loadNextPageNearEnd}
           >
-            {contacts.map((contact) => (
-              <button
-                key={contact.id}
-                type="button"
-                className={cn(
-                  "relative flex w-full cursor-pointer items-center gap-3 bg-card px-6 py-4 text-left outline-none transition-colors hover:bg-muted/75 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60",
-                  selectedContactId === contact.id && "bg-selection before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:rounded-r-full before:bg-primary hover:bg-selection",
-                )}
-                onClick={() => setSelectedContactId(contact.id)}
-              >
-                <ContactInitial name={contact.name} className="size-10" />
-                <ContactIdentity
-                  address={{ contactId: contact.id, name: contact.name, headerName: null, email: contact.email }}
-                  className="min-w-0 flex-1"
-                  focusable={false}
-                  onEditContact={() => editContact(contact)}
+            {contacts.map((contact) => {
+              const operationContacts = selectedContactIdSet.has(contact.id) ? selectedContacts : [contact];
+              return (
+                <ContactActionsContextMenu
+                  key={contact.id}
+                  contact={contact}
+                  selectionCount={operationContacts.length}
+                  pending={deleteMutation.isPending || composeMutation.isPending}
+                  onCompose={() => composeMutation.mutate(contact.id)}
+                  onEdit={() => editContact(contact)}
+                  onDelete={() => deleteMutation.mutate(operationContacts.map((item) => item.id))}
+                  onCopyError={() => setOperationError("common.unexpected_error")}
                 >
-                  <span className="block min-w-0">
-                    <span className="block truncate text-sm font-semibold text-foreground">{contact.name}</span>
-                    <span className="block truncate pt-1 text-xs text-muted-foreground">{contact.email}</span>
-                  </span>
-                </ContactIdentity>
-              </button>
-            ))}
+                  <div
+                    onContextMenu={() => selection.selectForContextMenu(contact.id)}
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={selection.isSelected(contact.id)}
+                      className={cn(
+                        "relative flex w-full cursor-pointer items-center gap-3 bg-card px-6 py-4 text-left outline-none transition-colors hover:bg-muted/75 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60",
+                        selection.isSelected(contact.id) && "bg-selection before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:rounded-r-full before:bg-primary hover:bg-selection",
+                      )}
+                      onClick={(event) => selection.select(contact.id, event)}
+                    >
+                      <ContactInitial name={contact.name} className="size-10" />
+                      <span className="block min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-foreground">{contact.name}</span>
+                        <span className="block truncate pt-1 text-xs text-muted-foreground">{contact.email}</span>
+                      </span>
+                    </button>
+                  </div>
+                </ContactActionsContextMenu>
+              );
+            })}
             {contactsQuery.hasNextPage && !autoLoadMoreContacts ? (
               <Button
                 variant="ghost"
@@ -294,13 +346,63 @@ export function ContactsWorkspace({
       ) : null}
       <ContactEditor
         state={editor}
-        busy={createMutation.isPending || updateMutation.isPending}
+        busy={createMutation.isPending || updateMutation.isPending || deleteMutation.isPending}
         errorCode={operationError}
         onClose={() => setEditor(null)}
         onCreate={(draft) => createMutation.mutate(draft)}
         onUpdate={(contact, name) => updateMutation.mutate({ contact, name })}
       />
     </Page>
+  );
+}
+
+function ContactActionsContextMenu({
+  contact,
+  selectionCount,
+  pending,
+  onCompose,
+  onEdit,
+  onDelete,
+  onCopyError,
+  children,
+}: {
+  contact: ContactSummary;
+  selectionCount: number;
+  pending: boolean;
+  onCompose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onCopyError: () => void;
+  children: ReactElement;
+}) {
+  const { t } = useTranslation();
+  const single = selectionCount === 1;
+  const copy = (value: string) => void writeClipboardText(value).catch(onCopyError);
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent>
+        {single ? (
+          <>
+            <ContextMenuItem disabled={pending} onSelect={() => copy(contact.name)}><UserRound size={16} />{t("contacts.copyName")}</ContextMenuItem>
+            <ContextMenuItem disabled={pending} onSelect={() => copy(contact.email)}><Mail size={16} />{t("contacts.copyEmail")}</ContextMenuItem>
+            <ContextMenuItem disabled={pending} onSelect={() => copy(`${contact.name} <${contact.email}>`)}><Copy size={16} />{t("contacts.copyFullAddress")}</ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem disabled={pending} onSelect={onCompose}><Send size={16} />{t("contacts.sendMail")}</ContextMenuItem>
+            <ContextMenuItem disabled={pending} onSelect={() => window.setTimeout(onEdit, 0)}><Pencil size={16} />{t("contacts.edit")}</ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        ) : null}
+        <ContextMenuItem
+          className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+          disabled={pending}
+          onSelect={() => window.setTimeout(onDelete, 0)}
+        >
+          <Trash2 size={16} />
+          {selectionCount > 1 ? t("contacts.deleteSelected", { count: selectionCount }) : t("common.delete")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

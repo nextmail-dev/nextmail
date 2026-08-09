@@ -1,5 +1,7 @@
 import {
   Archive,
+  ChevronDown,
+  ChevronUp,
   CloudUpload,
   Copy,
   Download,
@@ -17,19 +19,17 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
-import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
-import type { AddressPresentation, AttachmentSummary, MailboxSummary, MessageBodyProgress, MessageComposeAction } from "@/app/types";
+import type { AddressPresentation, AttachmentSummary, MailboxSummary, MessageComposeAction } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Inline, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
-import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, LabelText, Text } from "@/components/ui/typography";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -52,22 +52,12 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [remoteImagesAllowed, setRemoteImagesAllowed] = useState(false);
-  const [bodyProgress, setBodyProgress] = useState<MessageBodyProgress | null>(null);
   const readingPreferences = useQuery({
     queryKey: ["reading-preferences"],
     queryFn: api.getReadingPreferences,
   });
 
   useEffect(() => setRemoteImagesAllowed(false), [messageId]);
-  useEffect(() => {
-    setBodyProgress(null);
-    const unlisten = listen<MessageBodyProgress>("message-body-progress", (event) => {
-      if (event.payload.accountId === accountId && event.payload.messageId === messageId) {
-        setBodyProgress(event.payload);
-      }
-    });
-    return () => { void unlisten.then((dispose) => dispose()); };
-  }, [accountId, messageId]);
   const query = useQuery({
     queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId),
     queryFn: () => api.getMessageDetail(accountId, messageId, mailboxId),
@@ -91,9 +81,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
   });
   const bodyMutation = useMutation({
     mutationFn: () => api.requestMessageBody(accountId, messageId, mailboxId),
-    onMutate: () => setBodyProgress({ accountId, messageId, stage: "preparing", progress: 0 }),
     onSuccess: (detail) => queryClient.setQueryData(messageQueryKeys.detail(accountId, mailboxId, messageId), detail),
-    onSettled: () => window.setTimeout(() => setBodyProgress(null), 500),
   });
   // Auto-fetch the body when a message without one is opened, so the user sees
   // a loading state instead of a manual "download body" button. The ref guards
@@ -107,6 +95,10 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
   }, [messageId, query.data?.bodyAvailability, bodyMutation.isPending]);
   const rawWindowMutation = useMutation({
     mutationFn: () => api.openRawMessageWindow(accountId, messageId),
+  });
+  const revealAttachmentMutation = useMutation({
+    mutationFn: (attachment: AttachmentSummary) => api.revealMessageAttachment(accountId, attachment.id),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId) }),
   });
   const previewWindowMutation = useMutation({
     mutationFn: () => api.openMessagePreviewWindow(accountId, mailboxId, messageId),
@@ -143,7 +135,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
 
   const message = query.data;
   const allowRemoteImages = remoteImagesAllowed || readingPreferences.data?.autoLoadRemoteImages === true;
-  const operationError = bodyMutation.error ?? rawWindowMutation.error ?? previewWindowMutation.error ?? attachmentMutation.error ?? saveAttachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
+  const operationError = bodyMutation.error ?? rawWindowMutation.error ?? previewWindowMutation.error ?? attachmentMutation.error ?? saveAttachmentMutation.error ?? revealAttachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
   const normalizedOperationError = operationError ? normalizeCommandError(operationError) : null;
   const date = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(message.receivedAt * 1000));
   const sender = message.from[0];
@@ -283,21 +275,20 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
                 {message.plainText}
               </Text>
             </OverlayScrollArea>
+          ) : message.bodyAvailability !== "available" && !bodyMutation.isError ? (
+            <Stack className="m-auto items-center"><Spinner size={24} /></Stack>
           ) : (
-            <Stack className="m-auto w-full max-w-md items-center px-8" gap="md">
+            <Stack className="m-auto w-full max-w-md items-center px-8">
               <EmptyState
                 icon={<MailOpen size={24} />}
                 title={bodyMutation.isError ? t("errors.title") : t("mail.bodyUnavailable")}
-                description={bodyMutation.isPending && bodyProgress
-                  ? t(`mail.bodyProgress.${bodyProgress.stage}`, { progress: bodyProgress.progress })
-                  : bodyMutation.isError
-                    ? t(`errors.${normalizeCommandError(bodyMutation.error).code}`, { defaultValue: t("common.unexpectedError") })
-                    : t("mail.bodyUnavailableDescription")}
+                description={bodyMutation.isError
+                  ? t(`errors.${normalizeCommandError(bodyMutation.error).code}`, { defaultValue: t("common.unexpectedError") })
+                  : t("mail.bodyUnavailableDescription")}
                 action={bodyMutation.isError
                   ? <Button loading={bodyMutation.isPending} onClick={() => bodyMutation.mutate()}><Download size={14} />{t("mail.downloadBody")}</Button>
                   : undefined}
               />
-              {bodyMutation.isPending ? <Progress value={bodyProgress?.progress ?? 0} className="max-w-xs" /> : null}
             </Stack>
           )}
         </Stack>
@@ -318,8 +309,10 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
                     attachment={attachment}
                     opening={attachmentMutation.isPending && attachmentMutation.variables?.id === attachment.id}
                     saving={saveAttachmentMutation.isPending && saveAttachmentMutation.variables?.id === attachment.id}
+                    revealing={revealAttachmentMutation.isPending && revealAttachmentMutation.variables?.id === attachment.id}
                     onOpen={() => attachmentMutation.mutate(attachment)}
                     onSaveAs={() => saveAttachmentMutation.mutate(attachment)}
+                    onReveal={() => revealAttachmentMutation.mutate(attachment)}
                   />
                 ))}
               </Inline>
@@ -392,14 +385,57 @@ function AddressList({ label, addresses, onOpenContact, onEditContact }: {
   onOpenContact?: (contactId: string) => void;
   onEditContact?: (contactId: string) => void;
 }) {
+  const { t } = useTranslation();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const addressesKey = addresses.map((address) => `${address.email}\0${address.name ?? ""}`).join("\u0001");
+
+  useEffect(() => setExpanded(false), [addressesKey]);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const measure = () => setOverflowing(content.scrollHeight > 28);
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(content);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [addressesKey]);
+
   return (
-    <Inline className="select-text flex-wrap gap-1.5 text-xs text-muted-foreground">
-      <span>{label}:</span>
-      {addresses.length ? addresses.map((address, index) => (
-        <span key={`${address.email}-${index}`} className="inline-flex">
-          <ContactIdentity address={address} onOpenContact={onOpenContact} onEditContact={onEditContact} tag />
-        </span>
-      )) : <span>—</span>}
+    <Inline className="select-text items-start gap-1.5 text-xs text-muted-foreground">
+      <span className="shrink-0 py-1">{label}:</span>
+      <div className={expanded ? "min-w-0 flex-1" : "min-w-0 max-h-7 flex-1 overflow-hidden"}>
+        <div ref={contentRef} className="flex min-w-0 flex-wrap gap-1.5">
+          {addresses.length ? addresses.map((address, index) => (
+            <span key={`${address.email}-${index}`} className="inline-flex">
+              <ContactIdentity
+                address={address}
+                onOpenContact={onOpenContact}
+                onEditContact={onEditContact}
+                focusable={expanded || !overflowing}
+                tag
+              />
+            </span>
+          )) : <span className="py-1">—</span>}
+        </div>
+      </div>
+      {overflowing ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 gap-1 px-2 text-xs"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          {expanded ? t("mail.hideRecipients") : t("mail.showRecipients")}
+        </Button>
+      ) : null}
     </Inline>
   );
 }

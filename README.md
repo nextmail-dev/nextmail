@@ -20,7 +20,7 @@
 </div>
 
 > [!IMPORTANT]
-> NextMail is currently a `0.2.0` preview. Windows 10 22H2+ x64 is the primary hands-on validation platform; macOS 12+ is a target platform. Linux packages are built for early testing, but Linux is not yet deeply adapted or validated.
+> NextMail is currently a `0.2.1` preview. Windows 10 22H2+ x64 is the primary hands-on validation platform; macOS 12+ is a target platform. Linux packages are built for early testing, but Linux is not yet deeply adapted or validated.
 
 ## Preview
 
@@ -91,6 +91,7 @@ Mail changes and outgoing messages are recorded before network execution. Retrie
 - Local FTS5 search scoped to the current account and folder.
 - Rich composing with Tiptap/ProseMirror and CodeMirror, explicit draft saving, Drafts/Sent synchronization, templates, signatures, and variables.
 - Reply, reply all, and forward with complete original HTML, inline images, attachments, and stable signature placement.
+- Account-scoped local contacts with contact suggestions, identity cards, and multi-select mail/contact actions.
 - Chinese and English UI, system/light/dark appearance, accent colors, dedicated business windows, and NextMail desktop notifications.
 
 For exact implementation details, engineering conventions, and current limitations, see the [project development guide](./docs/project.md).
@@ -102,7 +103,7 @@ Version tags build release assets for three desktop platforms on GitHub Actions:
 | Platform | Build | Current support status |
 | --- | --- | --- |
 | Windows 10 22H2+ | x64 installers | Primary validation target |
-| macOS 12+ | Universal app for Intel and Apple Silicon | Target platform; ad-hoc signed, not notarized |
+| macOS 12+ | Separate Intel x64 and Apple Silicon arm64 apps | Target platform; ad-hoc signed, not notarized |
 | Linux | x64 bundles from Ubuntu 22.04 | Experimental; no deep adaptation guarantee |
 
 Download available builds from [GitHub Releases](https://github.com/nextmail-dev/nextmail/releases).
@@ -140,6 +141,7 @@ Node.js dependencies are managed only with pnpm. The project does not currently 
 
 ## Documentation
 
+- [Changelog](./CHANGELOG.md)
 - [Project development guide](./docs/project.md)
 - [Iteration records](./docs/iterations/)
 - [Architecture decisions](./docs/adr/)

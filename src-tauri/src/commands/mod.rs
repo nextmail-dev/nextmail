@@ -917,6 +917,15 @@ pub async fn update_contact_name(
 }
 
 #[tauri::command]
+pub async fn delete_contacts(
+    state: State<'_, AppState>,
+    account_id: String,
+    contact_ids: Vec<String>,
+) -> CommandResult<()> {
+    state.mail.delete_contacts(&account_id, &contact_ids).await
+}
+
+#[tauri::command]
 pub async fn open_contact_composer(
     state: State<'_, AppState>,
     account_id: String,
@@ -1154,6 +1163,18 @@ pub async fn open_message_attachment(
     state
         .mail
         .open_message_attachment(&account_id, &attachment_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn reveal_message_attachment(
+    state: State<'_, AppState>,
+    account_id: String,
+    attachment_id: String,
+) -> CommandResult<()> {
+    state
+        .mail
+        .reveal_message_attachment(&account_id, &attachment_id)
         .await
 }
 

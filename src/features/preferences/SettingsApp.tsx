@@ -144,7 +144,7 @@ export function SettingsApp() {
             readingPreferences={readingPreferencesQuery.data}
             readingError={readingMutation.error}
             accounts={accountsQuery.data ?? []}
-            version={aboutQuery.data?.version ?? "0.2.0"}
+            version={aboutQuery.data?.version ?? "0.2.1"}
             onChange={updatePreferences}
             onReadingChange={updateReadingPreferences}
           />

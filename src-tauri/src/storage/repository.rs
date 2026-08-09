@@ -2027,6 +2027,42 @@ mod tests {
             .unwrap();
         assert_eq!(detail.recent_messages.len(), 1);
         assert_eq!(detail.recent_messages[0].subject, "Contact identity");
+
+        assert_eq!(
+            repository
+                .contacts()
+                .delete_contacts("slot-b", std::slice::from_ref(&alice.id))
+                .await
+                .unwrap_err()
+                .code,
+            "contact.not_found"
+        );
+        repository
+            .contacts()
+            .delete_contacts("slot", std::slice::from_ref(&alice.id))
+            .await
+            .unwrap();
+        assert!(repository
+            .contacts()
+            .get_contact_summary("slot", &alice.id)
+            .await
+            .is_err());
+        let recreated = repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &renamed_message)
+            .await
+            .unwrap();
+        assert!(recreated.contacts_changed);
+        assert_eq!(
+            repository
+                .contacts()
+                .list_contacts("slot", "alice@example.com", None, 20)
+                .await
+                .unwrap()
+                .items[0]
+                .name,
+            "Changed Header"
+        );
     }
 
     #[tokio::test]

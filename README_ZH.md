@@ -20,7 +20,7 @@
 </div>
 
 > [!IMPORTANT]
-> NextMail 当前处于 `0.2.0` 预览阶段。Windows 10 22H2+ x64 是主要实机验收平台，macOS 12+ 是目标平台。项目会为 Linux 生成早期测试包，但尚未对 Linux 进行深度适配或实机验收。
+> NextMail 当前处于 `0.2.1` 预览阶段。Windows 10 22H2+ x64 是主要实机验收平台，macOS 12+ 是目标平台。项目会为 Linux 生成早期测试包，但尚未对 Linux 进行深度适配或实机验收。
 
 ## 应用预览
 
@@ -91,6 +91,7 @@ NextMail 把本地邮箱当作主要阅读界面。已有邮件无需等待网�
 - 限定当前账户与文件夹的本地 FTS5 搜索。
 - 基于 Tiptap/ProseMirror 与 CodeMirror 的富文本写信、显式草稿保存、Drafts/Sent 同步、模板、签名和变量。
 - 回复、回复全部与转发，保留完整原始 HTML、内嵌图片、附件和稳定签名位置。
+- 账户隔离的本地联系人、联系人建议、身份名片，以及邮件和联系人列表多选操作。
 - 中文/英文、系统/浅色/深色外观、主题色、独立业务窗口与 NextMail 自有桌面通知。
 
 准确的实现细节、工程约定与当前限制见[项目开发手册](./docs/project.md)。
@@ -102,7 +103,7 @@ NextMail 把本地邮箱当作主要阅读界面。已有邮件无需等待网�
 | 平台 | 构建 | 当前支持状态 |
 | --- | --- | --- |
 | Windows 10 22H2+ | x64 安装包 | 主要实机验收目标 |
-| macOS 12+ | Intel 与 Apple Silicon 通用应用 | 目标平台；ad-hoc 签名，尚未公证 |
+| macOS 12+ | Intel x64 与 Apple Silicon arm64 独立应用 | 目标平台；ad-hoc 签名，尚未公证 |
 | Linux | 基于 Ubuntu 22.04 的 x64 安装包 | 实验性产物，不承诺深度适配 |
 
 请从 [GitHub Releases](https://github.com/nextmail-dev/nextmail/releases) 下载已有版本。
@@ -140,6 +141,7 @@ Node.js 依赖只使用 pnpm 管理。项目目前不使用 Python；未来若�
 
 ## 项目文档
 
+- [版本变更日志](./CHANGELOG.md)
 - [项目开发手册](./docs/project.md)
 - [阶段实施记录](./docs/iterations/)
 - [架构决策记录](./docs/adr/)

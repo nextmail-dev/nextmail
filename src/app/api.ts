@@ -181,6 +181,8 @@ export const api = {
   ) => invoke<ContactSummary>("update_contact_name", {
     accountId, contactId, name, expectedRevision,
   }),
+  deleteContacts: (accountId: string, contactIds: string[]) =>
+    invoke<void>("delete_contacts", { accountId, contactIds }),
   openContactComposer: (accountId: string, contactId: string) =>
     invoke<string>("open_contact_composer", { accountId, contactId }),
   requestMessageBody: (accountId: string, messageId: string, mailboxId: string) =>
@@ -220,6 +222,8 @@ export const api = {
     invoke<AttachmentSummary>("request_attachment", { accountId, attachmentId }),
   openMessageAttachment: (accountId: string, attachmentId: string) =>
     invoke<void>("open_message_attachment", { accountId, attachmentId }),
+  revealMessageAttachment: (accountId: string, attachmentId: string) =>
+    invoke<void>("reveal_message_attachment", { accountId, attachmentId }),
   saveMessageAttachmentAs: (accountId: string, attachmentId: string) =>
     invoke<boolean>("save_message_attachment_as", { accountId, attachmentId }),
   openComposer: (accountId: string) =>

@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileVideo,
+  FolderOpen,
   Presentation,
   Save,
   type LucideIcon,
@@ -25,14 +26,18 @@ export function MessageAttachment({
   attachment,
   opening,
   saving,
+  revealing,
   onOpen,
   onSaveAs,
+  onReveal,
 }: {
   attachment: AttachmentSummary;
   opening: boolean;
   saving: boolean;
+  revealing: boolean;
   onOpen: () => void;
   onSaveAs: () => void;
+  onReveal: () => void;
 }) {
   const { t } = useTranslation();
   const available = attachment.availability === "available";
@@ -42,7 +47,7 @@ export function MessageAttachment({
     <div className="group/attachment relative h-[72px] w-80 max-w-full overflow-hidden rounded-lg border border-border/70 bg-muted/45 transition-colors hover:border-primary/25 hover:bg-muted/70 focus-within:border-primary/35">
       <Button
         variant="ghost"
-        className="size-full min-w-0 justify-start rounded-lg bg-transparent p-3 pr-[84px] text-left text-foreground hover:bg-transparent"
+        className="size-full min-w-0 justify-start rounded-lg bg-transparent p-3 pr-[116px] text-left text-foreground hover:bg-transparent"
         loading={opening}
         title={attachment.fileName}
         aria-label={t("mail.attachmentPrimaryAction", { name: attachment.fileName })}
@@ -80,6 +85,17 @@ export function MessageAttachment({
           onClick={onSaveAs}
         >
           <Save size={15} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 bg-card/90 text-muted-foreground shadow-sm hover:bg-card hover:text-foreground"
+          loading={revealing}
+          aria-label={t("mail.revealAttachment", { name: attachment.fileName })}
+          title={t("mail.showInFolder")}
+          onClick={onReveal}
+        >
+          <FolderOpen size={15} />
         </Button>
       </Inline>
     </div>

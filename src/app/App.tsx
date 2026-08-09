@@ -136,18 +136,9 @@ export function App() {
 }
 
 function WindowFrame({ kind, children }: { kind: WindowKind; children: ReactNode }) {
-  const { t } = useTranslation();
-  let title = "NextMail";
-  if (kind === "main") title = "";
-  if (kind === "composer") title = t("composer.windowTitle");
-  if (kind === "settings") title = t("settings.title");
-  if (kind === "accounts") title = t("accounts.title");
-  if (kind === "message-preview") title = t("mail.previewWindowTitle");
-  if (kind === "raw-message") title = t("mail.sourceTitle");
-  if (kind === "definition") title = t("compositionLibrary.editorWindowTitle");
   return (
     <>
-      <WindowTitlebar kind={kind} title={title} />
+      <WindowTitlebar kind={kind} />
       <div className="h-full pt-[var(--titlebar-height)]">{children}</div>
     </>
   );

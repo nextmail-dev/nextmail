@@ -182,7 +182,7 @@ export function ContactInitial({ name, className }: { name: string; className?: 
   );
 }
 
-async function writeClipboardText(value: string) {
+export async function writeClipboardText(value: string) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
     return;
