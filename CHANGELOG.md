@@ -7,6 +7,7 @@ NextMail 的版本变更记录。版本号遵循 [Semantic Versioning](https://s
 ### 新增
 
 - 检测到新版本时使用单例独立窗口展示更新，并安全渲染受限 Markdown 更新说明。
+- 绘制并启用了全新的图标。
 
 ### 修复
 
