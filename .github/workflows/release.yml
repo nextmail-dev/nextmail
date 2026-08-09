@@ -29,24 +29,28 @@ jobs:
             macos: true
             rust-targets: x86_64-apple-darwin
             updater-signatures: macos-x64
+            updater-asset-arch: x64
             args: --target x86_64-apple-darwin -- --locked
           - name: macOS Apple Silicon arm64
             platform: macos-15
             macos: true
             rust-targets: aarch64-apple-darwin
             updater-signatures: macos-arm64
+            updater-asset-arch: aarch64
             args: --target aarch64-apple-darwin -- --locked
           - name: Linux x64
             platform: ubuntu-22.04
             macos: false
             rust-targets: ""
             updater-signatures: linux-x64
+            updater-asset-arch: ""
             args: -- --locked
           - name: Windows x64
             platform: windows-latest
             macos: false
             rust-targets: ""
             updater-signatures: windows-x64
+            updater-asset-arch: ""
             args: -- --locked
 
     runs-on: ${{ matrix.platform }}
@@ -137,7 +141,12 @@ jobs:
           set -euo pipefail
           mkdir -p updater-signatures
           while IFS= read -r -d '' signature; do
-            destination="updater-signatures/$(basename "$signature")"
+            signature_name="$(basename "$signature")"
+            if [[ -n "${{ matrix.updater-asset-arch }}" ]]; then
+              test "$signature_name" = "NextMail.app.tar.gz.sig"
+              signature_name="NextMail_${GITHUB_REF_NAME#v}_${{ matrix.updater-asset-arch }}.app.tar.gz.sig"
+            fi
+            destination="updater-signatures/$signature_name"
             test ! -e "$destination"
             cp "$signature" "$destination"
           done < <(find src-tauri/target -type f -name '*.sig' -print0)

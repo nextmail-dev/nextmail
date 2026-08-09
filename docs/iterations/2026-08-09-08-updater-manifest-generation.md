@@ -41,6 +41,7 @@
 - 生成器严格校验 Tag、仓库名、发布时间、发布说明、签名内容、平台全集及直连/代理 URL 对应关系，任何必要签名缺失或重复都会阻止发布。
 - 最终任务使用 `softprops/action-gh-release@v3` 将两个清单上传至既有草稿 Release，并在资产上传完成后公开，移除了全部按 Tag 下载草稿 Release 的 `gh` 调用。
 - 首次重新运行在最终任务提取 Changelog 时暴露了 AWK 正则字面量的错误转义；两个提取步骤统一改用 `index()` 判断版本标题，避免字符串与正则字面量使用不同转义规则。
+- 第二次重新运行确认两个 macOS 构建的本地签名都叫 `NextMail.app.tar.gz.sig`，与 Release 上带架构的资产名不同，并会在 artifact 合并时同名覆盖。构建任务现在按矩阵架构将其规范化为 `NextMail_<version>_aarch64.app.tar.gz.sig` 或 `NextMail_<version>_x64.app.tar.gz.sig` 后再汇总；Linux 与 Windows 保留已经与 Release 一致的原名。
 
 ## 验证结果
 
@@ -51,3 +52,4 @@
 - `git diff --check`：通过，仅有仓库既有的行尾转换提示。
 - 未在本地运行产品构建或 Tauri bundle；跨平台构建与草稿 Release 发布链将在重新推送 `v0.3.0` 后由 GitHub Actions 实际验证。
 - 首次远端运行的四个平台构建通过，最终任务在 `Extract changelog entry` 因 `unterminated regexp` 失败；已针对该根因修复，等待下一次 Tag 运行验证。
+- 第二次远端运行通过 Changelog 提取，但生成清单时因合并后的签名中不存在可识别的 macOS arm64 文件名而失败；已从运行 `31315051256` 的四个 workflow artifacts 核对全部实际文件名并修复 macOS 规范化，等待下一次 Tag 运行验证。
