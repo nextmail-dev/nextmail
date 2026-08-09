@@ -274,6 +274,8 @@ git diff --check
 
 `.github/workflows/release.yml` 只响应 `v*` tag push，构建 Windows x64、Ubuntu 22.04 x64、macOS Intel x64 和 macOS Apple Silicon arm64；四组产物上传同一草稿 Release，全部成功后才公开。
 
+每次 Release 正文从根目录 `CHANGELOG.md` 提取与当前 tag 匹配的版本段落，不使用 GitHub 自动生成的固定日志。
+
 - 普通分支 push、pull request、手动 dispatch 不触发发布。
 - macOS ad-hoc identity `-` 不等于正式签名或公证。
 - 不为测试工作流随意创建/推送 tag。

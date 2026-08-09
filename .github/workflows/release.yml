@@ -82,6 +82,23 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Extract changelog entry
+        id: changelog
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="$version" '
+            $0 ~ "^## \\[" version "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
+          {
+            echo 'body<<CHANGELOG_EOF'
+            cat release-notes.md
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and upload release bundles
         uses: tauri-apps/tauri-action@v1
         env:
@@ -91,13 +108,10 @@ jobs:
           tauriScript: pnpm tauri
           tagName: ${{ github.ref_name }}
           releaseName: NextMail ${{ github.ref_name }}
-          releaseBody: |
-            Automated preview builds for Windows, macOS Intel, macOS Apple Silicon, and Linux.
-
-            These artifacts do not yet use production Windows code signing or Apple notarization. See the README for current platform support and installation notes.
+          releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: true
           prerelease: false
-          generateReleaseNotes: true
+          generateReleaseNotes: false
           args: ${{ matrix.args }}
 
   publish:
