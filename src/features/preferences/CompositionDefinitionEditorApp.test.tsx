@@ -14,6 +14,7 @@ vi.mock("@/app/api", () => ({
   api: {
     createMailSignature: vi.fn(),
     createMailTemplate: vi.fn(),
+    getLastSelectedAccount: vi.fn(),
     listContactSuggestions: vi.fn(),
     listMailSignatures: vi.fn(),
     listMailTemplates: vi.fn(),
@@ -97,6 +98,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.listMailTemplates).mockResolvedValue([]);
   vi.mocked(api.listMailSignatures).mockResolvedValue([]);
+  vi.mocked(api.getLastSelectedAccount).mockResolvedValue("account-one");
   vi.mocked(api.listContactSuggestions).mockResolvedValue([{
     id: "contact-one",
     name: "Alice Local",
@@ -131,13 +133,18 @@ afterEach(cleanup);
 
 describe("CompositionDefinitionEditorApp", () => {
   it("saves template recipient fields with the reusable content", async () => {
-    renderEditor("template", null, "account-one");
+    renderEditor("template");
 
     fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
       target: { value: "Customer reply" },
     });
     const to = screen.getByRole("textbox", { name: "To" });
-    expect(screen.getByText("To", { selector: "label" })).toHaveClass("items-center", "border-r");
+    const toRow = to.parentElement?.parentElement?.parentElement;
+    expect(screen.getByText("To", { selector: "label" })).toHaveClass("items-center", "w-24");
+    expect(screen.getByText("To", { selector: "label" })).not.toHaveClass("border-r");
+    expect(toRow).toHaveClass("border-b");
+    expect(toRow?.parentElement).toHaveClass("border-t");
+    expect(toRow?.parentElement).not.toHaveClass("rounded-lg", "ring-1");
     fireEvent.change(to, { target: { value: "ali" } });
     fireEvent.click(await screen.findByRole("option", { name: /Alice Local/ }));
     const cc = screen.getByRole("textbox", { name: "Cc" });
@@ -148,7 +155,7 @@ describe("CompositionDefinitionEditorApp", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(api.createMailTemplate).toHaveBeenCalledWith("account-one", expect.objectContaining({
+    await waitFor(() => expect(api.createMailTemplate).toHaveBeenCalledWith(null, expect.objectContaining({
       name: "Customer reply",
       subject: "Reminder",
       recipients: {
@@ -157,6 +164,7 @@ describe("CompositionDefinitionEditorApp", () => {
         bcc: [],
       },
     })));
+    expect(api.getLastSelectedAccount).toHaveBeenCalledOnce();
     expect(api.listContactSuggestions).toHaveBeenCalledWith("account-one", "ali", 8);
   });
 

@@ -113,15 +113,21 @@ function DefinitionEditorForm({
     cc: null,
     bcc: null,
   });
+  const lastSelectedAccount = useQuery({
+    queryKey: ["last-selected-account"],
+    queryFn: api.getLastSelectedAccount,
+    enabled: kind === "template" && accountId === null,
+  });
+  const contactAccountId = accountId ?? lastSelectedAccount.data ?? null;
   const recipientAddresses = useMemo(() => [...to, ...cc, ...bcc], [to, cc, bcc]);
   const recipientEmails = useMemo(
     () => [...new Set(recipientAddresses.map((address) => address.email.trim().toLocaleLowerCase()))].sort(),
     [recipientAddresses],
   );
   const resolvedRecipients = useQuery({
-    queryKey: mailQueryKeys.contactAddresses(accountId ?? "", recipientEmails),
-    queryFn: () => api.resolveContactAddresses(accountId!, recipientAddresses),
-    enabled: Boolean(accountId && recipientAddresses.length),
+    queryKey: mailQueryKeys.contactAddresses(contactAccountId ?? "", recipientEmails),
+    queryFn: () => api.resolveContactAddresses(contactAccountId!, recipientAddresses),
+    enabled: Boolean(contactAccountId && recipientAddresses.length),
   });
   const resolvedRecipientsByEmail = useMemo(
     () => new Map((resolvedRecipients.data ?? []).map((address) => [address.email.trim().toLocaleLowerCase(), address])),
@@ -299,7 +305,7 @@ function DefinitionEditorForm({
                 return (
                   <RecipientField
                     key={recipientKind}
-                    accountId={accountId ?? undefined}
+                    accountId={contactAccountId ?? undefined}
                     label={t(`composer.${recipientKind}`)}
                     addresses={current.addresses}
                     resolvedAddresses={resolvedRecipientsByEmail}

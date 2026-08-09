@@ -48,14 +48,18 @@ export function RecipientField({
   const id = useId();
   const errorId = `${id}-error`;
   return (
-    <div className={cn("flex min-h-11 items-start bg-card", structured && "border-b border-border/70", error && "pb-1")}>
+    <div className={cn(
+      "flex min-h-11 items-start bg-card",
+      structured && "border-b border-border/70",
+      error && "pb-1",
+    )}>
       <label
         htmlFor={id}
         className={cn(
-          "w-20 shrink-0 px-4 text-xs font-semibold text-muted-foreground",
+          "shrink-0 px-4 text-xs font-semibold text-muted-foreground",
           structured
-            ? "flex self-stretch items-center border-r border-border/70 py-2"
-            : "pt-3",
+            ? "flex w-24 self-stretch items-center py-2"
+            : "w-20 pt-3",
         )}
       >
         {label}

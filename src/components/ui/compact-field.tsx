@@ -24,8 +24,8 @@ export const CompactField = forwardRef<HTMLInputElement, CompactFieldProps>(func
       )}
     >
       <span className={cn(
-        "w-20 shrink-0 px-4 text-xs font-semibold text-muted-foreground",
-        structured && "flex self-stretch items-center border-r border-border/70 py-2",
+        "shrink-0 px-4 text-xs font-semibold text-muted-foreground",
+        structured ? "flex w-24 self-stretch items-center py-2" : "w-20",
       )}>{label}</span>
       <input
         ref={ref}
