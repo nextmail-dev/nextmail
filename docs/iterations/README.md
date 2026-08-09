@@ -37,3 +37,4 @@
 | [2026-08-09-01](./2026-08-09-01-reading-and-bulk-actions.md) | 阅读体验与批量操作修正 | 已验收 |
 | [2026-08-09-02](./2026-08-09-02-tray-settings-and-auto-update.md) | 托盘、设置分组与自动更新 | 已验收 |
 | [2026-08-09-03](./2026-08-09-03-updater-endpoint-fallback.md) | Updater Geo 响应与主备清单 | 已验收 |
+| [2026-08-09-04](./2026-08-09-04-updater-manifest-normalization.md) | Updater 清单 URL 规范化 | 已验收 |

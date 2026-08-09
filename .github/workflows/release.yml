@@ -133,7 +133,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Create mainland China updater manifest
+      - name: Normalize updater manifests
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -142,17 +142,44 @@ jobs:
           gh release download "$GITHUB_REF_NAME" \
             --pattern latest.json \
             --dir "$RUNNER_TEMP/nextmail-updater"
+          gh api "repos/$GH_REPO/releases/tags/$GITHUB_REF_NAME" \
+            > "$RUNNER_TEMP/nextmail-updater/release.json"
+          jq --slurpfile release "$RUNNER_TEMP/nextmail-updater/release.json" '
+            ($release[0].assets
+              | map({ key: .url, value: .browser_download_url })
+              | from_entries) as $download_urls
+            | .platforms |= with_entries(
+                .value.url = ($download_urls[.value.url] // .value.url)
+              )
+          ' "$RUNNER_TEMP/nextmail-updater/latest.json" \
+            > "$RUNNER_TEMP/nextmail-updater/latest-normalized.json"
+          mv "$RUNNER_TEMP/nextmail-updater/latest-normalized.json" \
+            "$RUNNER_TEMP/nextmail-updater/latest.json"
+
+          version="${GITHUB_REF_NAME#v}"
+          direct_prefix="https://github.com/$GH_REPO/releases/download/$GITHUB_REF_NAME/"
+          jq -e --arg version "$version" --arg prefix "$direct_prefix" '
+            (.version == $version)
+            and (.platforms | length > 0)
+            and all(.platforms[];
+              ((.signature | length) > 0) and (.url | startswith($prefix)))
+          ' "$RUNNER_TEMP/nextmail-updater/latest.json" > /dev/null
+
           jq '
             .platforms |= with_entries(
-              .value.url |= if startswith("https://github.com/")
-                then "https://proxy.next-mail.app/" + .
-                else .
-              end
+              .value.url = ("https://proxy.next-mail.app/" + .value.url)
             )
           ' "$RUNNER_TEMP/nextmail-updater/latest.json" \
             > "$RUNNER_TEMP/nextmail-updater/latest-cn.json"
-          jq -e '.platforms | length > 0' "$RUNNER_TEMP/nextmail-updater/latest-cn.json" > /dev/null
+          proxy_prefix="https://proxy.next-mail.app/$direct_prefix"
+          jq -e --arg prefix "$proxy_prefix" '
+            (.platforms | length > 0)
+            and all(.platforms[];
+              ((.signature | length) > 0) and (.url | startswith($prefix)))
+          ' "$RUNNER_TEMP/nextmail-updater/latest-cn.json" > /dev/null
+
           gh release upload "$GITHUB_REF_NAME" \
+            "$RUNNER_TEMP/nextmail-updater/latest.json" \
             "$RUNNER_TEMP/nextmail-updater/latest-cn.json" \
             --clobber
 
