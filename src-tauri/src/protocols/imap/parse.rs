@@ -6,7 +6,7 @@ use crate::{
         CommandError, CommandResult, ContactAddressRole, MessageAddress, RemoteAttachment,
         RemoteContactAddress, RemoteMessage,
     },
-    protocols::sanitize_mail_html_with_cid_images,
+    protocols::{attachment_file_name, sanitize_mail_html_with_cid_images},
 };
 
 pub(super) struct MessageParseInput {
@@ -174,10 +174,7 @@ fn attachment_summaries(
                 .unwrap_or_else(|| "application/octet-stream".to_owned());
             Some(RemoteAttachment {
                 part_index: index as u32,
-                file_name: attachment
-                    .attachment_name()
-                    .unwrap_or("attachment")
-                    .to_owned(),
+                file_name: attachment_file_name(attachment, "attachment"),
                 content_type,
                 size: attachment.len() as u64,
                 content_id,

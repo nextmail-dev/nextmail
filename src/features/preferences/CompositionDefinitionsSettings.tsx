@@ -349,7 +349,7 @@ function SignaturePreferencesPanel({
   const { t } = useTranslation();
   const defaultSignature = signatures.find((value) => value.id === preferences?.defaultSignatureId);
   return (
-    <Surface className="p-4 shadow-none ring-1 ring-border/70 [&>label]:-mx-4 [&>label]:w-[calc(100%+2rem)] [&>label]:rounded-none [&>label]:px-7">
+    <Surface className="p-4 shadow-none ring-1 ring-border/70">
       <Checkbox
         checked={preferences?.autoInsert ?? true}
         disabled={!preferences || loading}

@@ -3,6 +3,9 @@
   --shell-sidebar-width: 300px;
   --ui-font-caption: 11px;
   --ui-font-control: 13px;
+  --layer-window-titlebar: 100;
+  --layer-dialog-overlay: 200;
+  --layer-dialog-content: 201;
   --scrollbar-thumb: color-mix(in srgb, var(--muted-foreground) 42%, transparent);
   --scrollbar-thumb-hover: color-mix(in srgb, var(--muted-foreground) 58%, transparent);
 }
@@ -64,6 +67,7 @@ textarea,
 }
 
 .window-titlebar {
+  z-index: var(--layer-window-titlebar);
   -webkit-app-region: drag;
 }
 
@@ -74,6 +78,19 @@ textarea,
 
 .window-titlebar--mac > span {
   padding-left: 68px;
+}
+
+.app-dialog-overlay,
+.app-dialog-content {
+  -webkit-app-region: no-drag;
+}
+
+.app-dialog-overlay {
+  z-index: var(--layer-dialog-overlay);
+}
+
+.app-dialog-content {
+  z-index: var(--layer-dialog-content);
 }
 
 ::-webkit-scrollbar {

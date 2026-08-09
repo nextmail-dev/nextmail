@@ -901,6 +901,102 @@ mod tests {
     }
 
     #[test]
+    fn decodes_rfc2047_attachment_names_split_across_continuation_parameters() {
+        let raw = include_bytes!(
+            "../../../testdata/mail-rendering/segmented-rfc2047-attachment-name.eml"
+        );
+        let message = parse_message(
+            1,
+            1,
+            raw.len() as u64,
+            1,
+            [Flag::Seen].into_iter(),
+            raw,
+            Some(raw.to_vec()),
+        )
+        .unwrap();
+
+        assert_eq!(message.attachments.len(), 1);
+        assert_eq!(
+            message.attachments[0].file_name,
+            "黄龙机房搬迁割接第三期1.xlsx"
+        );
+    }
+
+    #[test]
+    fn decodes_split_rfc2047_name_from_content_type_when_filename_is_absent() {
+        let raw = concat!(
+            "From: sender@example.com\r\n",
+            "To: reader@example.com\r\n",
+            "Subject: Split content type name\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/mixed; boundary=nextmail\r\n\r\n",
+            "--nextmail\r\n",
+            "Content-Type: text/plain; charset=utf-8\r\n\r\n",
+            "Body\r\n",
+            "--nextmail\r\n",
+            "Content-Type: application/octet-stream;\r\n",
+            " name*0=\"=?UTF-8?B?6buE6b6Z5py65oi/5pCs6L+B5Ymy5o6l56ys5LiJ5pyfMS54bH\";\r\n",
+            " name*1=\"N4?=\"\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "Content-Disposition: attachment\r\n\r\n",
+            "YXR0YWNobWVudA==\r\n",
+            "--nextmail--\r\n"
+        );
+        let message = parse_message(
+            1,
+            1,
+            raw.len() as u64,
+            1,
+            [Flag::Seen].into_iter(),
+            raw.as_bytes(),
+            Some(raw.as_bytes().to_vec()),
+        )
+        .unwrap();
+
+        assert_eq!(message.attachments.len(), 1);
+        assert_eq!(
+            message.attachments[0].file_name,
+            "黄龙机房搬迁割接第三期1.xlsx"
+        );
+    }
+
+    #[test]
+    fn preserves_standard_percent_encoded_rfc2231_continuations() {
+        let raw = concat!(
+            "From: sender@example.com\r\n",
+            "To: reader@example.com\r\n",
+            "Subject: RFC 2231 attachment name\r\n",
+            "MIME-Version: 1.0\r\n",
+            "Content-Type: multipart/mixed; boundary=nextmail\r\n\r\n",
+            "--nextmail\r\n",
+            "Content-Type: text/plain; charset=utf-8\r\n\r\n",
+            "Body\r\n",
+            "--nextmail\r\n",
+            "Content-Type: application/octet-stream\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "Content-Disposition: attachment;\r\n",
+            " filename*0*=UTF-8''%E9%BB%84%E9%BE%99%E6%9C%BA%E6%88%BF;\r\n",
+            " filename*1*=%E6%90%AC%E8%BF%81.xlsx\r\n\r\n",
+            "YXR0YWNobWVudA==\r\n",
+            "--nextmail--\r\n"
+        );
+        let message = parse_message(
+            1,
+            1,
+            raw.len() as u64,
+            1,
+            [Flag::Seen].into_iter(),
+            raw.as_bytes(),
+            Some(raw.as_bytes().to_vec()),
+        )
+        .unwrap();
+
+        assert_eq!(message.attachments.len(), 1);
+        assert_eq!(message.attachments[0].file_name, "黄龙机房搬迁.xlsx");
+    }
+
+    #[test]
     fn decodes_gb2312_encoded_words_and_message_bodies() {
         let raw = b"From: =?GB2312?B?xOO6ww==?= <alice@example.com>\r\n\
 To: Bob <bob@example.com>\r\n\

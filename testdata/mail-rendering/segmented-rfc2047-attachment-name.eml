@@ -1,0 +1,21 @@
+From: sender@example.com
+To: reader@example.com
+Subject: Split attachment name
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary=nextmail
+
+--nextmail
+Content-Type: text/plain; charset=utf-8
+
+Body
+--nextmail
+Content-Type: application/octet-stream;
+ name*0="=?UTF-8?B?6buE6b6Z5py65oi/5pCs6L+B5Ymy5o6l56ys5LiJ5pyfMS54bH";
+ name*1="N4?="
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment;
+ filename*0="=?UTF-8?B?6buE6b6Z5py65oi/5pCs6L+B5Ymy5o6l56ys5LiJ5pyfMS54bH";
+ filename*1="N4?="
+
+YXR0YWNobWVudA==
+--nextmail--

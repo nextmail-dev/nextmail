@@ -673,7 +673,7 @@ function SendProgressOverlay({ status }: { status: "preparing" | "queued" | "sen
   const { t } = useTranslation();
   return (
     <Page
-      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-6 backdrop-blur-[2px]"
+      className="app-dialog-overlay fixed inset-0 grid place-items-center bg-black/50 p-6 backdrop-blur-[2px]"
       role="dialog"
       aria-modal="true"
       aria-label={t("composer.sendProgressTitle")}

@@ -24,7 +24,7 @@ export function WindowTitlebar({ kind }: { kind: WindowKind }) {
   return (
     <header
       className={cn(
-        "window-titlebar fixed inset-x-0 top-0 z-[100] flex h-[var(--titlebar-height)] select-none items-center",
+        "window-titlebar fixed inset-x-0 top-0 flex h-[var(--titlebar-height)] select-none items-center",
         isMac && "window-titlebar--mac",
       )}
       style={{ background }}

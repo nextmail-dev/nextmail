@@ -9,6 +9,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use mail_parser::{Message, MessageParser, MimeHeaders};
 
 use super::{
+    attachment_file_name,
     css::{
         sanitize_style_attribute, sanitize_stylesheet, sanitize_stylesheet_for_composer,
         sanitize_stylesheet_for_scope,
@@ -111,11 +112,7 @@ pub fn sanitize_raw_message_for_composer(raw: &[u8]) -> Option<SanitizedComposer
                 return None;
             }
             Some(ComposerInlineImage {
-                file_name: attachment
-                    .attachment_name()
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or("inline-image")
-                    .to_owned(),
+                file_name: attachment_file_name(attachment, "inline-image"),
                 content_id,
                 content_type: content_type.to_owned(),
                 bytes: attachment.contents().to_vec(),

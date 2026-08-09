@@ -20,7 +20,7 @@
 
 ## 2. 产品与当前状态
 
-NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.2.3`。
+NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.3.0`。
 
 平台边界：
 
@@ -36,7 +36,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - SQLite 离线视图、全服务器头部优先同步、按需正文、账户可选全文同步和逐封可见更新。
 - 已读、星标、移动、复制、归档、删除的本地乐观更新与持久化 IMAP 待办。
 - 在线 IMAP 文件夹创建、重命名、层级移动、删除、全部已读及独立本地排序。
-- RFC 2047、常见 MIME 字符集、IMAP modified UTF-7。
+- RFC 2047、RFC 2231 连续附件名（包括先分段后形成完整 encoded-word 的兼容形态）、常见 MIME 字符集、IMAP modified UTF-7。
 - Rust 清洗的 HTML/CSS 阅读、远程图片控制、标准 CID、受限 data 图片、误标 octet-stream 图片和 BMP。
 - 原始 EML、附件按需下载、安全另存为、受控系统打开和所在文件夹定位。
 - 当前账户/当前文件夹 SQLite FTS5 搜索；Enter 或搜索按钮显式提交。
@@ -52,10 +52,10 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 
 当前实施状态：
 
-- `0.2.3` 已完成 Geo 新响应与 updater 主备清单适配。
+- `0.3.0` 已完成 updater 清单规范化、独立安全更新窗口、全局对话框层级修正、设置选择项交互优化与分段 MIME 附件名兼容。
 - 当前没有活动开发计划。
 
-最近完成记录见 [`2026-08-09-05-ui-dialog-settings-update-window`](./iterations/2026-08-09-05-ui-dialog-settings-update-window.md)；Updater 清单规范化见 [`2026-08-09-04-updater-manifest-normalization`](./iterations/2026-08-09-04-updater-manifest-normalization.md)。
+最近完成记录见 [`2026-08-09-06-segmented-mime-filenames`](./iterations/2026-08-09-06-segmented-mime-filenames.md) 与 [`2026-08-09-05-ui-dialog-settings-update-window`](./iterations/2026-08-09-05-ui-dialog-settings-update-window.md)。
 
 仍未排期：
 
@@ -191,7 +191,7 @@ cache/attachment-open/...
 - Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
 - SMTP 前生成不可变 MIME/Message-ID，写入 `raw/` 后创建持久化 `send_job`；重试复用相同 MIME。
 - SendWorker 账户内 FIFO、账户间轮转；全局最多两封、每账户最多一封。SMTP 成功后独立 APPEND Sent，归档失败不得再次发信。
-- 客户端头为 `X-Mailer: NextMail/0.2.3`；版本变化时同步核对 manifest 与此值。
+- 客户端头为 `X-Mailer: NextMail/0.3.0`；版本变化时同步核对 manifest 与此值。
 
 ## 6. 安全边界
 
@@ -220,7 +220,7 @@ cache/attachment-open/...
 - UI 不显示调试说明、内部阶段名或临时占位文案。
 - Windows 使用 Segoe UI/Microsoft YaHei UI，macOS 使用系统 UI/PingFang SC。
 - 自绘标题栏只保留拖动区域与 Windows 窗口控制，不在左上角重复显示当前业务窗口名称；macOS 继续保留原生交通灯。
-- 共享模态遮罩与内容必须覆盖完整 WebView，并位于 Windows 自绘标题栏之上；设置页布尔项以标题和说明组成整行点击区域，提供明确 hover、focus、选中与禁用反馈。
+- 所有模态与阻塞进度遮罩统一使用全局对话框层级，覆盖完整 WebView、位于 Windows 自绘标题栏之上并显式退出拖动命中区域；设置页布尔项以复选框、标题和说明组成内容包裹式圆角点击区域，提供明确 hover、focus、选中与禁用反馈。
 - 纵向滚动统一使用 `OverlayScrollArea` 覆盖滑块；文件夹列表是唯一默认自动隐藏例外。
 - 保留 Windows/macOS 平台差异，不用一套自绘按钮覆盖 macOS 原生行为。
 - 邮件 HTML 与 Composer 原文不进入主 React DOM；保真优化不能越过安全边界。

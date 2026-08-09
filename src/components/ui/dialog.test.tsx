@@ -11,7 +11,7 @@ describe("Modal", () => {
       </Modal>,
     );
 
-    expect(screen.getByRole("dialog", { name: "Confirm" })).toHaveClass("z-[201]");
-    expect(document.querySelector("[data-state='open'].fixed.inset-0")).toHaveClass("z-[200]");
+    expect(screen.getByRole("dialog", { name: "Confirm" })).toHaveClass("app-dialog-content");
+    expect(document.querySelector("[data-state='open'].fixed.inset-0")).toHaveClass("app-dialog-overlay");
   });
 });

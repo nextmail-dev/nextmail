@@ -204,11 +204,8 @@ describe("SettingsApp", () => {
       "When exit confirmation is disabled, this setting decides whether closing the main window hides it in the tray or exits the app.",
     );
     const row = description.closest("label");
-    expect(row).toHaveClass("w-full", "cursor-pointer", "hover:bg-accent");
-    expect(row?.parentElement).toHaveClass(
-      "[&>label]:-mx-5",
-      "[&>label]:w-[calc(100%+2.5rem)]",
-    );
+    expect(row).toHaveClass("w-fit", "max-w-full", "rounded-md", "cursor-pointer", "hover:bg-accent");
+    expect(row?.parentElement?.className).not.toContain("[&>label]:");
     fireEvent.click(description);
 
     await waitFor(() =>

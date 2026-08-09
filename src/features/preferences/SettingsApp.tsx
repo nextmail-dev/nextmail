@@ -404,10 +404,7 @@ function SettingsSection({ category, children }: { category: SettingsCategory; c
 
 function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Stack
-      className="rounded-lg bg-muted/60 p-5 [&>label]:-mx-5 [&>label]:w-[calc(100%+2.5rem)] [&>label]:rounded-none [&>label]:px-7"
-      gap="md"
-    >
+    <Stack className="rounded-lg bg-muted/60 p-5" gap="md">
       <Heading level={2} className="text-base">{title}</Heading>
       {children}
     </Stack>

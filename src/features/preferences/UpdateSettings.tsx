@@ -27,10 +27,7 @@ export function UpdateSettings({
   const preferenceError = saveError ? normalizeCommandError(saveError) : null;
 
   return (
-    <Stack
-      className="[&>label]:-mx-5 [&>label]:w-[calc(100%+2.5rem)] [&>label]:rounded-none [&>label]:px-7"
-      gap="md"
-    >
+    <Stack gap="md">
       <Checkbox
         checked={preferences.autoCheckUpdates}
         label={t("settings.autoCheckUpdates")}

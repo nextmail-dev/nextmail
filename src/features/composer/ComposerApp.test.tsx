@@ -183,6 +183,8 @@ describe("ComposerApp close lifecycle", () => {
     await act(async () => closeHandler?.({ preventDefault }));
 
     expect(preventDefault).toHaveBeenCalledOnce();
+    expect(screen.getByRole("dialog")).toHaveClass("app-dialog-content");
+    expect(document.querySelector(".app-dialog-overlay")).toBeInTheDocument();
     expect(api.saveDraft).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Save as draft" }));
     await waitFor(() => expect(destroyMock).toHaveBeenCalledOnce());
