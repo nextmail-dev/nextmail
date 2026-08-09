@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { detectDesktopPlatform } from "@/app/platform";
 
-export type WindowKind = "main" | "composer" | "settings" | "accounts" | "message-preview" | "raw-message" | "definition";
+export type WindowKind = "main" | "composer" | "settings" | "accounts" | "message-preview" | "raw-message" | "definition" | "update";
 
 export function WindowTitlebar({ kind }: { kind: WindowKind }) {
   const { t } = useTranslation();
@@ -45,7 +45,7 @@ export function WindowTitlebar({ kind }: { kind: WindowKind }) {
           <WindowControl
             label={t("common.close")}
             danger
-            onClick={() => void (["settings", "accounts", "message-preview", "raw-message", "definition"].includes(kind)
+            onClick={() => void (["settings", "accounts", "message-preview", "raw-message", "definition", "update"].includes(kind)
               ? appWindow.destroy()
               : appWindow.close())}
           >

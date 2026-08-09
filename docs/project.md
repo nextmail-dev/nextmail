@@ -48,13 +48,14 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - 邮件与联系人列表支持 Ctrl/Cmd、Shift 范围多选及针对当前选择的右键操作。
 - NextMail 自有通知窗口、跨平台托盘、可持久化关闭偏好，以及 `v*` tag 触发的三平台 GitHub Release 工作流。
 - 基于 Tauri Updater 的签名更新检查与安装；中国大陆优先 NextMail GitHub 反代，其他地区及定位失败优先 GitHub 直连，两种传输地址互为备用。
+- 可用更新使用单例独立窗口呈现；Release notes 作为不可信 Markdown 受限渲染，原始 HTML、图片和危险协议不会进入页面。
 
 当前实施状态：
 
 - `0.2.3` 已完成 Geo 新响应与 updater 主备清单适配。
 - 当前没有活动开发计划。
 
-最近完成记录见 [`2026-08-09-04-updater-manifest-normalization`](./iterations/2026-08-09-04-updater-manifest-normalization.md)；Updater 主备清单适配见 [`2026-08-09-03-updater-endpoint-fallback`](./iterations/2026-08-09-03-updater-endpoint-fallback.md)。
+最近完成记录见 [`2026-08-09-05-ui-dialog-settings-update-window`](./iterations/2026-08-09-05-ui-dialog-settings-update-window.md)；Updater 清单规范化见 [`2026-08-09-04-updater-manifest-normalization`](./iterations/2026-08-09-04-updater-manifest-normalization.md)。
 
 仍未排期：
 
@@ -68,7 +69,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 
 ## 3. 技术栈与仓库地图
 
-前端使用 React 19、TypeScript 5.8、Vite 7、TanStack Query 5、react-i18next、Tailwind CSS 4、Radix Primitives、Tiptap/ProseMirror 3.27.3、CodeMirror 6、Vitest、Testing Library 和 jsdom。
+前端使用 React 19、TypeScript 5.8、Vite 7、TanStack Query 5、react-i18next、react-markdown 10、Tailwind CSS 4、Radix Primitives、Tiptap/ProseMirror 3.27.3、CodeMirror 6、Vitest、Testing Library 和 jsdom。
 
 桌面/Rust 使用 Tauri 2、Tauri Updater、Tokio、async-imap 0.11、lettre 0.11、mail-parser 0.11、mail-builder 0.4、SQLx 0.9、SQLite WAL/FTS5、rustls 0.23、keyring 4.1、Ammonia 4 和 cssparser 0.37。精确版本以 lockfile 和 manifest 为准。
 
@@ -123,10 +124,10 @@ docs/adr/                按需查阅的长期架构决策
 
 ### 窗口与 Capability
 
-窗口包括 `main`、`composer-*`、`settings`、`accounts`、`definition-*`、`message-preview-*`、`raw-message`、`notification-*`。
+窗口包括 `main`、`composer-*`、`settings`、`accounts`、`definition-*`、`message-preview-*`、`raw-message`、`notification-*`、`update`。
 
 - 每类使用独立最小 Capability；前端没有 Shell、数据库、任意网络、任意文件或任意建窗权限。
-- `settings`、`accounts`、`raw-message` 是单例；动态窗口按稳定业务目标复用。
+- `settings`、`accounts`、`raw-message`、`update` 是单例；动态窗口按稳定业务目标复用。
 - 普通窗口先隐藏，React 懒加载和首批 Query 完成后显示；错误边界也要显示。
 - 窗口状态由 Rust 侧 `window-state` 保存；动态标签映射为公共类别，通知窗口不保存。
 - Windows 使用 React 自绘控制；macOS 使用 Overlay 和原生交通灯。
@@ -207,6 +208,7 @@ cache/attachment-open/...
 - 富 HTML 粘贴必须先经 Rust 清洗和选择器作用域限定。
 - 日志不得记录 `CommandError.params`、凭据、Token、邮件正文或服务器原始响应。
 - Updater 只接受内置公开密钥验证成功的签名产物，不提供无签名降级。Geo 结果只用于本次清单路由，不持久化或写日志；反代只能改变传输地址，不能改变更新信任根。完整决策见 [ADR 0016](./adr/0016-signed-updates-and-regional-delivery.md)。
+- Updater Release notes 是不可信输入：Rust 限制其长度，独立更新窗口仅解析受限 Markdown，不允许原始 HTML、图片或危险链接协议；HTTP(S) 外链仍须通过 Rust 受控 opener 复验。
 
 任何邮件内容、协议、凭据、Capability、外链、文件或网络权限放宽都属于安全变更，必须补针对性测试；重大取舍新增或修订 ADR。
 
@@ -218,6 +220,7 @@ cache/attachment-open/...
 - UI 不显示调试说明、内部阶段名或临时占位文案。
 - Windows 使用 Segoe UI/Microsoft YaHei UI，macOS 使用系统 UI/PingFang SC。
 - 自绘标题栏只保留拖动区域与 Windows 窗口控制，不在左上角重复显示当前业务窗口名称；macOS 继续保留原生交通灯。
+- 共享模态遮罩与内容必须覆盖完整 WebView，并位于 Windows 自绘标题栏之上；设置页布尔项以标题和说明组成整行点击区域，提供明确 hover、focus、选中与禁用反馈。
 - 纵向滚动统一使用 `OverlayScrollArea` 覆盖滑块；文件夹列表是唯一默认自动隐藏例外。
 - 保留 Windows/macOS 平台差异，不用一套自绘按钮覆盖 macOS 原生行为。
 - 邮件 HTML 与 Composer 原文不进入主 React DOM；保真优化不能越过安全边界。

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::AppHandle;
 
@@ -10,7 +10,7 @@ use crate::{
     },
     application::{AppConfigStores, AppService},
     composer_runtime::ComposerRuntime,
-    core::ExternalLinkOpener,
+    core::{ExternalLinkOpener, UpdateCheckResult},
     error::CommandResult,
     mail_runtime::MailRuntime,
     notification_runtime::NotificationRuntime,
@@ -24,6 +24,7 @@ pub struct AppState {
     pub composer: Arc<ComposerRuntime>,
     pub notifications: Arc<NotificationRuntime>,
     pub external_link_opener: Arc<dyn ExternalLinkOpener>,
+    pub available_update: Mutex<Option<UpdateCheckResult>>,
 }
 
 impl AppState {
@@ -70,6 +71,7 @@ impl AppState {
             composer,
             notifications,
             external_link_opener,
+            available_update: Mutex::new(None),
         })
     }
 }

@@ -726,6 +726,7 @@
     "update.not_configured": "Automatic updates do not have a verification key configured yet.",
     "update.check_failed": "NextMail could not check for updates. Check your connection and try again.",
     "update.not_available": "This update is no longer available. Check again.",
+    "update.window_create_failed": "The update window could not be opened. Try again later.",
     "update.install_failed": "NextMail could not download or install the update. Try again later.",
     "accounts.window_create_failed": "The account management window could not be opened. Try again.",
     "message.raw_window_create_failed": "The message source window could not be opened. Try again.",

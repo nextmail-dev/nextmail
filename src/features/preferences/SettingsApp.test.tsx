@@ -191,6 +191,34 @@ describe("SettingsApp", () => {
     );
   });
 
+  it("makes the full preference row toggle the checkbox", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SettingsApp />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "More" }));
+    const description = screen.getByText(
+      "When exit confirmation is disabled, this setting decides whether closing the main window hides it in the tray or exits the app.",
+    );
+    const row = description.closest("label");
+    expect(row).toHaveClass("w-full", "cursor-pointer", "hover:bg-accent");
+    expect(row?.parentElement).toHaveClass(
+      "[&>label]:-mx-5",
+      "[&>label]:w-[calc(100%+2.5rem)]",
+    );
+    fireEvent.click(description);
+
+    await waitFor(() =>
+      expect(api.setDesktopPreferences).toHaveBeenCalledWith(
+        expect.objectContaining({ minimizeToTray: true }),
+        expect.anything(),
+      ),
+    );
+  });
+
   it("groups tray close preferences under More", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

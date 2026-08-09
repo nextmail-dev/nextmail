@@ -12,6 +12,7 @@ pub enum WindowTitleKind {
     RawMessage,
     TemplateEditor,
     SignatureEditor,
+    Update,
     Notification,
 }
 
@@ -32,6 +33,8 @@ pub fn window_title(language: &LanguagePreference, kind: WindowTitleKind) -> &'s
         (LanguagePreference::EnUs, WindowTitleKind::TemplateEditor) => "Edit Template — NextMail",
         (LanguagePreference::ZhCn, WindowTitleKind::SignatureEditor) => "编辑签名 — NextMail",
         (LanguagePreference::EnUs, WindowTitleKind::SignatureEditor) => "Edit Signature — NextMail",
+        (LanguagePreference::ZhCn, WindowTitleKind::Update) => "软件更新 — NextMail",
+        (LanguagePreference::EnUs, WindowTitleKind::Update) => "Software Update — NextMail",
     }
 }
 
@@ -60,6 +63,7 @@ fn kind_for_label(label: &str) -> WindowTitleKind {
             "settings" => WindowTitleKind::Settings,
             "accounts" => WindowTitleKind::Accounts,
             "raw-message" => WindowTitleKind::RawMessage,
+            "update" => WindowTitleKind::Update,
             _ => WindowTitleKind::Main,
         }
     }
@@ -92,5 +96,6 @@ mod tests {
             kind_for_label("notification-123"),
             WindowTitleKind::Notification
         );
+        assert_eq!(kind_for_label("update"), WindowTitleKind::Update);
     }
 }

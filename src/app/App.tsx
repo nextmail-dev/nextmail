@@ -51,6 +51,9 @@ const CompositionDefinitionEditorApp = lazy(() =>
 const NotificationApp = lazy(() =>
   import("@/features/notifications/NotificationApp").then((module) => ({ default: module.NotificationApp })),
 );
+const UpdateWindowApp = lazy(() =>
+  import("@/features/preferences/UpdateWindowApp").then((module) => ({ default: module.UpdateWindowApp })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -67,6 +70,7 @@ export function App() {
   const messagePreview = params.get("window") === "message-preview";
   const definitionEditor = params.get("window") === "definition";
   const notification = params.get("window") === "notification";
+  const update = params.get("window") === "update";
   const notificationId = params.get("notificationId") ?? "";
   const accountId = params.get("accountId") ?? "";
   const messageId = params.get("messageId") ?? "";
@@ -96,7 +100,9 @@ export function App() {
             ? "raw-message"
             : definitionEditor
               ? "definition"
-            : "main";
+              : update
+                ? "update"
+                : "main";
   const windowContent = composer && accountId && draftId
     ? <ComposerApp accountId={accountId} draftId={draftId} />
     : settings
@@ -115,7 +121,9 @@ export function App() {
                   definitionId={definitionId}
                 />
               )
-              : <AppContent />;
+              : update
+                ? <UpdateWindowApp />
+                : <AppContent />;
   return (
     <QueryClientProvider client={queryClient}>
       <AppearanceEventBridge />
@@ -175,7 +183,7 @@ class WindowContentBoundary extends Component<
 
   private closeWindow = () => {
     const appWindow = getCurrentWindow();
-    void (["settings", "accounts", "message-preview", "raw-message", "definition"].includes(this.props.kind)
+    void (["settings", "accounts", "message-preview", "raw-message", "definition", "update"].includes(this.props.kind)
       ? appWindow.destroy()
       : appWindow.close());
   };

@@ -111,13 +111,93 @@ pub fn resolve_main_close(
 }
 
 #[tauri::command]
-pub async fn check_for_update(app: AppHandle) -> CommandResult<UpdateCheckResult> {
-    updater_runtime::check(&app).await
+pub async fn check_for_update(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> CommandResult<UpdateCheckResult> {
+    let result = updater_runtime::check(&app).await?;
+    if result.available {
+        {
+            let mut available = state
+                .available_update
+                .lock()
+                .map_err(|_| crate::error::CommandError::new("update.window_create_failed"))?;
+            *available = Some(result.clone());
+        }
+        open_update_window_inner(&state, &app)?;
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn get_available_update(
+    state: State<'_, AppState>,
+    window: WebviewWindow,
+) -> CommandResult<UpdateCheckResult> {
+    if window.label() != "update" {
+        return Err(crate::error::CommandError::new("update.not_available"));
+    }
+    state
+        .available_update
+        .lock()
+        .map_err(|_| crate::error::CommandError::new("update.not_available"))?
+        .clone()
+        .ok_or_else(|| crate::error::CommandError::new("update.not_available"))
 }
 
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> CommandResult<()> {
     updater_runtime::install(&app).await
+}
+
+fn open_update_window_inner(state: &AppState, app: &AppHandle) -> CommandResult<()> {
+    if let Some(window) = app.get_webview_window("update") {
+        if window.is_visible().unwrap_or(false) {
+            window
+                .show()
+                .and_then(|_| window.set_focus())
+                .map_err(|_| crate::error::CommandError::new("update.window_create_failed"))?;
+        }
+        return Ok(());
+    }
+
+    let external_link_opener = std::sync::Arc::clone(&state.external_link_opener);
+    let builder = WebviewWindowBuilder::new(
+        app,
+        "update",
+        WebviewUrl::App("index.html?window=update".into()),
+    )
+    .title(window_title(
+        &state.service.get_preferences()?.language,
+        WindowTitleKind::Update,
+    ))
+    .inner_size(640.0, 560.0)
+    .min_inner_size(520.0, 420.0)
+    .center()
+    .on_new_window(move |url, _features| {
+        if let Err(error) =
+            crate::open_external_mail_target(external_link_opener.as_ref(), url.as_str())
+        {
+            tracing::warn!(
+                code = %error.code,
+                retryable = error.retryable,
+                "external update link opening failed"
+            );
+        }
+        tauri::webview::NewWindowResponse::Deny
+    })
+    .visible(false);
+    #[cfg(target_os = "windows")]
+    let builder = builder.decorations(false);
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+
+    builder
+        .build()
+        .map_err(|_| crate::error::CommandError::new("update.window_create_failed"))?;
+    Ok(())
 }
 
 #[tauri::command]

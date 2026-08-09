@@ -725,6 +725,7 @@
     "update.not_configured": "自动更新尚未配置验证密钥。",
     "update.check_failed": "无法检测更新，请检查网络后重试。",
     "update.not_available": "此更新已不可用，请重新检测。",
+    "update.window_create_failed": "无法打开更新窗口，请稍后重试。",
     "update.install_failed": "无法下载或安装更新，请稍后重试。",
     "accounts.window_create_failed": "无法打开账户管理窗口，请重试。",
     "message.raw_window_create_failed": "无法打开原始邮件窗口，请重试。",

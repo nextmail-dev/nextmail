@@ -77,6 +77,7 @@ export const api = {
   resolveMainClose: (action: MainCloseAction, remember: boolean) =>
     invoke<void>("resolve_main_close", { action, remember }),
   checkForUpdate: () => invoke<UpdateCheckResult>("check_for_update"),
+  getAvailableUpdate: () => invoke<UpdateCheckResult>("get_available_update"),
   installUpdate: () => invoke<void>("install_update"),
   getNotificationPreferences: () =>
     invoke<NotificationPreferences>("get_notification_preferences"),

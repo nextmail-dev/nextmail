@@ -277,7 +277,7 @@ function SettingsContent({
     return (
       <SettingsSection category={category}>
         <SettingsGroup title={t("settings.group.contentPrivacy")}>
-          <PreferenceToggle
+          <Checkbox
             checked={readingPreferences.autoLoadRemoteImages}
             label={t("settings.autoLoadRemoteImages")}
             description={t("settings.autoLoadRemoteImagesDescription")}
@@ -285,7 +285,7 @@ function SettingsContent({
           />
         </SettingsGroup>
         <SettingsGroup title={t("settings.group.attachments")}>
-          <PreferenceToggle
+          <Checkbox
             checked={readingPreferences.autoOpenDownloadedAttachments}
             label={t("settings.autoOpenDownloadedAttachments")}
             description={t("settings.autoOpenDownloadedAttachmentsDescription")}
@@ -293,7 +293,7 @@ function SettingsContent({
           />
         </SettingsGroup>
         <SettingsGroup title={t("settings.group.listBehavior")}>
-          <PreferenceToggle
+          <Checkbox
             checked={readingPreferences.autoLoadMoreMessages}
             label={t("settings.autoLoadMoreMessages")}
             description={t("settings.autoLoadMoreMessagesDescription")}
@@ -329,13 +329,13 @@ function SettingsContent({
     return (
       <SettingsSection category={category}>
         <SettingsGroup title={t("settings.group.tray")}>
-          <PreferenceToggle
+          <Checkbox
             checked={desktopPreferences.minimizeToTray}
             label={t("settings.minimizeToTray")}
             description={t("settings.minimizeToTrayDescription")}
             onCheckedChange={(minimizeToTray) => onDesktopChange({ ...desktopPreferences, minimizeToTray })}
           />
-          <PreferenceToggle
+          <Checkbox
             checked={desktopPreferences.askBeforeExit}
             label={t("settings.askBeforeExit")}
             description={t("settings.askBeforeExitDescription")}
@@ -343,7 +343,7 @@ function SettingsContent({
           />
         </SettingsGroup>
         <SettingsGroup title={t("settings.group.listBehavior")}>
-          <PreferenceToggle
+          <Checkbox
             checked={readingPreferences.autoLoadMoreContacts}
             label={t("settings.autoLoadMoreContacts")}
             description={t("settings.autoLoadMoreContactsDescription")}
@@ -404,28 +404,12 @@ function SettingsSection({ category, children }: { category: SettingsCategory; c
 
 function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Stack className="rounded-lg bg-muted/60 p-5" gap="md">
+    <Stack
+      className="rounded-lg bg-muted/60 p-5 [&>label]:-mx-5 [&>label]:w-[calc(100%+2.5rem)] [&>label]:rounded-none [&>label]:px-7"
+      gap="md"
+    >
       <Heading level={2} className="text-base">{title}</Heading>
       {children}
-    </Stack>
-  );
-}
-
-function PreferenceToggle({
-  checked,
-  label,
-  description,
-  onCheckedChange,
-}: {
-  checked: boolean;
-  label: string;
-  description: string;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  return (
-    <Stack gap="sm">
-      <Checkbox checked={checked} label={label} onCheckedChange={onCheckedChange} />
-      <Text className="pl-[28px] text-xs">{description}</Text>
     </Stack>
   );
 }

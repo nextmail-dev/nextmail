@@ -42,7 +42,7 @@ pub fn run() {
                         label
                     }
                 })
-                .with_filter(|label| !label.starts_with("notification-"))
+                .with_filter(|label| !label.starts_with("notification-") && label != "update")
                 .build(),
         )
         .setup(|app| {
@@ -68,6 +68,7 @@ pub fn run() {
             commands::set_desktop_preferences,
             commands::resolve_main_close,
             commands::check_for_update,
+            commands::get_available_update,
             commands::install_update,
             commands::get_notification_preferences,
             commands::set_notification_preferences,

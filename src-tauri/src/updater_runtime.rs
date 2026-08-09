@@ -10,6 +10,7 @@ const GEO_ENDPOINT: &str = "https://api.next-mail.app/api/v1/geo";
 const DIRECT_UPDATE_ENDPOINT: &str =
     "https://github.com/nextmail-dev/nextmail/releases/latest/download/latest.json";
 const CN_UPDATE_ENDPOINT: &str = "https://proxy.next-mail.app/https://github.com/nextmail-dev/nextmail/releases/latest/download/latest-cn.json";
+const MAX_RELEASE_NOTES_BYTES: usize = 64 * 1024;
 
 #[derive(Deserialize)]
 struct GeoResponse {
@@ -35,7 +36,7 @@ pub async fn check(app: &AppHandle) -> CommandResult<UpdateCheckResult> {
             available: true,
             current_version,
             version: Some(update.version),
-            notes: update.body,
+            notes: update.body.map(bound_release_notes),
         },
         None => UpdateCheckResult {
             available: false,
@@ -44,6 +45,19 @@ pub async fn check(app: &AppHandle) -> CommandResult<UpdateCheckResult> {
             notes: None,
         },
     })
+}
+
+fn bound_release_notes(mut notes: String) -> String {
+    if notes.len() <= MAX_RELEASE_NOTES_BYTES {
+        return notes;
+    }
+    let mut end = MAX_RELEASE_NOTES_BYTES;
+    while !notes.is_char_boundary(end) {
+        end -= 1;
+    }
+    notes.truncate(end);
+    notes.push_str("\n\n…");
+    notes
 }
 
 pub async fn install(app: &AppHandle) -> CommandResult<()> {
@@ -139,5 +153,14 @@ mod tests {
         assert!(!geo_response_is_mainland_china(br#"{"country_code":"US"}"#));
         assert!(!geo_response_is_mainland_china(br#"{"country":"CN"}"#));
         assert!(!geo_response_is_mainland_china(b"not-json"));
+    }
+
+    #[test]
+    fn release_notes_are_bounded_on_a_utf8_boundary() {
+        let notes = "界".repeat(MAX_RELEASE_NOTES_BYTES);
+        let bounded = bound_release_notes(notes);
+        assert!(bounded.is_char_boundary(bounded.len()));
+        assert!(bounded.len() <= MAX_RELEASE_NOTES_BYTES + "\n\n…".len());
+        assert!(bounded.ends_with("\n\n…"));
     }
 }

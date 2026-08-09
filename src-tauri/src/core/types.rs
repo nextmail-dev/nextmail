@@ -111,7 +111,7 @@ pub enum MainCloseAction {
     Quit,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCheckResult {
     pub available: bool,

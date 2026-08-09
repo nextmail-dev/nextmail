@@ -349,23 +349,23 @@ function SignaturePreferencesPanel({
   const { t } = useTranslation();
   const defaultSignature = signatures.find((value) => value.id === preferences?.defaultSignatureId);
   return (
-    <Surface className="p-4 shadow-none ring-1 ring-border/70">
-      <Stack gap="sm">
-        <Checkbox
-          checked={preferences?.autoInsert ?? true}
-          disabled={!preferences || loading}
-          label={t("compositionLibrary.autoSelectDefaultSignature")}
-          onCheckedChange={onAutoInsertChange}
-        />
-        <Text className="pl-7 text-xs">
+    <Surface className="p-4 shadow-none ring-1 ring-border/70 [&>label]:-mx-4 [&>label]:w-[calc(100%+2rem)] [&>label]:rounded-none [&>label]:px-7">
+      <Checkbox
+        checked={preferences?.autoInsert ?? true}
+        disabled={!preferences || loading}
+        label={t("compositionLibrary.autoSelectDefaultSignature")}
+        description={(
+          <>
           {defaultSignature
             ? t("compositionLibrary.currentDefaultSignature", { name: defaultSignature.name })
             : t("compositionLibrary.noDefaultSignature")}
           {accountScope && preferences?.inherited
             ? ` ${t("compositionLibrary.inheritedDefaultSignature")}`
             : ""}
-        </Text>
-      </Stack>
+          </>
+        )}
+        onCheckedChange={onAutoInsertChange}
+      />
     </Surface>
   );
 }
