@@ -147,7 +147,10 @@ mod tests {
         let raw_text = String::from_utf8_lossy(&raw).to_ascii_lowercase();
         assert!(!raw_text.contains("\r\nbcc:"));
         assert!(!raw_text.contains("hidden@example.com"));
-        assert!(raw_text.contains("\r\nx-mailer: nextmail/0.3.1"));
+        assert!(raw_text.contains(&format!(
+            "\r\nx-mailer: nextmail/{}",
+            env!("CARGO_PKG_VERSION")
+        )));
 
         let date_header = String::from_utf8_lossy(&raw)
             .lines()

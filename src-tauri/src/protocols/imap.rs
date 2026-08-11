@@ -267,7 +267,8 @@ where
         .into_iter()
         .collect();
     let mut uids: Vec<u32> = remote_uids
-        .into_iter()
+        .iter()
+        .copied()
         .filter(|uid| !stored.contains(uid))
         .collect();
     uids.sort_unstable();
@@ -302,7 +303,16 @@ where
     }
 
     if download_full_messages {
-        fetch_missing_bodies(sessions, account, sink, observer, &context, &write_lock).await?;
+        fetch_missing_bodies(
+            sessions,
+            account,
+            sink,
+            observer,
+            &context,
+            &write_lock,
+            &remote_uids,
+        )
+        .await?;
     }
 
     reconcile_flags(
@@ -421,15 +431,31 @@ async fn fetch_missing_bodies<T>(
     observer: &(dyn SyncObserver + Send + Sync),
     context: &FolderSyncContext<'_>,
     write_lock: &Mutex<()>,
+    remote_uids: &HashSet<u32>,
 ) -> CommandResult<()>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    let uids = pending_body_uids(
+    let pending = pending_body_uids(
         sink.pending_body_locations(&context.mailbox.id, None)
             .await?,
         context.uid_validity,
     );
+    // Only fetch bodies for messages the server still lists. A UID present
+    // locally but absent from uid_search was expunged or moved since we stored
+    // its header; reconcile_flags (run next) prunes the local stub.
+    let uids = pending
+        .iter()
+        .copied()
+        .filter(|uid| remote_uids.contains(uid))
+        .collect::<Vec<_>>();
+    if uids.len() < pending.len() {
+        tracing::debug!(
+            skipped = pending.len() - uids.len(),
+            mailbox_name = %context.mailbox_name,
+            "skipped body fetch for messages no longer listed on server"
+        );
+    }
     let total = uids.len() as u64;
     if total == 0 {
         return Ok(());
@@ -483,24 +509,50 @@ where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
     for uid in uids {
-        let messages = session::fetch_remote_messages(
+        match session::fetch_remote_messages(
             session,
             std::slice::from_ref(uid),
             context.uid_validity,
         )
-        .await?;
-        for message in messages {
-            {
-                let _write_guard = write_lock.lock().await;
-                sink.upsert_message(&account.account_slot_id, &context.mailbox.id, &message)
-                    .await?;
+        .await
+        {
+            Ok(messages) => {
+                for message in messages {
+                    {
+                        let _write_guard = write_lock.lock().await;
+                        sink.upsert_message(
+                            &account.account_slot_id,
+                            &context.mailbox.id,
+                            &message,
+                        )
+                        .await?;
+                    }
+                    let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                    observer.notify(SyncNotice::Bodies {
+                        completed: done,
+                        total,
+                        mailbox_name: context.mailbox_name.to_owned(),
+                    });
+                }
             }
-            let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
-            observer.notify(SyncNotice::Bodies {
-                completed: done,
-                total,
-                mailbox_name: context.mailbox_name.to_owned(),
-            });
+            Err(error) if is_message_unavailable_error(&error.code) => {
+                // Message vanished on the server after we stored its header;
+                // reconcile_flags (run next) prunes the local stub, so skip
+                // rather than fail the whole folder sync.
+                tracing::warn!(
+                    uid,
+                    mailbox_name = %context.mailbox_name,
+                    code = %error.code,
+                    "message no longer available on server, skipping body fetch"
+                );
+                let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                observer.notify(SyncNotice::Bodies {
+                    completed: done,
+                    total,
+                    mailbox_name: context.mailbox_name.to_owned(),
+                });
+            }
+            Err(error) => return Err(error),
         }
     }
     Ok(())
@@ -645,6 +697,15 @@ fn map_imap_err<E: std::fmt::Debug>(
     }
 }
 
+// A single message whose body can't be fetched right now is a per-message
+// condition, not a connectivity or auth failure: the message was expunged or
+// moved on the server after we stored its header. Body backfill skips these so
+// one vanished message can't fail the whole folder sync; reconcile_flags prunes
+// the local stub in the same run.
+fn is_message_unavailable_error(code: &str) -> bool {
+    matches!(code, "sync.message_not_found" | "sync.message_body_missing")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -656,6 +717,17 @@ mod tests {
     fn formats_a_batch_as_one_uid_set() {
         assert_eq!(format_uid_set(&[3, 7, 9]), "3,7,9");
         assert_eq!(format_uid_set(&[]), "");
+    }
+
+    #[test]
+    fn classifies_message_unavailable_errors() {
+        assert!(is_message_unavailable_error("sync.message_not_found"));
+        assert!(is_message_unavailable_error("sync.message_body_missing"));
+        assert!(!is_message_unavailable_error(
+            "sync.message_body_fetch_failed"
+        ));
+        assert!(!is_message_unavailable_error("sync.uid_validity_changed"));
+        assert!(!is_message_unavailable_error(""));
     }
 
     #[test]
