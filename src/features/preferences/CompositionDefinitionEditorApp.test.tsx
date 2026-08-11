@@ -138,7 +138,7 @@ describe("CompositionDefinitionEditorApp", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
       target: { value: "Customer reply" },
     });
-    const to = screen.getByRole("textbox", { name: "To" });
+    const to = screen.getByRole("combobox", { name: "To" });
     const toRow = to.parentElement?.parentElement?.parentElement;
     expect(screen.getByText("To", { selector: "label" })).toHaveClass("items-center", "w-24");
     expect(screen.getByText("To", { selector: "label" })).not.toHaveClass("border-r");
@@ -147,7 +147,7 @@ describe("CompositionDefinitionEditorApp", () => {
     expect(toRow?.parentElement).not.toHaveClass("rounded-lg", "ring-1");
     fireEvent.change(to, { target: { value: "ali" } });
     fireEvent.click(await screen.findByRole("option", { name: /Alice Local/ }));
-    const cc = screen.getByRole("textbox", { name: "Cc" });
+    const cc = screen.getByRole("combobox", { name: "Cc" });
     fireEvent.change(cc, { target: { value: "team@example.com" } });
     fireEvent.blur(cc);
     fireEvent.change(screen.getByRole("textbox", { name: "Email subject" }), {

@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api } from "@/app/api";
@@ -47,19 +47,37 @@ export function RecipientField({
 }: RecipientFieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
+  const suggestionsId = `${id}-suggestions`;
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const trimmedInput = input.trim();
+  const suggestions = useQuery({
+    queryKey: mailQueryKeys.contactSuggestions(accountId ?? "", trimmedInput),
+    queryFn: () => api.listContactSuggestions(accountId ?? "", trimmedInput, 8),
+    enabled: Boolean(accountId && trimmedInput && !disabled && onSelectContact),
+  });
+  const existing = new Set(addresses.map((address) => address.email.trim().toLocaleLowerCase()));
+  const visibleSuggestions = (suggestions.data ?? []).filter(
+    (contact) => !existing.has(contact.email.trim().toLocaleLowerCase()),
+  );
+  const activeContact = visibleSuggestions[activeSuggestion];
+
+  function selectSuggestion(contact: ContactSummary) {
+    setActiveSuggestion(-1);
+    onSelectContact?.(contact);
+  }
+
   return (
     <div className={cn(
-      "flex min-h-11 items-start bg-card",
-      structured && "border-b border-border/70",
+      "flex min-h-11 items-start border-b border-border/70 bg-card",
       error && "pb-1",
     )}>
       <label
         htmlFor={id}
         className={cn(
-          "shrink-0 px-4 text-xs font-semibold text-muted-foreground",
+          "shrink-0 px-4 font-semibold text-muted-foreground",
           structured
-            ? "flex w-24 self-stretch items-center py-2"
-            : "w-20 pt-3",
+            ? "flex w-24 self-stretch items-center py-2 text-xs"
+            : "w-20 pt-3 text-justify text-sm [text-align-last:justify]",
         )}
       >
         {label}
@@ -86,9 +104,36 @@ export function RecipientField({
             placeholder={addresses.length ? undefined : placeholder}
             aria-invalid={Boolean(error)}
             aria-describedby={error ? errorId : undefined}
-            onChange={(event) => onInputChange(event.currentTarget.value)}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={Boolean(visibleSuggestions.length)}
+            aria-controls={visibleSuggestions.length ? suggestionsId : undefined}
+            aria-activedescendant={activeContact
+              ? `${suggestionsId}-${activeContact.id}`
+              : undefined}
+            onChange={(event) => {
+              setActiveSuggestion(-1);
+              onInputChange(event.currentTarget.value);
+            }}
             onBlur={() => { if (input.trim()) onCommit(); }}
             onKeyDown={(event) => {
+              if (visibleSuggestions.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                event.preventDefault();
+                setActiveSuggestion((current) => event.key === "ArrowDown"
+                  ? (current + 1) % visibleSuggestions.length
+                  : (current <= 0 || current >= visibleSuggestions.length
+                    ? visibleSuggestions.length - 1
+                    : current - 1));
+                return;
+              }
+              if (event.key === "Enter" && activeSuggestion >= 0) {
+                const contact = visibleSuggestions[activeSuggestion];
+                if (contact) {
+                  event.preventDefault();
+                  selectSuggestion(contact);
+                  return;
+                }
+              }
               const commitSeparator = event.key === "Enter" || event.key === "," || event.key === ";";
               const completeSpace = event.key === " " && input.trim().length > 0;
               if (commitSeparator || completeSpace) {
@@ -101,12 +146,13 @@ export function RecipientField({
               }
             }}
           />
-          {accountId && input.trim() && !disabled && onSelectContact ? (
+          {visibleSuggestions.length ? (
             <ContactSuggestions
-              accountId={accountId}
-              query={input.trim()}
-              existingEmails={addresses.map((address) => address.email)}
-              onSelect={onSelectContact}
+              id={suggestionsId}
+              contacts={visibleSuggestions}
+              activeIndex={activeSuggestion}
+              onActiveIndexChange={setActiveSuggestion}
+              onSelect={selectSuggestion}
             />
           ) : null}
         </div>
@@ -117,35 +163,34 @@ export function RecipientField({
   );
 }
 
-function ContactSuggestions({ accountId, query, existingEmails, onSelect }: {
-  accountId: string;
-  query: string;
-  existingEmails: string[];
+function ContactSuggestions({ id, contacts, activeIndex, onActiveIndexChange, onSelect }: {
+  id: string;
+  contacts: ContactSummary[];
+  activeIndex: number;
+  onActiveIndexChange: (index: number) => void;
   onSelect: (contact: ContactSummary) => void;
 }) {
   const { t } = useTranslation();
-  const suggestions = useQuery({
-    queryKey: mailQueryKeys.contactSuggestions(accountId, query),
-    queryFn: () => api.listContactSuggestions(accountId, query, 8),
-  });
-  const existing = new Set(existingEmails.map((email) => email.trim().toLocaleLowerCase()));
-  const visible = (suggestions.data ?? []).filter(
-    (contact) => !existing.has(contact.email.trim().toLocaleLowerCase()),
-  );
-  if (!visible.length) return null;
   return (
     <div
+      id={id}
       className="absolute top-full left-0 z-50 mt-1 w-[min(28rem,calc(100vw-3rem))] overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-xl"
       role="listbox"
       aria-label={t("contacts.suggestions")}
     >
-      {visible.map((contact) => (
+      {contacts.map((contact, index) => (
         <button
           key={contact.id}
+          id={`${id}-${contact.id}`}
           type="button"
           role="option"
-          className="flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+          aria-selected={index === activeIndex}
+          className={cn(
+            "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
+            index === activeIndex && "bg-muted",
+          )}
           onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => onActiveIndexChange(index)}
           onClick={() => onSelect(contact)}
         >
           <ContactInitial name={contact.name} className="size-8 text-xs" />

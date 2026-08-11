@@ -259,7 +259,8 @@ impl ComposerRuntime {
         let language = self.service.get_preferences()?.language;
         let labels = match &language {
             LanguagePreference::ZhCn => MessageActionLabels {
-                original_message: "原始邮件",
+                reply_original_message: "回复的原始邮件",
+                forward_original_message: "转发的原始邮件",
                 from: "发件人",
                 date: "发件时间",
                 to: "收件人",
@@ -268,7 +269,8 @@ impl ComposerRuntime {
                 forward_subject_prefix: "转发：",
             },
             LanguagePreference::EnUs => MessageActionLabels {
-                original_message: "Original message",
+                reply_original_message: "Original message — Reply",
+                forward_original_message: "Original message — Forward",
                 from: "From",
                 date: "Sent",
                 to: "To",

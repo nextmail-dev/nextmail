@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Paperclip, Send, Trash2 } from "lucide-react";
+import { Paperclip, Send, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -77,7 +77,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   const [ccInput, setCcInput] = useState("");
   const [bccInput, setBccInput] = useState("");
   const [recipientErrors, setRecipientErrors] = useState<Record<RecipientKind, string | null>>({ to: null, cc: null, bcc: null });
-  const [showCopies, setShowCopies] = useState(Boolean(cc.length || bcc.length));
+  const [showBcc, setShowBcc] = useState(Boolean(bcc.length));
   const [subject, setSubject] = useState(draft.subject);
   const [content, setContent] = useState<DraftContent>(draft.content);
   const [attachments, setAttachments] = useState(draft.attachments);
@@ -368,7 +368,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           setCcInput("");
           setBccInput("");
           setRecipientErrors({ to: null, cc: null, bcc: null });
-          setShowCopies(Boolean(nextCc.length || nextBcc.length));
+          setShowBcc(Boolean(nextBcc.length));
         }
         if (hasTemplateContent(rendered.content)) {
           editorRef.current?.replaceTemplate(rendered.id, rendered.content);
@@ -498,11 +498,10 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       </Inline>
 
       <Page className="flex min-h-0 flex-1 flex-col">
-        <Inline className="min-h-11 gap-0 bg-card">
-          <Text className="w-20 shrink-0 px-4 text-xs font-semibold">{t("composer.from")}</Text>
+        <Inline className="min-h-11 gap-0 border-b border-border/70 bg-card">
+          <Text className="w-20 shrink-0 px-4 text-justify text-sm font-semibold [text-align-last:justify]">{t("composer.from")}</Text>
           <AddressTag address={{ name: sender.displayName || null, email: sender.email }} />
         </Inline>
-        <Separator />
         <RecipientField
           accountId={sender.id}
           label={t("composer.to")}
@@ -518,48 +517,49 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           onEditLast={(address, index) => editLastRecipient("to", address, index)}
           onSelectContact={(contact) => selectContactRecipient("to", contact)}
           trailing={
-            <Button type="button" variant="ghost" size="sm" className="mr-2 mt-1.5 self-start" onClick={() => setShowCopies((value) => !value)}>
-              {t("composer.ccBcc")}<ChevronDown size={14} />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="mr-2 mt-1.5 self-start"
+              aria-expanded={showBcc}
+              onClick={() => setShowBcc((value) => !value)}
+            >
+              {t("composer.bcc")}
             </Button>
           }
         />
-        <Separator />
-        {showCopies ? (
-          <>
-            <RecipientField
-              accountId={sender.id}
-              label={t("composer.cc")}
-              addresses={cc}
-              resolvedAddresses={resolvedRecipientsByEmail}
-              input={ccInput}
-              error={recipientErrors.cc ? t("composer.invalidRecipient", { value: recipientErrors.cc }) : null}
-              disabled={!editable}
-              onInputChange={(value) => setRecipientInput("cc", value)}
-              onCommit={() => commitRecipient("cc")}
-              onRemove={(index) => removeRecipient("cc", index)}
-              onEditLast={(address, index) => editLastRecipient("cc", address, index)}
-              onSelectContact={(contact) => selectContactRecipient("cc", contact)}
-            />
-            <Separator />
-            <RecipientField
-              accountId={sender.id}
-              label={t("composer.bcc")}
-              addresses={bcc}
-              resolvedAddresses={resolvedRecipientsByEmail}
-              input={bccInput}
-              error={recipientErrors.bcc ? t("composer.invalidRecipient", { value: recipientErrors.bcc }) : null}
-              disabled={!editable}
-              onInputChange={(value) => setRecipientInput("bcc", value)}
-              onCommit={() => commitRecipient("bcc")}
-              onRemove={(index) => removeRecipient("bcc", index)}
-              onEditLast={(address, index) => editLastRecipient("bcc", address, index)}
-              onSelectContact={(contact) => selectContactRecipient("bcc", contact)}
-            />
-            <Separator />
-          </>
+        <RecipientField
+          accountId={sender.id}
+          label={t("composer.cc")}
+          addresses={cc}
+          resolvedAddresses={resolvedRecipientsByEmail}
+          input={ccInput}
+          error={recipientErrors.cc ? t("composer.invalidRecipient", { value: recipientErrors.cc }) : null}
+          disabled={!editable}
+          onInputChange={(value) => setRecipientInput("cc", value)}
+          onCommit={() => commitRecipient("cc")}
+          onRemove={(index) => removeRecipient("cc", index)}
+          onEditLast={(address, index) => editLastRecipient("cc", address, index)}
+          onSelectContact={(contact) => selectContactRecipient("cc", contact)}
+        />
+        {showBcc ? (
+          <RecipientField
+            accountId={sender.id}
+            label={t("composer.bcc")}
+            addresses={bcc}
+            resolvedAddresses={resolvedRecipientsByEmail}
+            input={bccInput}
+            error={recipientErrors.bcc ? t("composer.invalidRecipient", { value: recipientErrors.bcc }) : null}
+            disabled={!editable}
+            onInputChange={(value) => setRecipientInput("bcc", value)}
+            onCommit={() => commitRecipient("bcc")}
+            onRemove={(index) => removeRecipient("bcc", index)}
+            onEditLast={(address, index) => editLastRecipient("bcc", address, index)}
+            onSelectContact={(contact) => selectContactRecipient("bcc", contact)}
+          />
         ) : null}
         <CompactField label={t("composer.subject")} value={subject} disabled={!editable} onChange={(event) => { setSubject(event.currentTarget.value); markDirty(); }} />
-        <Separator />
         <Inline className="min-h-12 shrink-0 flex-wrap bg-card px-4 py-2">
           <SelectField
             compact

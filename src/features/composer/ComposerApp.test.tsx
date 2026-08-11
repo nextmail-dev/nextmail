@@ -44,6 +44,7 @@ vi.mock("@/app/api", () => ({
     getComposerBootstrap: vi.fn(),
     getPreferences: vi.fn(),
     getSendJob: vi.fn(),
+    listContactSuggestions: vi.fn(),
     queueDraftSend: vi.fn(),
     queueRemoteDraft: vi.fn(),
     removeDraftAttachment: vi.fn(),
@@ -136,6 +137,7 @@ beforeEach(() => {
     language: "en-US",
   });
   vi.mocked(api.getComposerBootstrap).mockResolvedValue(bootstrap);
+  vi.mocked(api.listContactSuggestions).mockResolvedValue([]);
   vi.mocked(api.saveDraft).mockImplementation(async (_accountId, _draftId, _recipients, _subject, content) => ({
     ...bootstrap.draft,
     content,
@@ -157,14 +159,14 @@ afterEach(cleanup);
 describe("ComposerApp close lifecycle", () => {
   it("keeps a recipient editable until a delimiter or blur commits it", async () => {
     renderComposer();
-    const recipient = await screen.findByRole("textbox", { name: "To" });
+    const recipient = await screen.findByRole("combobox", { name: "To" });
 
     fireEvent.change(recipient, { target: { value: "alice@example.com" } });
     await act(async () => {
       await new Promise((resolve) => window.setTimeout(resolve, 900));
     });
 
-    expect(screen.getByRole("textbox", { name: "To" })).toHaveValue("alice@example.com");
+    expect(screen.getByRole("combobox", { name: "To" })).toHaveValue("alice@example.com");
     expect(screen.queryByRole("button", { name: "To: alice@example.com" })).not.toBeInTheDocument();
     expect(api.saveDraft).not.toHaveBeenCalled();
   });
@@ -223,6 +225,30 @@ describe("ComposerApp close lifecycle", () => {
     expect(screen.queryByText("Draft saved")).not.toBeInTheDocument();
   });
 
+  it("shows Cc by default and toggles only Bcc with a secondary button", async () => {
+    renderComposer();
+
+    const fromLabel = await screen.findByText("From", { selector: "p" });
+    const toLabel = screen.getByText("To", { selector: "label" });
+    const ccLabel = screen.getByText("Cc", { selector: "label" });
+    const subjectLabel = screen.getByText("Subject", { selector: "span" });
+    for (const label of [fromLabel, toLabel, ccLabel, subjectLabel]) {
+      expect(label).toHaveClass("text-sm", "text-justify", "[text-align-last:justify]");
+      expect(label.parentElement).toHaveClass("border-b", "border-border/70");
+    }
+    expect(await screen.findByRole("combobox", { name: "Cc" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Bcc" })).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: "Bcc" });
+    expect(toggle).toHaveClass("bg-secondary");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole("combobox", { name: "Bcc" })).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("combobox", { name: "Bcc" })).not.toBeInTheDocument();
+  });
+
   it("renders and replaces an explicitly selected template through the stable editor handle", async () => {
     vi.mocked(api.getComposerBootstrap).mockResolvedValue({
       ...bootstrap,
@@ -266,9 +292,10 @@ describe("ComposerApp close lifecycle", () => {
         bcc: [{ name: null, email: "old-bcc@example.com" }],
       },
     ));
-    expect(replaceTemplateMock).toHaveBeenCalledWith("template-one", expect.objectContaining({
-      plainText: "Hello",
-    }));
+    await waitFor(() => expect(replaceTemplateMock).toHaveBeenCalledWith(
+      "template-one",
+      expect.objectContaining({ plainText: "Hello" }),
+    ));
     expect(screen.getByRole("button", { name: "To: new@example.com" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "To: old@example.com" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cc: old-cc@example.com" })).toBeInTheDocument();

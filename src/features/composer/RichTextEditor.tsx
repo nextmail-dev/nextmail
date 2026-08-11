@@ -183,6 +183,13 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         class: "nextmail-editor-content",
         "aria-label": ariaLabel ?? t("composer.body"),
       },
+      handleKeyDown: (view, event) => {
+        if (disabledRef.current || event.key !== "Tab") return false;
+        preserveExactSourceRef.current = false;
+        event.preventDefault();
+        view.dispatch(view.state.tr.insertText("\u00a0".repeat(4)));
+        return true;
+      },
       handlePaste: (_view, event) => {
         const clipboard = event.clipboardData;
         const html = clipboard?.getData("text/html") ?? "";

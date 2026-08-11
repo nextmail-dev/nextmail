@@ -242,6 +242,26 @@ describe("RichTextEditor composition nodes", () => {
     });
   });
 
+  it("inserts four preserved spaces instead of moving focus on Tab", async () => {
+    const onChange = vi.fn<(content: DraftContent) => void>();
+    const { container } = render(<RichTextEditor initialJson={EMPTY} onChange={onChange} />);
+    const editable = await waitFor(() => {
+      const value = container.querySelector<HTMLElement>(".ProseMirror");
+      expect(value).not.toBeNull();
+      return value as HTMLElement;
+    });
+    editable.focus();
+
+    expect(fireEvent.keyDown(editable, { key: "Tab" })).toBe(false);
+
+    await waitFor(() => {
+      const content = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(content?.html).toContain("&nbsp;&nbsp;&nbsp;&nbsp;");
+    });
+    expect(editable.textContent).toContain("\u00a0".repeat(4));
+    expect(editable).toHaveFocus();
+  });
+
   it("inserts a prepared reusable-definition image as a persistent data source", async () => {
     const onChange = vi.fn<(content: DraftContent) => void>();
     const onAddInlineImage = vi.fn(async () => ({

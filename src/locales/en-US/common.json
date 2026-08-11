@@ -274,7 +274,6 @@
     "to": "To",
     "cc": "Cc",
     "bcc": "Bcc",
-    "ccBcc": "Cc/Bcc",
     "subject": "Subject",
     "body": "Message body",
     "htmlSource": "HTML source",

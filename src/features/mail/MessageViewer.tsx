@@ -161,7 +161,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
   return (
     <Stack className="min-h-0 flex-1 bg-card" gap="none">
       <Stack className="shrink-0 px-6 pt-6 pb-4" gap="sm">
-        <Heading level={1} className="select-text max-w-none text-[28px] leading-tight lg:text-[30px]">{message.subject || t("mail.noSubject")}</Heading>
+        <Heading level={1} className="select-text max-w-none text-xl leading-tight lg:text-xl">{message.subject || t("mail.noSubject")}</Heading>
         {message.pendingOperation ? (
           <Inline className="text-muted-foreground"><CloudUpload size={14} /><Text className="text-xs">{t("mail.pendingSync")}</Text></Inline>
         ) : null}

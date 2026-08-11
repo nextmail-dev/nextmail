@@ -131,6 +131,7 @@ describe("MessageViewer", () => {
     expect(sender).not.toContainElement(senderName);
     expect(sender).toHaveTextContent("alice@example.com");
     expect(sender).toHaveClass("bg-muted/55");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveClass("text-xl", "lg:text-xl");
     const recipient = screen.getByLabelText("user@example.com");
     expect(recipient.closest(".select-text")).not.toBeNull();
     expect(recipient).toHaveClass("bg-muted/55");

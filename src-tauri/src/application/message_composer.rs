@@ -7,7 +7,8 @@ use crate::core::{
 
 #[derive(Clone, Copy)]
 pub struct MessageActionLabels<'a> {
-    pub original_message: &'a str,
+    pub reply_original_message: &'a str,
+    pub forward_original_message: &'a str,
     pub from: &'a str,
     pub date: &'a str,
     pub to: &'a str,
@@ -57,9 +58,14 @@ pub fn compose_message_action_draft(
 
     let sender = format_addresses(&source.from);
     let original_recipients = format_addresses(&source.to);
+    let original_message = match action {
+        MessageComposeAction::Reply | MessageComposeAction::ReplyAll => {
+            labels.reply_original_message
+        }
+        MessageComposeAction::Forward => labels.forward_original_message,
+    };
     let original_header = format!(
-        "---------- {} ----------\n{}: {sender}\n{}: {sent_at}\n{}: {original_recipients}\n{}: {}",
-        labels.original_message,
+        "{original_message} ----------\n{}: {sender}\n{}: {sent_at}\n{}: {original_recipients}\n{}: {}",
         labels.from,
         labels.date,
         labels.to,
@@ -67,13 +73,16 @@ pub fn compose_message_action_draft(
         source.subject,
     );
     let original_header_html = format!(
-        "<div class=\"nextmail-original-heading\" style=\"margin:24px 0 12px;border-top:1px solid #d9dee7;padding-top:8px;color:#8a94a6;font-size:13px\">{}</div>\
+        "<div class=\"nextmail-original-heading\" style=\"display:flex;align-items:center;margin:24px 0 12px;color:#8a94a6;font-size:13px\">\
+         <span style=\"white-space:nowrap\">{}</span>\
+         <hr style=\"flex:1;min-width:0;margin:0 0 0 8px;border:0;border-top:1px solid #d9dee7\">\
+         </div>\
          <div class=\"nextmail-original-metadata\" style=\"padding:12px 14px;background-color:#f5f6f8;color:#111827;border-radius:8px;font-size:13px;line-height:1.6\">\
          <div><span style=\"color:#6b7280\">{}: </span>{}</div>\
          <div><span style=\"color:#6b7280\">{}: </span>{}</div>\
          <div><span style=\"color:#6b7280\">{}: </span>{}</div>\
          <div><span style=\"color:#6b7280\">{}: </span>{}</div></div>",
-        escape_html(labels.original_message),
+        escape_html(original_message),
         escape_html(labels.from),
         escape_html(&sender),
         escape_html(labels.date),
@@ -269,7 +278,8 @@ mod tests {
 
     fn labels() -> MessageActionLabels<'static> {
         MessageActionLabels {
-            original_message: "Original message",
+            reply_original_message: "Original message — Reply",
+            forward_original_message: "Original message — Forward",
             from: "From",
             date: "Sent",
             to: "To",
@@ -314,7 +324,15 @@ mod tests {
             .editor_json
             .contains("nextmailOriginalMessage"));
         assert!(draft.content.editor_json.contains("<strong>First</strong>"));
-        assert!(draft.content.html.contains("Original message"));
+        assert!(draft.content.html.contains("Original message — Reply"));
+        assert!(draft
+            .content
+            .html
+            .contains("<hr style=\"flex:1;min-width:0;margin:0 0 0 8px;border:0;border-top:1px solid #d9dee7\">"));
+        assert!(draft
+            .content
+            .plain_text
+            .contains("Original message — Reply ----------"));
         assert!(draft.content.html.contains("1970-01-01 00:00"));
         assert!(!draft.content.plain_text.contains("> First"));
     }
@@ -348,12 +366,18 @@ mod tests {
             .content
             .html
             .contains("data-nextmail-original-message"));
+        assert!(draft.content.html.contains("Original message — Forward"));
+        assert!(draft
+            .content
+            .plain_text
+            .contains("Original message — Forward ----------"));
     }
 
     #[test]
     fn localized_subject_prefixes_are_added_once() {
         let labels = MessageActionLabels {
-            original_message: "原始邮件",
+            reply_original_message: "回复的原始邮件",
+            forward_original_message: "转发的原始邮件",
             from: "发件人",
             date: "发件时间",
             to: "收件人",

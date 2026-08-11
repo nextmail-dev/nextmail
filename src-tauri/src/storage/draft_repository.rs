@@ -892,7 +892,8 @@ mod tests {
             "me@example.com",
             MessageComposeAction::ReplyAll,
             MessageActionLabels {
-                original_message: "Original message",
+                reply_original_message: "Original message — Reply",
+                forward_original_message: "Original message — Forward",
                 from: "From",
                 date: "Sent",
                 to: "To",

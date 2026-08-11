@@ -18,14 +18,15 @@ export const CompactField = forwardRef<HTMLInputElement, CompactFieldProps>(func
     <label
       htmlFor={id}
       className={cn(
-        "flex min-h-11 items-center overflow-hidden bg-card",
-        structured && "border-b border-border/70",
+        "flex min-h-11 items-center overflow-hidden border-b border-border/70 bg-card",
         className,
       )}
     >
       <span className={cn(
-        "shrink-0 px-4 text-xs font-semibold text-muted-foreground",
-        structured ? "flex w-24 self-stretch items-center py-2" : "w-20",
+        "shrink-0 px-4 font-semibold text-muted-foreground",
+        structured
+          ? "flex w-24 self-stretch items-center py-2 text-xs"
+          : "w-20 text-justify text-sm [text-align-last:justify]",
       )}>{label}</span>
       <input
         ref={ref}

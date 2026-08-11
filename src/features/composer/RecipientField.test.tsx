@@ -14,19 +14,22 @@ describe("RecipientField", () => {
     const address = { name: "Alice", email: "alice@example.com" };
     const onEditLast = vi.fn();
     const onRemove = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <RecipientField
-        label="To"
-        addresses={[address]}
-        input=""
-        onInputChange={vi.fn()}
-        onCommit={vi.fn()}
-        onRemove={onRemove}
-        onEditLast={onEditLast}
-      />,
+      <QueryClientProvider client={queryClient}>
+        <RecipientField
+          label="To"
+          addresses={[address]}
+          input=""
+          onInputChange={vi.fn()}
+          onCommit={vi.fn()}
+          onRemove={onRemove}
+          onEditLast={onEditLast}
+        />
+      </QueryClientProvider>,
     );
 
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "To" }), { key: "Backspace" });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "To" }), { key: "Backspace" });
 
     expect(onEditLast).toHaveBeenCalledWith(address, 0);
     expect(onRemove).not.toHaveBeenCalled();
@@ -34,19 +37,22 @@ describe("RecipientField", () => {
 
   it("commits immediately when a delimiter is pressed", () => {
     const onCommit = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <RecipientField
-        label="To"
-        addresses={[]}
-        input="alice@example.com"
-        onInputChange={vi.fn()}
-        onCommit={onCommit}
-        onRemove={vi.fn()}
-        onEditLast={vi.fn()}
-      />,
+      <QueryClientProvider client={queryClient}>
+        <RecipientField
+          label="To"
+          addresses={[]}
+          input="alice@example.com"
+          onInputChange={vi.fn()}
+          onCommit={onCommit}
+          onRemove={vi.fn()}
+          onEditLast={vi.fn()}
+        />
+      </QueryClientProvider>,
     );
 
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "To" }), { key: "," });
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "To" }), { key: "," });
     expect(onCommit).toHaveBeenCalledOnce();
   });
 
@@ -80,5 +86,57 @@ describe("RecipientField", () => {
     fireEvent.click(await screen.findByRole("option", { name: /Alice Local/ }));
     expect(api.listContactSuggestions).toHaveBeenCalledWith("account-one", "ali", 8);
     expect(onSelectContact).toHaveBeenCalledWith(expect.objectContaining({ id: "contact-one" }));
+  });
+
+  it("selects contact suggestions with arrow keys and Enter", async () => {
+    vi.mocked(api.listContactSuggestions).mockResolvedValue([
+      {
+        id: "contact-one",
+        name: "Alice Local",
+        email: "alice@example.com",
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: "contact-two",
+        name: "Bob Local",
+        email: "bob@example.com",
+        revision: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    const onCommit = vi.fn();
+    const onSelectContact = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RecipientField
+          accountId="account-one"
+          label="To"
+          addresses={[]}
+          input="local"
+          onInputChange={vi.fn()}
+          onCommit={onCommit}
+          onRemove={vi.fn()}
+          onEditLast={vi.fn()}
+          onSelectContact={onSelectContact}
+        />
+      </QueryClientProvider>,
+    );
+    const input = screen.getByRole("combobox", { name: "To" });
+    const options = await screen.findAllByRole("option");
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(options[0]).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(options[1]).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(options[0]).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onSelectContact).toHaveBeenCalledWith(expect.objectContaining({ id: "contact-one" }));
+    expect(onCommit).not.toHaveBeenCalled();
   });
 });
