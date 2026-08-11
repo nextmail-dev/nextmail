@@ -34,10 +34,10 @@ impl ImapSyncProvider for AsyncImapProvider {
     ) -> CommandResult<()> {
         let path_lock = self.mailbox_path_locks.lock(&account.account_id);
         let _path_guard = path_lock.read().await;
-        // A full sync leases only two of the three per-account slots. The
-        // remaining slot lets an interactive body/attachment request proceed
-        // without opening a fourth connection that can cause stricter servers
-        // to reset one of the existing sync sessions.
+        // A full sync leases four of the six per-account slots. The remaining
+        // two slots let interactive body/attachment and pending-operation
+        // requests proceed without opening a seventh connection that can cause
+        // stricter servers to reset one of the existing sync sessions.
         let budgeted =
             try_join_all((0..SYNC_SESSION_COUNT).map(|_| self.connect_budgeted_session(account)))
                 .await?;

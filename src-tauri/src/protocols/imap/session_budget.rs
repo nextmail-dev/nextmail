@@ -7,8 +7,8 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 use crate::core::{CommandError, CommandResult};
 
-pub(super) const ACCOUNT_SESSION_LIMIT: usize = 3;
-pub(super) const SYNC_SESSION_COUNT: usize = 2;
+pub(super) const ACCOUNT_SESSION_LIMIT: usize = 6;
+pub(super) const SYNC_SESSION_COUNT: usize = 4;
 
 /// Per-account concurrency budget for active IMAP sessions.
 ///
@@ -61,13 +61,20 @@ mod tests {
     use super::{SessionBudgetRegistry, ACCOUNT_SESSION_LIMIT, SYNC_SESSION_COUNT};
 
     #[tokio::test]
-    async fn keeps_one_interactive_slot_while_sync_workers_are_active() {
-        assert_eq!(ACCOUNT_SESSION_LIMIT, 3);
-        assert_eq!(SYNC_SESSION_COUNT, 2);
+    async fn keeps_interactive_slots_while_sync_workers_are_active() {
+        assert_eq!(ACCOUNT_SESSION_LIMIT, 6);
+        assert_eq!(SYNC_SESSION_COUNT, 4);
+        let interactive_slots = ACCOUNT_SESSION_LIMIT - SYNC_SESSION_COUNT;
+        assert_eq!(interactive_slots, 2);
         let registry = Arc::new(SessionBudgetRegistry::default());
-        let first_sync = registry.acquire("account").await.unwrap();
-        let second_sync = registry.acquire("account").await.unwrap();
-        let interactive = registry.acquire("account").await.unwrap();
+        let mut sync_permits = Vec::new();
+        for _ in 0..SYNC_SESSION_COUNT {
+            sync_permits.push(registry.acquire("account").await.unwrap());
+        }
+        let mut interactive_permits = Vec::new();
+        for _ in 0..interactive_slots {
+            interactive_permits.push(registry.acquire("account").await.unwrap());
+        }
 
         let waiting_registry = Arc::clone(&registry);
         let waiting =
@@ -76,12 +83,11 @@ mod tests {
             tokio::time::timeout(Duration::from_millis(30), waiting)
                 .await
                 .is_err(),
-            "a fourth session must wait instead of exceeding the account limit"
+            "a session beyond the account limit must wait"
         );
 
-        drop(interactive);
-        drop(second_sync);
-        drop(first_sync);
+        drop(interactive_permits);
+        drop(sync_permits);
     }
 
     #[tokio::test]
