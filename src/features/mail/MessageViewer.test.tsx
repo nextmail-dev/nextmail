@@ -144,6 +144,44 @@ describe("MessageViewer", () => {
     expect(recipient).toHaveClass("bg-muted/55");
   });
 
+  it("keeps HTML mail inset from the reading pane boundaries", async () => {
+    vi.mocked(api.getMessageDetail).mockResolvedValueOnce({
+      id: "message-html",
+      mailboxId: "inbox",
+      subject: "HTML message",
+      from: [{ contactId: null, name: "Alice", headerName: "Alice", email: "alice@example.com" }],
+      to: [{ contactId: null, name: null, headerName: null, email: "user@example.com" }],
+      cc: [],
+      receivedAt: 1,
+      plainText: null,
+      safeHtml: "<!doctype html><html><body>HTML body</body></html>",
+      bodyAvailability: "available",
+      attachments: [],
+      remoteImagesBlocked: false,
+      revision: 1,
+      unread: false,
+      flagged: false,
+      pendingOperation: false,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageViewer
+          accountId="account-one"
+          mailboxId="inbox"
+          messageId="message-html"
+          mailboxes={[]}
+          onMessageRemoved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    const frame = await screen.findByTitle("HTML message");
+    expect(frame.parentElement).toHaveClass("min-h-0", "flex-1", "overflow-hidden", "px-4", "py-3");
+  });
+
   it("collapses overflowing recipients to one row until explicitly expanded", async () => {
     const scrollHeight = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(56);
     const queryClient = new QueryClient({

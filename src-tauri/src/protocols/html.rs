@@ -138,6 +138,7 @@ fn sanitize_mail_html_with_data_urls(
     input: &str,
     cid_images: HashMap<String, String>,
 ) -> SanitizedHtml {
+    let native_dark_mode = has_authored_dark_mode(input);
     let cid_images = Arc::new(cid_images);
     let fragment = sanitize_mail_html_fragment_with_cid_images(
         input,
@@ -151,7 +152,12 @@ fn sanitize_mail_html_with_data_urls(
         && (normalized.contains("src=\"http://") || normalized.contains("src=\"https://"));
     SanitizedHtml {
         document: format!(
-            "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><style>html{{color-scheme:light}}body{{margin:0}}</style></head><body>{fragment}</body></html>"
+            "<!doctype html><html{}><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\"><style>html{{color-scheme:light}}body{{margin:0}}</style></head><body>{fragment}</body></html>",
+            if native_dark_mode {
+                " data-nextmail-native-dark=\"\""
+            } else {
+                ""
+            }
         ),
         remote_images_blocked,
         inline_content_ids: cid_images
@@ -161,6 +167,30 @@ fn sanitize_mail_html_with_data_urls(
             })
             .collect(),
     }
+}
+
+fn has_authored_dark_mode(input: &str) -> bool {
+    let lower = input.to_ascii_lowercase();
+    (lower.contains("prefers-color-scheme") && lower.contains("dark"))
+        || lower.contains("data-ogsc")
+        || lower.contains("data-ogsb")
+        || dark_color_scheme_meta(&lower)
+}
+
+fn dark_color_scheme_meta(input: &str) -> bool {
+    let mut remaining = input;
+    while let Some(start) = remaining.find("<meta") {
+        remaining = &remaining[start..];
+        let Some(end) = remaining.find('>') else {
+            return false;
+        };
+        let tag = &remaining[..=end];
+        if tag.contains("color-scheme") && tag.contains("dark") {
+            return true;
+        }
+        remaining = &remaining[end + 1..];
+    }
+    false
 }
 
 fn inline_image_data_urls(message: &Message<'_>, input: &str) -> HashMap<String, String> {
@@ -361,11 +391,12 @@ fn sanitize_mail_html_fragment_with_scope(
             ],
         )
         .add_tag_attributes("p", ["align"])
-        .add_tag_attributes("hr", ["data-nextmail-signature-divider"])
+        .add_tag_attributes("hr", ["color", "data-nextmail-signature-divider"])
         .add_tag_attributes(
             "table",
             [
                 "border",
+                "bordercolor",
                 "cellpadding",
                 "cellspacing",
                 "bgcolor",
@@ -378,9 +409,32 @@ fn sanitize_mail_html_fragment_with_scope(
         .add_tag_attributes("tbody", ["bgcolor", "height", "valign", "width"])
         .add_tag_attributes("thead", ["bgcolor", "height", "valign", "width"])
         .add_tag_attributes("tfoot", ["align", "bgcolor", "height", "valign", "width"])
-        .add_tag_attributes("tr", ["bgcolor", "height", "valign", "width"])
-        .add_tag_attributes("td", ["bgcolor", "height", "nowrap", "valign", "width"])
-        .add_tag_attributes("th", ["bgcolor", "height", "nowrap", "valign", "width"])
+        .add_tag_attributes(
+            "tr",
+            ["bgcolor", "bordercolor", "height", "valign", "width"],
+        )
+        .add_tag_attributes(
+            "td",
+            [
+                "bgcolor",
+                "bordercolor",
+                "height",
+                "nowrap",
+                "valign",
+                "width",
+            ],
+        )
+        .add_tag_attributes(
+            "th",
+            [
+                "bgcolor",
+                "bordercolor",
+                "height",
+                "nowrap",
+                "valign",
+                "width",
+            ],
+        )
         .add_tag_attributes("col", ["valign", "width"])
         .add_tag_attributes("colgroup", ["valign", "width"])
         .add_tag_attributes("img", ["border", "hspace", "vspace"])
@@ -389,7 +443,15 @@ fn sanitize_mail_html_fragment_with_scope(
             "form", "iframe", "object", "embed", "svg", "math", "meta", "link",
         ])
         .strip_comments(true)
-        .add_generic_attributes(["class", "dir", "id", "role", "style"])
+        .add_generic_attributes([
+            "class",
+            "data-ogsb",
+            "data-ogsc",
+            "dir",
+            "id",
+            "role",
+            "style",
+        ])
         .add_generic_attribute_prefixes(["aria-"])
         .set_tag_attribute_value("a", "target", "_blank")
         .attribute_filter(move |element, attribute, value| {
@@ -986,7 +1048,7 @@ mod tests {
     #[test]
     fn preserves_legacy_email_table_layout_and_css_selector_hooks() {
         let sanitized = sanitize_mail_html(
-            r##"<table class="campaign" id="mail-shell" role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" align="center" bgcolor="#ffffff"><tbody><tr valign="top" bgcolor="#eeeeee"><td width="420" height="80" valign="middle" nowrap><font face="Arial" size="3" color="#202124">Content</font></td></tr></tbody></table>"##,
+            r##"<hr color="#b5c4df"><table class="campaign" id="mail-shell" role="presentation" width="600" cellpadding="0" cellspacing="0" border="1" bordercolor="#000000" align="center" bgcolor="#ffffff"><tbody><tr valign="top" bgcolor="#eeeeee"><td width="420" height="80" valign="middle" nowrap><font face="Arial" size="3" color="#202124">Content</font></td></tr></tbody></table>"##,
         );
 
         for expected in [
@@ -996,7 +1058,9 @@ mod tests {
             "width=\"600\"",
             "cellpadding=\"0\"",
             "cellspacing=\"0\"",
-            "border=\"0\"",
+            "border=\"1\"",
+            "bordercolor=\"#000000\"",
+            "color=\"#b5c4df\"",
             "align=\"center\"",
             "bgcolor=\"#ffffff\"",
             "valign=\"middle\"",
@@ -1055,8 +1119,26 @@ mod tests {
         ));
         assert!(native_dark
             .document
+            .contains("data-nextmail-native-dark=\"\""));
+        assert!(native_dark
+            .document
             .contains("@media (prefers-color-scheme:dark)"));
         assert!(native_dark.document.contains("background-color:#252525"));
+
+        let plain = sanitize_mail_html(include_str!(
+            "../../../testdata/mail-rendering/plain-unstyled.html"
+        ));
+        assert!(!plain.document.contains("data-nextmail-native-dark"));
+    }
+
+    #[test]
+    fn carries_outlook_dark_hooks_through_the_safe_document() {
+        let sanitized =
+            sanitize_mail_html(r#"<div data-ogsc="" style="color:#eee">Outlook dark</div>"#);
+        assert!(sanitized
+            .document
+            .contains("data-nextmail-native-dark=\"\""));
+        assert!(sanitized.document.contains("data-ogsc=\"\""));
     }
 
     #[test]

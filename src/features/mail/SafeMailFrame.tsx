@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { DARK_MAIL_SURFACE, hasAuthoredDarkMode, smartInvertMailDocument } from "./mail-dark-mode";
+
 interface SafeMailFrameProps {
   document: string;
   title: string;
@@ -47,8 +49,11 @@ function prepareFrameDocument(source: string, allowRemoteImages: boolean, dark: 
   let document = allowRemoteImages
     ? source.replace("img-src data:;", "img-src data: http: https:;")
     : source;
+  if (dark && !hasAuthoredDarkMode(document)) {
+    document = smartInvertMailDocument(document);
+  }
   const themeStyle = dark
-    ? `<style id="nextmail-reader-theme">html{color-scheme:dark;background:#181818;color:#e8e8e8}body{background:#181818;color:#e8e8e8}a{color:#8ab4f8}hr,table{border-color:#3a3a3a}</style>`
+    ? `<style id="nextmail-reader-theme">html{color-scheme:dark;background:${DARK_MAIL_SURFACE};color:#e8e8e8}body{background:${DARK_MAIL_SURFACE};color:#e8e8e8}a{color:#8ab4f8}*{border-color:#6f6f6f}</style>`
     : `<style id="nextmail-reader-theme">html{color-scheme:light;background:#fff;color:#202124}body{background:#fff;color:#202124}</style>`;
   document = document.includes("</head>")
     ? document.replace("</head>", `${themeStyle}</head>`)

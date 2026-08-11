@@ -36,7 +36,7 @@ describe("appearance preferences", () => {
     expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe("#2563eb");
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe(accessiblePrimary("#2563eb", true));
     expect(document.documentElement.style.getPropertyValue("--primary-foreground")).toBe("#000000");
-    expect(contrast(document.documentElement.style.getPropertyValue("--primary"), "#15171b")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(document.documentElement.style.getPropertyValue("--primary"), "#171717")).toBeGreaterThanOrEqual(4.5);
   });
 
   it("darkens a bright light-theme accent without changing the saved source color", () => {

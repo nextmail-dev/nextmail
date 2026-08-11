@@ -52,11 +52,12 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 
 当前实施状态：
 
-- UI 视觉重构正在实施，统一建立桌面表面层级、明确边界和紧凑信息密度，并分批覆盖主窗口及独立业务窗口。
+- 邮件深色模式适配重构已完成并通过 Windows 实机验收：Rust 清洗前识别作者原生深色声明，未声明时由前端对清洗后的安全 CSS 子集静态计算 cascade，再统一执行 HSL 明度转换与文字/背景/边框对比度校正；阅读 iframe 的 opaque sandbox 不变。
+- UI 视觉重构已完成并通过 Windows 实机验收，建立了统一桌面表面层级、明确边界、紧凑信息密度、中性黑灰深色基调及克制的键盘焦点态。
 - `0.3.1` 已完成 Composer 地址栏、联系人候选键盘操作、富文本 Tab、邮件标题与按钮 hover 优化，并为回复/转发提供同一行的明确原文标题；本轮已通过自动验证和用户手动验收。
 - `0.3.0` 已完成独立安全更新窗口、全局对话框层级修正、设置选择项交互优化、分段 MIME 附件名兼容与新应用图标；四平台 Release workflow、自行生成的直连/大陆代理 updater 清单及公开发布链已经实际运行并验收通过。
 
-当前计划见 [`2026-08-11-02-ui-reconstruction`](./iterations/2026-08-11-02-ui-reconstruction.md)；最近完成记录见 [`2026-08-11-01-composer-experience`](./iterations/2026-08-11-01-composer-experience.md)。
+当前计划见 [`2026-08-11-03-mail-dark-mode`](./iterations/2026-08-11-03-mail-dark-mode.md)；最近完成记录见 [`2026-08-11-02-ui-reconstruction`](./iterations/2026-08-11-02-ui-reconstruction.md)。
 
 仍未排期：
 
@@ -201,6 +202,7 @@ cache/attachment-open/...
 - 明文 IMAP/SMTP 必须由用户明确确认，并在 Rust 边界复验。
 - SMTP 测试不得发送邮件；IMAP 测试不得修改邮箱。
 - HTML 邮件由 Rust 权威清洗，并在无 scripts、forms、same-origin、top-navigation、任意文件或任意网络能力的 sandbox iframe 中渲染。
+- 深色适配不得改变上述隔离：Rust 只从原始 HTML 提取“作者支持深色”布尔信号并写入内部标记；前端只对清洗后的字符串使用惰性 DOM、CSSOM 与原生选择器匹配，邮件元素不挂入主 DOM，最终仍作为字符串交给 opaque iframe。
 - 阅读 iframe 仅保留受宿主拦截的 `allow-popups`；外链经 Rust 再次校验后交给系统，WebView 始终拒绝创建外部页面。
 - Tauri 发布构建只禁止对 `style-src` 自动追加资产 nonce/hash，使 `srcdoc` 继承的父 CSP 不会阻止经过 Rust 清洗的邮件 `<style>` 与行内样式；`script-src` 等其他指令仍保留 Tauri 的资产 CSP 加固，邮件 sandbox 和子文档 CSP 不变。
 - 远程图片默认由邮件 CSP 阻止；显式允许后仍使用 `no-referrer`。
@@ -218,7 +220,7 @@ cache/attachment-open/...
 
 - 业务页面优先组合 `src/components/ui/`；不暴露浏览器默认表单外观。
 - 主题使用语义令牌，不在业务组件写死主题相关颜色。
-- 深色主题以中性黑灰表面建立层级，不使用带明显蓝色偏向的底色；用户主题色只用于主操作、选中、焦点和必要状态，不得扩散为窗口背景基调。
+- 深色主题以 RGB 等值的零色度黑灰表面建立层级，不使用带明显蓝色偏向的底色；用户主题色只用于主操作、选中、焦点和必要状态，不得扩散为窗口背景基调。
 - 新生产文案同时提供 `zh-CN` 与 `en-US`，缺失时回退英文。
 - UI 不显示调试说明、内部阶段名或临时占位文案。
 - Windows 使用 Segoe UI/Microsoft YaHei UI，macOS 使用系统 UI/PingFang SC。
@@ -235,6 +237,7 @@ cache/attachment-open/...
 - 文件夹列表是滚动条位置的唯一布局例外：展开侧栏中的文件夹项不是全宽且带圆角，滚动容器向右延伸到侧栏外边距，等量 `content` 右内边距保持列表项宽度不变，使滑块位于圆角项外侧；仍不得给 viewport 预留空间或让滑块改变列表项几何尺寸。
 - 保留平台差异：仅 Windows 显示 WebView 自绘窗口按钮；macOS 使用原生交通灯，其他带系统装饰的平台使用原生窗口控制。
 - 邮件 HTML 与 Composer 原文不进入主 React DOM；保真优化不能越过安全边界。
+- 邮件深色模式优先信任作者的 `color-scheme`、`supported-color-schemes`、`prefers-color-scheme: dark` 或 Outlook `data-ogsc` / `data-ogsb` 适配信号；其他邮件对清洗后允许保留的 `color`、`background-color` 与四侧 border color 静态计算 cascade，并把安全清洗后保留的 `bgcolor`、`font[color]`、`hr[color]` 及表格 `bordercolor` 纳入同一过程。带色背景先限制暗色表面亮度；文字对比度不足时优先继续压暗其有效带色背景以保留作者文字色，仍不达标才最小调整文字明度，最终保持至少 4.5:1；作者边框相对有效背景至少保持 3:1。默认白色邮件表面映射为与 App 阅读面板相同的 `#171717`，阅读区保留外围内边距但不形成异色框；阅读器为未声明颜色的现有边框提供统一可见兜底，图片与视频保持清洗后的原样。
 
 ## 8. 依赖、Git 与交付约定
 
