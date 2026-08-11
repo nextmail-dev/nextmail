@@ -36,12 +36,12 @@ export function AccountSwitcher({
   const identity = <AccountIdentity account={selected} runtime={runtimeSummaries.find((item) => item.accountId === selected?.id)} collapsed={collapsed} />;
 
   return (
-    <Inline className={collapsed ? "justify-center px-2 pt-5" : "px-4 pt-5"}>
+    <Inline className={collapsed ? "justify-center px-2 pt-4" : "px-4 pt-4"}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className={collapsed ? "size-10 p-0" : "h-auto min-h-12 w-full min-w-0 flex-1 justify-start overflow-hidden px-1 py-1.5"}
+            className={collapsed ? "size-9 p-0" : "h-auto min-h-10 w-full min-w-0 flex-1 justify-start overflow-hidden px-1 py-1"}
             aria-label={t("mail.accountMenu")}
           >
             {identity}
@@ -52,7 +52,7 @@ export function AccountSwitcher({
           {accounts.map((account) => (
             <DropdownMenuCheckboxItem
               key={account.id}
-              className="h-auto min-h-14 py-2 pr-3"
+              className="h-auto min-h-12 py-1.5 pr-3"
               checked={account.id === selected?.id}
               onCheckedChange={() => onAccountChange(account.id)}
             >
@@ -77,13 +77,13 @@ function AccountIdentity({ account, runtime, collapsed = false }: { account?: Ac
   const initial = label.trim().charAt(0).toLocaleUpperCase() || <UserRound size={16} />;
   return (
     <Inline className={collapsed ? "min-w-0 justify-center" : "w-full min-w-0 flex-1 justify-start overflow-hidden text-left"} title={collapsed ? account.email : undefined}>
-      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground shadow-[0_7px_18px_color-mix(in_srgb,var(--primary)_22%,transparent)]">
+      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground shadow-[0_5px_14px_color-mix(in_srgb,var(--primary)_20%,transparent)]">
         {initial}
       </span>
       {collapsed ? null : (
-        <Stack className="min-w-0 flex-1 items-start whitespace-normal text-left" gap="xs">
-          <Text className="w-full break-words text-left text-sm leading-tight font-semibold whitespace-normal text-foreground">{label}</Text>
-          <Text className="w-full break-all text-left text-[length:var(--ui-font-caption)] leading-tight whitespace-normal">
+        <Stack className="min-w-0 flex-1 items-start whitespace-normal text-left" gap="none">
+          <Text className="w-full break-words text-left text-[13px] leading-5 font-semibold whitespace-normal text-foreground">{label}</Text>
+          <Text className="w-full break-all text-left text-[length:var(--ui-font-caption)] leading-4 whitespace-normal">
             {account.email}{runtime && !["ready", "stopped", "syncing"].includes(runtime.state) ? ` · ${t(`accounts.runtime.${runtime.state}`)}` : ""}
           </Text>
         </Stack>

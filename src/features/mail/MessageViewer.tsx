@@ -32,7 +32,16 @@ import { Inline, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { Heading, LabelText, Text } from "@/components/ui/typography";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SafeMailFrame } from "./SafeMailFrame";
 import { formatBytes, MessageAttachment } from "./MessageAttachment";
 import { activateMessageAttachment } from "./message-attachment-actions";
@@ -159,167 +168,170 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
   }
 
   return (
-    <Stack className="min-h-0 flex-1 bg-card" gap="none">
-      <Stack className="shrink-0 px-6 pt-6 pb-4" gap="sm">
-        <Heading level={1} className="select-text max-w-none text-xl leading-tight lg:text-xl">{message.subject || t("mail.noSubject")}</Heading>
-        {message.pendingOperation ? (
-          <Inline className="text-muted-foreground"><CloudUpload size={14} /><Text className="text-xs">{t("mail.pendingSync")}</Text></Inline>
+    <Stack className="min-h-0 flex-1 overflow-hidden bg-card" gap="none">
+      <Stack className="shrink-0 border-b border-border/70 px-5 py-4" gap="sm">
+        <Inline className="flex-wrap items-start gap-x-4 gap-y-2">
+          <Stack className="min-w-[220px] flex-1" gap="xs">
+            <Heading level={1} className="select-text max-w-none text-lg leading-tight lg:text-lg">{message.subject || t("mail.noSubject")}</Heading>
+            {message.pendingOperation ? (
+              <Inline className="text-muted-foreground"><CloudUpload size={14} /><Text className="text-xs">{t("mail.pendingSync")}</Text></Inline>
+            ) : null}
+          </Stack>
+          <Inline className="max-w-full flex-wrap justify-end gap-0.5" role="toolbar" aria-label={t("mail.messageActions")}>
+            <IconAction label={message.flagged ? t("mail.removeStar") : t("mail.addStar")} onClick={() => messageOperation.mutate({ kind: "flag" })}>
+              <Star size={18} className={message.flagged ? "fill-current text-[#f2b84b]" : undefined} />
+            </IconAction>
+            {!isDraft ? (
+              <>
+                <IconAction label={t("mail.reply")} loading={composeMutation.isPending && composeMutation.variables === "reply"} onClick={() => composeMutation.mutate("reply")}><Reply size={18} /></IconAction>
+                <IconAction label={t("mail.replyAll")} loading={composeMutation.isPending && composeMutation.variables === "reply_all"} onClick={() => composeMutation.mutate("reply_all")}><ReplyAll size={18} /></IconAction>
+                <IconAction label={t("mail.forward")} loading={composeMutation.isPending && composeMutation.variables === "forward"} onClick={() => composeMutation.mutate("forward")}><Forward size={18} /></IconAction>
+              </>
+            ) : null}
+            {mailboxes.some((mailbox) => mailbox.role === "archive" && mailbox.id !== mailboxId) ? (
+              <IconAction label={t("mail.archive")} onClick={() => messageOperation.mutate({ kind: "archive" })}><Archive size={18} /></IconAction>
+            ) : null}
+            <IconAction label={t("mail.delete")} danger onClick={() => messageOperation.mutate({ kind: "delete" })}><Trash2 size={18} /></IconAction>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label={t("mail.moreActions")} title={t("mail.moreActions")}><MoreHorizontal size={18} /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {allowOpenInNewWindow ? (
+                  <DropdownMenuItem onSelect={() => previewWindowMutation.mutate()}><ExternalLink size={16} />{t("mail.openInNewWindow")}</DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem onSelect={() => messageOperation.mutate({ kind: "read" })}>
+                  {message.unread ? <MailOpen size={16} /> : <Mail size={16} />}
+                  {message.unread ? t("mail.markRead") : t("mail.markUnread")}
+                </DropdownMenuItem>
+                {isDraft ? (
+                  <DropdownMenuItem onSelect={() => editDraftMutation.mutate()}><FilePenLine size={16} />{t("mail.editDraft")}</DropdownMenuItem>
+                ) : null}
+                {mailboxes.some((mailbox) => mailbox.selectable && mailbox.id !== mailboxId) ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <MailboxActionSubMenu
+                      icon={<FolderInput size={16} />}
+                      label={t("mail.moveTo")}
+                      mailboxes={mailboxes.filter((mailbox) => mailbox.selectable && mailbox.id !== mailboxId)}
+                      onSelect={(destination) => messageOperation.mutate({ kind: "move", destination })}
+                    />
+                    <MailboxActionSubMenu
+                      icon={<Copy size={16} />}
+                      label={t("mail.copyTo")}
+                      mailboxes={mailboxes.filter((mailbox) => mailbox.selectable && mailbox.id !== mailboxId)}
+                      onSelect={(destination) => messageOperation.mutate({ kind: "copy", destination })}
+                    />
+                  </>
+                ) : null}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => rawWindowMutation.mutate()}><FileText size={16} />{t("mail.viewSource")}</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </Inline>
+        </Inline>
+
+        <Inline className="items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/12 text-sm font-bold text-primary">{senderInitial}</span>
+          <Stack className="min-w-0 flex-1" gap="xs">
+            <Inline className="flex-wrap gap-x-3 gap-y-1">
+              {sender ? (
+                <>
+                  {senderName ? <LabelText className="select-text text-[15px]">{senderName}</LabelText> : null}
+                  <ContactIdentity address={sender} onOpenContact={onOpenContact} onEditContact={onEditContact} tag>
+                    <span className="select-text text-xs text-muted-foreground">{sender.email}</span>
+                  </ContactIdentity>
+                </>
+              ) : <LabelText className="text-[15px]">—</LabelText>}
+            </Inline>
+            <AddressList label={t("composer.to")} addresses={message.to} onOpenContact={onOpenContact} onEditContact={onEditContact} />
+            {message.cc.length ? (
+              <AddressList label={t("composer.cc")} addresses={message.cc} onOpenContact={onOpenContact} onEditContact={onEditContact} />
+            ) : null}
+            {message.attachments.length ? (
+              <Inline className="text-muted-foreground">
+                <Paperclip size={13} />
+                <Text className="text-xs">
+                  {t("mail.attachmentOverview", {
+                    count: message.attachments.length,
+                    size: formatBytes(attachmentBytes),
+                  })}
+                </Text>
+              </Inline>
+            ) : null}
+          </Stack>
+          <Text className="shrink-0 pt-0.5 text-[length:var(--ui-font-caption)]">{date}</Text>
+        </Inline>
+        {message.remoteImagesBlocked && !allowRemoteImages ? (
+          <Alert tone="warning" title={t("mail.remoteImagesBlocked")}>
+            <Inline className="flex-wrap justify-between">
+              <Text className="text-xs text-current">{t("mail.remoteImagesBlockedDescription")}</Text>
+              <Button variant="secondary" size="sm" loading={bodyMutation.isPending} onClick={() => void showRemoteImages()}>{t("mail.showRemoteImages")}</Button>
+            </Inline>
+          </Alert>
+        ) : null}
+        {normalizedOperationError ? (
+          <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedOperationError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
         ) : null}
       </Stack>
 
-      <div className="mx-5 mb-5 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-        <Stack className="shrink-0 border-b border-border/65 px-5 py-4" gap="md">
-          <Inline className="items-start gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary/12 text-sm font-bold text-primary">{senderInitial}</span>
-            <Stack className="min-w-0 flex-1" gap="xs">
-              <Inline className="flex-wrap gap-x-3 gap-y-1">
-                {sender ? (
-                  <>
-                    {senderName ? <LabelText className="select-text text-[15px]">{senderName}</LabelText> : null}
-                    <ContactIdentity address={sender} onOpenContact={onOpenContact} onEditContact={onEditContact} tag>
-                      <span className="select-text text-xs text-muted-foreground">{sender.email}</span>
-                    </ContactIdentity>
-                  </>
-                ) : <LabelText className="text-[15px]">—</LabelText>}
-              </Inline>
-              <AddressList label={t("composer.to")} addresses={message.to} onOpenContact={onOpenContact} onEditContact={onEditContact} />
-              {message.cc.length ? (
-                <AddressList label={t("composer.cc")} addresses={message.cc} onOpenContact={onOpenContact} onEditContact={onEditContact} />
-              ) : null}
-              {message.attachments.length ? (
-                <Inline className="text-muted-foreground">
-                  <Paperclip size={13} />
-                  <Text className="text-xs">
-                    {t("mail.attachmentOverview", {
-                      count: message.attachments.length,
-                      size: formatBytes(attachmentBytes),
-                    })}
-                  </Text>
-                </Inline>
-              ) : null}
-            </Stack>
-            <Stack className="shrink-0 items-end" gap="sm">
-              <Text className="text-[length:var(--ui-font-caption)]">{date}</Text>
-              <Inline className="flex-wrap justify-end gap-0.5" role="toolbar" aria-label={t("mail.messageActions")}>
-                <IconAction label={message.flagged ? t("mail.removeStar") : t("mail.addStar")} onClick={() => messageOperation.mutate({ kind: "flag" })}>
-                  <Star size={18} className={message.flagged ? "fill-current text-[#f2b84b]" : undefined} />
-                </IconAction>
-                {!isDraft ? (
-                  <>
-                    <IconAction label={t("mail.reply")} loading={composeMutation.isPending && composeMutation.variables === "reply"} onClick={() => composeMutation.mutate("reply")}><Reply size={18} /></IconAction>
-                    <IconAction label={t("mail.replyAll")} loading={composeMutation.isPending && composeMutation.variables === "reply_all"} onClick={() => composeMutation.mutate("reply_all")}><ReplyAll size={18} /></IconAction>
-                    <IconAction label={t("mail.forward")} loading={composeMutation.isPending && composeMutation.variables === "forward"} onClick={() => composeMutation.mutate("forward")}><Forward size={18} /></IconAction>
-                  </>
-                ) : null}
-                {mailboxes.some((mailbox) => mailbox.role === "archive" && mailbox.id !== mailboxId) ? (
-                  <IconAction label={t("mail.archive")} onClick={() => messageOperation.mutate({ kind: "archive" })}><Archive size={18} /></IconAction>
-                ) : null}
-                <MailboxActionMenu
-                  icon={<FolderInput size={18} />}
-                  label={t("mail.moveTo")}
-                  mailboxes={mailboxes.filter((mailbox) => mailbox.selectable && mailbox.id !== mailboxId)}
-                  onSelect={(destination) => messageOperation.mutate({ kind: "move", destination })}
-                />
-                <MailboxActionMenu
-                  icon={<Copy size={18} />}
-                  label={t("mail.copyTo")}
-                  mailboxes={mailboxes.filter((mailbox) => mailbox.selectable && mailbox.id !== mailboxId)}
-                  onSelect={(destination) => messageOperation.mutate({ kind: "copy", destination })}
-                />
-                <IconAction label={t("mail.delete")} danger onClick={() => messageOperation.mutate({ kind: "delete" })}><Trash2 size={18} /></IconAction>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" aria-label={t("mail.moreActions")} title={t("mail.moreActions")}><MoreHorizontal size={18} /></Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {allowOpenInNewWindow ? (
-                      <DropdownMenuItem onSelect={() => previewWindowMutation.mutate()}><ExternalLink size={16} />{t("mail.openInNewWindow")}</DropdownMenuItem>
-                    ) : null}
-                    <DropdownMenuItem onSelect={() => messageOperation.mutate({ kind: "read" })}>
-                      {message.unread ? <MailOpen size={16} /> : <Mail size={16} />}
-                      {message.unread ? t("mail.markRead") : t("mail.markUnread")}
-                    </DropdownMenuItem>
-                    {isDraft ? (
-                      <DropdownMenuItem onSelect={() => editDraftMutation.mutate()}><FilePenLine size={16} />{t("mail.editDraft")}</DropdownMenuItem>
-                    ) : null}
-                    <DropdownMenuItem onSelect={() => rawWindowMutation.mutate()}><FileText size={16} />{t("mail.viewSource")}</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </Inline>
-            </Stack>
-          </Inline>
-          {message.remoteImagesBlocked && !allowRemoteImages ? (
-            <Alert tone="warning" title={t("mail.remoteImagesBlocked")}>
-              <Inline className="flex-wrap justify-between">
-                <Text className="text-xs text-current">{t("mail.remoteImagesBlockedDescription")}</Text>
-                <Button variant="secondary" size="sm" loading={bodyMutation.isPending} onClick={() => void showRemoteImages()}>{t("mail.showRemoteImages")}</Button>
-              </Inline>
-            </Alert>
-          ) : null}
-          {normalizedOperationError ? (
-            <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedOperationError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
-          ) : null}
-        </Stack>
-
-        <Stack className="min-h-0 flex-1" gap="none">
-          {message.safeHtml ? (
-            <div className="min-h-0 flex-1 overflow-hidden px-3 py-2">
-              <SafeMailFrame document={message.safeHtml} title={message.subject || t("mail.messageBody")} allowRemoteImages={allowRemoteImages} />
-            </div>
-          ) : message.plainText ? (
-            <OverlayScrollArea
-              className="min-h-0 flex-1"
-              viewportClassName="px-5 py-5 pr-8"
-            >
-              <Text className="select-text whitespace-pre-wrap text-sm leading-[1.75] text-foreground">
-                {message.plainText}
-              </Text>
-            </OverlayScrollArea>
-          ) : message.bodyAvailability !== "available" && !bodyMutation.isError ? (
-            <Stack className="m-auto items-center"><Spinner size={24} /></Stack>
-          ) : (
-            <Stack className="m-auto w-full max-w-md items-center px-8">
-              <EmptyState
-                icon={<MailOpen size={24} />}
-                title={bodyMutation.isError ? t("errors.title") : t("mail.bodyUnavailable")}
-                description={bodyMutation.isError
-                  ? t(`errors.${normalizeCommandError(bodyMutation.error).code}`, { defaultValue: t("common.unexpectedError") })
-                  : t("mail.bodyUnavailableDescription")}
-                action={bodyMutation.isError
-                  ? <Button loading={bodyMutation.isPending} onClick={() => bodyMutation.mutate()}><Download size={14} />{t("mail.downloadBody")}</Button>
-                  : undefined}
-              />
-            </Stack>
-          )}
-        </Stack>
-
-        {message.attachments.length ? (
-          <Stack className="shrink-0 border-t border-border/65 bg-muted/20 p-4" gap="sm">
-            <Inline><Paperclip size={15} /><LabelText>{t("mail.attachments")}</LabelText></Inline>
-            <OverlayScrollArea
-              intrinsic
-              className="max-h-[168px]"
-              viewportClassName="pr-4"
-              trackClassName="right-0"
-            >
-              <Inline className="flex-wrap gap-2.5">
-                {message.attachments.map((attachment) => (
-                  <MessageAttachment
-                    key={attachment.id}
-                    attachment={attachment}
-                    opening={attachmentMutation.isPending && attachmentMutation.variables?.id === attachment.id}
-                    saving={saveAttachmentMutation.isPending && saveAttachmentMutation.variables?.id === attachment.id}
-                    revealing={revealAttachmentMutation.isPending && revealAttachmentMutation.variables?.id === attachment.id}
-                    onOpen={() => attachmentMutation.mutate(attachment)}
-                    onSaveAs={() => saveAttachmentMutation.mutate(attachment)}
-                    onReveal={() => revealAttachmentMutation.mutate(attachment)}
-                  />
-                ))}
-              </Inline>
-            </OverlayScrollArea>
+      <Stack className="min-h-0 flex-1" gap="none">
+        {message.safeHtml ? (
+          <div className="min-h-0 flex-1 overflow-hidden px-4 py-3">
+            <SafeMailFrame document={message.safeHtml} title={message.subject || t("mail.messageBody")} allowRemoteImages={allowRemoteImages} />
+          </div>
+        ) : message.plainText ? (
+          <OverlayScrollArea
+            className="min-h-0 flex-1"
+            viewportClassName="px-5 py-5"
+          >
+            <Text className="select-text whitespace-pre-wrap text-sm leading-[1.75] text-foreground">
+              {message.plainText}
+            </Text>
+          </OverlayScrollArea>
+        ) : message.bodyAvailability !== "available" && !bodyMutation.isError ? (
+          <Stack className="m-auto items-center"><Spinner size={24} /></Stack>
+        ) : (
+          <Stack className="m-auto w-full max-w-md items-center px-8">
+            <EmptyState
+              icon={<MailOpen size={24} />}
+              title={bodyMutation.isError ? t("errors.title") : t("mail.bodyUnavailable")}
+              description={bodyMutation.isError
+                ? t(`errors.${normalizeCommandError(bodyMutation.error).code}`, { defaultValue: t("common.unexpectedError") })
+                : t("mail.bodyUnavailableDescription")}
+              action={bodyMutation.isError
+                ? <Button loading={bodyMutation.isPending} onClick={() => bodyMutation.mutate()}><Download size={14} />{t("mail.downloadBody")}</Button>
+                : undefined}
+            />
           </Stack>
-        ) : null}
-      </div>
+        )}
+      </Stack>
+
+      {message.attachments.length ? (
+        <Stack className="shrink-0 border-t border-border/70 bg-muted/20 px-5 py-3.5" gap="sm">
+          <Inline><Paperclip size={15} /><LabelText>{t("mail.attachments")}</LabelText></Inline>
+          <OverlayScrollArea
+            intrinsic
+            className="max-h-[168px]"
+            trackClassName="right-0"
+          >
+            <Inline className="flex-wrap gap-2.5">
+              {message.attachments.map((attachment) => (
+                <MessageAttachment
+                  key={attachment.id}
+                  attachment={attachment}
+                  opening={attachmentMutation.isPending && attachmentMutation.variables?.id === attachment.id}
+                  saving={saveAttachmentMutation.isPending && saveAttachmentMutation.variables?.id === attachment.id}
+                  revealing={revealAttachmentMutation.isPending && revealAttachmentMutation.variables?.id === attachment.id}
+                  onOpen={() => attachmentMutation.mutate(attachment)}
+                  onSaveAs={() => saveAttachmentMutation.mutate(attachment)}
+                  onReveal={() => revealAttachmentMutation.mutate(attachment)}
+                />
+              ))}
+            </Inline>
+          </OverlayScrollArea>
+        </Stack>
+      ) : null}
     </Stack>
   );
 }
@@ -346,7 +358,7 @@ function IconAction({ label, loading, danger, onClick, children }: {
   );
 }
 
-function MailboxActionMenu({ icon, label, mailboxes, onSelect }: {
+function MailboxActionSubMenu({ icon, label, mailboxes, onSelect }: {
   icon: ReactNode;
   label: string;
   mailboxes: MailboxSummary[];
@@ -354,14 +366,13 @@ function MailboxActionMenu({ icon, label, mailboxes, onSelect }: {
 }) {
   const { t } = useTranslation();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" disabled={!mailboxes.length} aria-label={label} title={label}>{icon}</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="overflow-hidden">
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        {icon}
+        {label}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="overflow-hidden">
         <OverlayScrollArea
-          className="-mr-1.5"
-          viewportClassName="pr-1.5"
           trackClassName="right-0"
           style={{
             height: `${Math.min(276, mailboxes.length * 36)}px`,
@@ -374,8 +385,8 @@ function MailboxActionMenu({ icon, label, mailboxes, onSelect }: {
             </DropdownMenuItem>
           ))}
         </OverlayScrollArea>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }
 

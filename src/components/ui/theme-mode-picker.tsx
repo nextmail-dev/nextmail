@@ -30,7 +30,7 @@ export function ThemeModePicker({
         {options.map((option) => {
           const checked = value === option.value;
           return (
-            <label key={option.value} className="group min-w-0 cursor-pointer">
+            <label key={option.value} className="group min-w-0 cursor-default">
               <input
                 className="peer sr-only"
                 type="radio"
@@ -42,7 +42,7 @@ export function ThemeModePicker({
               />
               <span
                 className={cn(
-                  "relative block overflow-hidden rounded-lg border border-border bg-card p-2 transition-[border-color,box-shadow,transform] duration-150 group-hover:-translate-y-px group-hover:border-foreground/30 peer-focus-visible:ring-3 peer-focus-visible:ring-ring/25",
+                  "relative block overflow-hidden rounded-lg border border-border bg-card p-2 transition-[border-color,box-shadow] duration-150 group-hover:border-foreground/30 peer-focus-visible:ring-1 peer-focus-visible:ring-inset peer-focus-visible:ring-ring/70",
                   checked && "border-primary shadow-[0_0_0_2px_color-mix(in_srgb,var(--primary)_18%,transparent)]",
                 )}
                 aria-hidden="true"
@@ -81,12 +81,12 @@ function ThemePreview({ mode }: { mode: ThemePreference }) {
 
 function PreviewPane({ dark }: { dark: boolean }) {
   return (
-    <span className={cn("grid h-full grid-cols-[30%_1fr]", dark ? "bg-slate-900" : "bg-white")}>
-      <span className={cn("border-r", dark ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-100")} />
+    <span className={cn("grid h-full grid-cols-[30%_1fr]", dark ? "bg-zinc-950" : "bg-white")}>
+      <span className={cn("border-r", dark ? "border-zinc-700 bg-zinc-900" : "border-slate-200 bg-slate-100")} />
       <span className="flex flex-col gap-2 p-2">
-        <span className={cn("h-2 w-2/3 rounded-full", dark ? "bg-slate-500" : "bg-slate-300")} />
+        <span className={cn("h-2 w-2/3 rounded-full", dark ? "bg-zinc-500" : "bg-slate-300")} />
         <span className="h-3 w-full rounded bg-primary/75" />
-        <span className={cn("h-2 w-4/5 rounded-full", dark ? "bg-slate-600" : "bg-slate-200")} />
+        <span className={cn("h-2 w-4/5 rounded-full", dark ? "bg-zinc-700" : "bg-slate-200")} />
       </span>
     </span>
   );

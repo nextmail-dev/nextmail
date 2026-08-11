@@ -138,7 +138,7 @@ export function MailboxFolderDialog({
                 : t(`mailboxNames.${action.parent.role}`),
             })}</Text>
           ) : null}
-          <Inline className="justify-end">
+          <Inline className="flex-wrap justify-end">
             <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
               {t("common.cancel")}
             </Button>

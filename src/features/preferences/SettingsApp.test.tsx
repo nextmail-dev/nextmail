@@ -99,7 +99,12 @@ describe("SettingsApp", () => {
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "General" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "General" })).toHaveClass("bg-primary/10", "text-primary");
+    expect(screen.getByRole("button", { name: "General" })).toHaveClass(
+      "h-9",
+      "bg-primary/10",
+      "text-primary",
+      "shadow-[inset_2px_0_0_var(--primary)]",
+    );
     expect(screen.getByText("Language")).toBeInTheDocument();
     expect(document.querySelector(".native-scrollbar-hidden")).toBeInTheDocument();
   });
@@ -204,7 +209,7 @@ describe("SettingsApp", () => {
       "When exit confirmation is disabled, this setting decides whether closing the main window hides it in the tray or exits the app.",
     );
     const row = description.closest("label");
-    expect(row).toHaveClass("w-fit", "max-w-full", "rounded-md", "cursor-pointer", "hover:bg-accent");
+    expect(row).toHaveClass("w-fit", "max-w-full", "rounded-md", "cursor-default", "hover:bg-accent");
     expect(row?.parentElement?.className).not.toContain("[&>label]:");
     fireEvent.click(description);
 

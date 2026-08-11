@@ -280,7 +280,7 @@ function MainCloseDialog() {
             {t(`errors.${closeError}`, { defaultValue: t("common.unexpectedError") })}
           </Alert>
         ) : null}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
             {t("common.cancel")}
           </Button>

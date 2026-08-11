@@ -147,9 +147,9 @@ export function SettingsApp() {
   const preferences = preferencesQuery.data;
 
   return (
-    <AppShell className="grid grid-cols-[240px_minmax(0,1fr)] overflow-hidden bg-card">
-      <Page className="flex min-h-0 flex-col bg-sidebar px-3 pt-5 pb-4">
-        <Stack className="px-3 pb-5" gap="xs">
+    <AppShell className="grid grid-cols-[220px_minmax(0,1fr)] overflow-hidden bg-card">
+      <Page className="flex min-h-0 flex-col border-r border-border-strong bg-sidebar px-3 pt-4 pb-4">
+        <Stack className="px-3 pb-4" gap="xs">
           <Heading level={1} className="text-xl">{t("settings.title")}</Heading>
           <Text className="text-xs">{t("settings.description")}</Text>
         </Stack>
@@ -161,8 +161,8 @@ export function SettingsApp() {
                 key={item.id}
                 variant="ghost"
                 className={category === item.id
-                  ? "h-10 w-full justify-start bg-primary/10 px-3 text-primary hover:bg-primary/15"
-                  : "h-10 w-full justify-start px-3"}
+                  ? "h-9 w-full justify-start bg-primary/10 px-3 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                  : "h-9 w-full justify-start px-3"}
                 aria-current={category === item.id ? "page" : undefined}
                 onClick={() => setCategory(item.id)}
               >
@@ -176,7 +176,7 @@ export function SettingsApp() {
       <Page className="relative min-h-0 overflow-hidden bg-card">
         <OverlayScrollArea
           className="h-full"
-          viewportClassName="px-10 py-8 pr-12"
+          viewportClassName="px-8 py-7"
           trackClassName="right-2"
         >
           <SettingsContent
@@ -394,7 +394,7 @@ function SettingsSection({ category, children }: { category: SettingsCategory; c
   return (
     <Stack className="mx-auto w-full max-w-2xl" gap="lg">
       <Stack gap="xs">
-        <Heading level={1}>{t(`settings.category.${category}`)}</Heading>
+        <Heading level={1} className="text-2xl lg:text-2xl">{t(`settings.category.${category}`)}</Heading>
         <Text>{t(`settings.categoryDescription.${category}`)}</Text>
       </Stack>
       <Stack className="pt-2" gap="lg">{children}</Stack>
@@ -404,7 +404,7 @@ function SettingsSection({ category, children }: { category: SettingsCategory; c
 
 function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Stack className="rounded-lg bg-muted/60 p-5" gap="md">
+    <Stack className="rounded-lg border border-border/70 bg-muted/45 p-5 shadow-[var(--shadow-raised)]" gap="md">
       <Heading level={2} className="text-base">{title}</Heading>
       {children}
     </Stack>

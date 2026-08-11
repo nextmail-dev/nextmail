@@ -49,7 +49,7 @@ describe("AccountSwitcher", () => {
 
     openAccountMenu();
     const runtimeLabel = await screen.findByText(/bob@example\.com · Reauthentication required/);
-    expect(runtimeLabel.closest('[role="menuitemcheckbox"]')).toHaveClass("min-h-14");
+    expect(runtimeLabel.closest('[role="menuitemcheckbox"]')).toHaveClass("min-h-12");
     expect(screen.getByText("Bob")).toHaveClass("text-left");
     fireEvent.click(runtimeLabel);
     expect(onAccountChange).toHaveBeenCalledWith("two");

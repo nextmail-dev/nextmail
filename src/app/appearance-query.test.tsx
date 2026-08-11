@@ -61,11 +61,43 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   document.documentElement.removeAttribute("data-theme");
   document.documentElement.removeAttribute("style");
 });
 
 describe("appearance query state", () => {
+  it("reapplies the accent when a system theme changes", async () => {
+    let dark = false;
+    let changeHandler: (() => void) | undefined;
+    const removeEventListener = vi.fn();
+    vi.stubGlobal("matchMedia", vi.fn(() => ({
+      get matches() { return dark; },
+      addEventListener: (_event: string, handler: () => void) => { changeHandler = handler; },
+      removeEventListener,
+    })));
+    vi.mocked(api.getPreferences).mockResolvedValue({
+      ...initialPreferences,
+      theme: "system",
+    });
+    const client = createClient();
+    const { unmount } = renderHook(() => useAppearancePreferences(), {
+      wrapper: createWrapper(client),
+    });
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "system"));
+    const lightPrimary = document.documentElement.style.getPropertyValue("--primary");
+    act(() => {
+      dark = true;
+      changeHandler?.();
+    });
+    expect(document.documentElement.style.getPropertyValue("--primary")).not.toBe(lightPrimary);
+    expect(document.documentElement.style.getPropertyValue("--primary-foreground")).toBe("#000000");
+
+    unmount();
+    expect(removeEventListener).toHaveBeenCalledOnce();
+  });
+
   it("optimistically updates preferences and keeps the persisted response", async () => {
     const client = createClient();
     client.setQueryData(appearanceQueryKey, initialPreferences);
@@ -94,7 +126,7 @@ describe("appearance query state", () => {
     await waitFor(() => {
       expect(result.current.mutation.isSuccess).toBe(true);
       expect(client.getQueryData(appearanceQueryKey)).toEqual(persisted);
-      expect(document.documentElement.style.getPropertyValue("--primary")).toBe("#9333ea");
+      expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe("#9333ea");
     });
   });
 
@@ -122,7 +154,7 @@ describe("appearance query state", () => {
       expect(result.current.mutation.isError).toBe(true);
       expect(client.getQueryData(appearanceQueryKey)).toEqual(initialPreferences);
       expect(document.documentElement).toHaveAttribute("data-theme", "light");
-      expect(document.documentElement.style.getPropertyValue("--primary")).toBe("#2563eb");
+      expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe("#2563eb");
     });
   });
 
@@ -147,7 +179,7 @@ describe("appearance query state", () => {
 
     expect(client.getQueryData(appearanceQueryKey)).toEqual(eventPreferences);
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
-    expect(document.documentElement.style.getPropertyValue("--primary")).toBe("#0f8a7b");
+    expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe("#0f8a7b");
 
     unmount();
     await waitFor(() => expect(dispose).toHaveBeenCalledOnce());

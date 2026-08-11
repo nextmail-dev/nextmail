@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const FOLDER_PANE_MIN = 220;
 const FOLDER_PANE_MAX = 350;
@@ -41,7 +41,7 @@ export function constrainPaneWidths(state: PaneLayoutState): PaneLayoutState {
   return { ...state, folderPaneWidth, messagePaneWidth };
 }
 
-export function usePaneLayout(showSidebar: boolean) {
+export function usePaneLayout() {
   const [layout, setLayout] = useState<PaneLayoutState>(() => constrainPaneWidths({
     folderPaneCollapsed: false,
     folderPaneWidth: 250,
@@ -90,7 +90,6 @@ export function usePaneLayout(showSidebar: boolean) {
   const visibleFolderWidth = layout.folderPaneCollapsed
     ? COLLAPSED_FOLDER_PANE_WIDTH
     : layout.folderPaneWidth;
-  const titlebarSidebarWidth = showSidebar ? visibleFolderWidth : 0;
   const folderPaneMax = Math.max(
     FOLDER_PANE_MIN,
     Math.min(FOLDER_PANE_MAX, layout.windowWidth - layout.messagePaneWidth - READER_AND_DIVIDERS_MIN),
@@ -99,13 +98,6 @@ export function usePaneLayout(showSidebar: boolean) {
     MESSAGE_PANE_MIN,
     Math.min(MESSAGE_PANE_MAX, layout.windowWidth - visibleFolderWidth - READER_AND_DIVIDERS_MIN),
   );
-
-  useLayoutEffect(() => {
-    document.documentElement.style.setProperty("--shell-sidebar-width", `${titlebarSidebarWidth}px`);
-    return () => {
-      document.documentElement.style.removeProperty("--shell-sidebar-width");
-    };
-  }, [titlebarSidebarWidth]);
 
   return {
     folderPaneCollapsed: layout.folderPaneCollapsed,

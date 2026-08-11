@@ -31,8 +31,8 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
       </label>
       <div
         className={cn(
-          "flex min-h-10 items-center overflow-hidden rounded-md bg-muted transition-[background-color,box-shadow] focus-within:bg-card focus-within:ring-3 focus-within:ring-ring/20",
-          error && "ring-2 ring-destructive/40",
+          "flex min-h-10 items-center overflow-hidden rounded-md border border-border/80 bg-input shadow-[var(--shadow-control)] transition-[background-color,border-color,box-shadow] focus-within:border-ring/70 focus-within:bg-card focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/20",
+          error && "border-destructive/60 ring-2 ring-destructive/30",
         )}
       >
         <input

@@ -143,10 +143,10 @@ export function MailboxPane({
   }
 
   return (
-    <Stack className={collapsed ? "min-h-0 flex-1 items-center px-2 py-5" : "min-h-0 flex-1 px-4 py-5"} gap="md">
+    <Stack className={collapsed ? "min-h-0 flex-1 items-center px-2 py-4" : "min-h-0 flex-1 px-4 py-4"} gap="sm">
       <Inline className={collapsed ? "w-full justify-center gap-0" : "w-full gap-1"}>
         <Button
-          className={collapsed ? "mx-auto size-11 flex-none p-0" : "h-11 min-w-0 flex-1 justify-start px-4"}
+          className={collapsed ? "mx-auto size-10 flex-none p-0" : "h-10 min-w-0 flex-1 justify-start px-3.5"}
           aria-label={collapsed ? t("mail.compose") : undefined}
           title={collapsed ? t("mail.compose") : undefined}
           onClick={onCompose}
@@ -159,11 +159,11 @@ export function MailboxPane({
         variant="ghost"
         className={collapsed
           ? contactsSelected
-            ? "mx-auto size-11 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
-            : "mx-auto size-11 flex-none justify-center p-0"
+            ? "mx-auto size-10 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
+            : "mx-auto size-10 flex-none justify-center p-0"
           : contactsSelected
-            ? "h-10 w-full flex-none justify-start bg-primary/10 px-3 text-primary hover:bg-primary/15"
-            : "h-10 w-full flex-none justify-start px-3"}
+            ? "h-9 w-full flex-none justify-start bg-primary/10 px-3 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+            : "h-9 w-full flex-none justify-start px-3"}
         aria-label={t("contacts.title")}
         title={collapsed ? t("contacts.title") : undefined}
         aria-current={contactsSelected ? "page" : undefined}
@@ -189,7 +189,7 @@ export function MailboxPane({
       ) : (
         <ContextMenu>
           <ContextMenuTrigger asChild>
-            <Inline className="w-full px-2 pt-1">
+            <Inline className="w-full px-2 pt-0.5">
               <LabelText className="min-w-0 flex-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">
                 {t("mail.folders")}
               </LabelText>
@@ -218,7 +218,7 @@ export function MailboxPane({
         </ContextMenu>
       )}
       {activeSync && !collapsed ? (
-        <Stack className="rounded-lg bg-card/70 p-3" gap="sm">
+        <Stack className="rounded-lg border border-border/60 bg-card/60 p-2.5" gap="sm">
           <Text className="text-xs">
             {progress.phase === "summaries" && progress.currentMailboxName && progress.total > 0
               ? t("sync.currentFolderProgress", {
@@ -238,10 +238,9 @@ export function MailboxPane({
       ) : null}
       {mailboxes.length ? (
         <OverlayScrollArea
-          autoHide
-          className={collapsed ? "-mr-1.5 min-h-0 w-full flex-1" : "-mr-3 min-h-0 flex-1"}
-          contentClassName="gap-1.5"
-          viewportClassName={collapsed ? "pr-1.5" : "pr-3"}
+          className={collapsed ? "min-h-0 w-full flex-1" : "-mr-3 min-h-0 flex-1"}
+          contentClassName={collapsed ? "gap-0.5" : "gap-0.5 pr-3"}
+          trackClassName="right-0 w-3"
         >
           {visibleMailboxItems.map(({ mailbox, depth, displayName, hasChildren }) => {
             const selected = mailbox.id === selectedMailboxId;
@@ -315,8 +314,8 @@ export function MailboxPane({
                     <Inline
                       {...getGestureProps(mailbox.id)}
                       className={`${selected
-                        ? "h-10 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary"
-                        : "h-10 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5"} ${dropClass} ${draggingId === mailbox.id ? "cursor-grabbing opacity-55" : "cursor-default"}`}
+                        ? "h-9 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary shadow-[inset_2px_0_0_var(--primary)]"
+                        : "h-9 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"} ${dropClass} ${draggingId === mailbox.id ? "cursor-grabbing opacity-55" : "cursor-default"}`}
                       style={{ paddingInlineStart: `${4 + depth * 16}px` }}
                       aria-grabbed={draggingId === mailbox.id}
                     >
@@ -336,14 +335,14 @@ export function MailboxPane({
                       )}
                       <Button
                         variant="ghost"
-                        className="h-10 min-w-0 flex-1 justify-start rounded-md bg-transparent px-1.5 text-inherit hover:bg-transparent hover:text-foreground"
+                        className="h-9 min-w-0 flex-1 justify-start rounded-md bg-transparent px-1.5 text-inherit hover:bg-transparent hover:text-foreground"
                         aria-label={label}
                         onClick={() => onSelect(mailbox.id)}
                       >
                         <MailboxIcon role={mailbox.role} />
                         <Text className="min-w-0 flex-1 truncate text-left text-[length:var(--ui-font-control)] text-inherit">{label}</Text>
                         {mailbox.unreadCount ? (
-                          <Text className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold leading-none text-primary-foreground">{mailbox.unreadCount}</Text>
+                          <Text className="min-w-5 text-right text-[11px] leading-none font-semibold text-primary">{mailbox.unreadCount}</Text>
                         ) : null}
                       </Button>
                     </Inline>
@@ -358,8 +357,8 @@ export function MailboxPane({
                   <Button
                     variant="ghost"
                     className={selected
-                      ? "mx-auto size-11 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
-                      : "mx-auto size-11 flex-none justify-center p-0"}
+                      ? "mx-auto size-10 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
+                      : "mx-auto size-10 flex-none justify-center p-0"}
                     aria-label={label}
                     title={label}
                     onClick={() => onSelect(mailbox.id)}
@@ -378,8 +377,8 @@ export function MailboxPane({
       <Button
         variant="ghost"
         className={collapsed
-          ? "mx-auto mt-auto size-11 flex-none justify-center p-0"
-          : "mt-auto h-10 w-full flex-none justify-start px-3"}
+          ? "mx-auto mt-auto size-10 flex-none justify-center p-0"
+          : "mt-auto h-9 w-full flex-none justify-start px-3"}
         aria-label={t("mail.settings")}
         title={collapsed ? t("mail.settings") : undefined}
         onClick={onOpenSettings}

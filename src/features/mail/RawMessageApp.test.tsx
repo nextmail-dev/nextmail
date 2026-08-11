@@ -46,7 +46,12 @@ describe("RawMessageApp", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText("source:account-one:message-one")).toBeInTheDocument();
+    const source = await screen.findByText("source:account-one:message-one");
+    expect(source.closest(".rounded-lg")).toHaveClass(
+      "border",
+      "bg-muted/50",
+      "shadow-[var(--shadow-control)]",
+    );
     act(() => {
       locationListener?.({
         payload: { accountId: "account-two", messageId: "message-two" },

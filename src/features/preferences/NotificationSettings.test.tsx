@@ -89,7 +89,7 @@ describe("NotificationSettings", () => {
     const archiveSwitch = screen.getByRole("switch", { name: "Notifications for Archive" });
     const folderViewport = archiveSwitch.closest(".native-scrollbar-hidden");
     expect(folderViewport).toBeInTheDocument();
-    expect(folderViewport?.parentElement).toHaveAttribute("data-scrollbar-auto-hide", "false");
+    expect(folderViewport?.parentElement).toHaveAttribute("data-scrollbar-auto-hide", "true");
     expect(archiveSwitch).not.toBeChecked();
     fireEvent.click(archiveSwitch);
     await waitFor(() => {

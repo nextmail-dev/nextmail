@@ -6,17 +6,18 @@ import { cn } from "@/lib/utils";
 import { Spinner } from "./spinner";
 
 const buttonVariants = cva(
-  "text-[length:var(--ui-font-control)] inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap border-0 font-semibold transition-[color,background-color,transform,opacity,box-shadow] duration-150 outline-none focus-visible:ring-3 focus-visible:ring-ring/25 disabled:pointer-events-none disabled:opacity-50",
+  "text-[length:var(--ui-font-control)] inline-flex shrink-0 cursor-default items-center justify-center gap-2 whitespace-nowrap border-0 font-semibold transition-[color,background-color,filter,opacity,box-shadow] duration-150 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
         primary:
-          "bg-primary text-primary-foreground shadow-[0_8px_18px_color-mix(in_srgb,var(--primary)_20%,transparent)] hover:bg-primary/92",
+          "bg-primary [background:var(--primary-gradient)] text-primary-foreground shadow-[var(--shadow-primary)] hover:brightness-[1.04] active:brightness-[0.98]",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground",
+          "border border-border/80 bg-secondary text-secondary-foreground shadow-[var(--shadow-control)] hover:bg-accent hover:text-accent-foreground",
         ghost: "bg-transparent text-muted-foreground hover:bg-foreground/6 hover:text-foreground",
         list: "bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-        danger: "bg-destructive text-white hover:bg-destructive/90",
+        danger:
+          "[background:var(--destructive-gradient)] text-white shadow-[var(--shadow-control)] hover:brightness-[1.04] active:brightness-[0.98]",
       },
       size: {
         sm: "h-8 rounded-md px-2.5",

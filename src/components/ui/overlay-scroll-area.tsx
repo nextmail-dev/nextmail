@@ -12,7 +12,6 @@ import {
 import { cn } from "@/lib/utils";
 
 interface OverlayScrollAreaProps {
-  autoHide?: boolean;
   children: ReactNode;
   className?: string;
   contentClassName?: string;
@@ -39,7 +38,6 @@ const TRACK_INSET = 4;
 const MIN_THUMB_HEIGHT = 32;
 
 export function OverlayScrollArea({
-  autoHide = false,
   children,
   className,
   contentClassName,
@@ -133,7 +131,7 @@ export function OverlayScrollArea({
   return (
     <div
       className={cn("group/scroll-area relative min-h-0 overflow-hidden", className)}
-      data-scrollbar-auto-hide={autoHide ? "true" : "false"}
+      data-scrollbar-auto-hide="true"
       style={style}
     >
       <div
@@ -154,16 +152,14 @@ export function OverlayScrollArea({
           aria-hidden="true"
           className={cn(
             "pointer-events-none absolute inset-y-1 right-1 z-10 w-2.5 transition-opacity",
-            autoHide && "opacity-0 group-hover/scroll-area:opacity-100 group-focus-within/scroll-area:opacity-100",
+            "opacity-0 group-hover/scroll-area:opacity-100 group-focus-within/scroll-area:opacity-100",
             trackClassName,
           )}
         >
           <div
             className={cn(
-              "group/thumb absolute right-0 flex w-full cursor-ns-resize touch-none justify-end",
-              autoHide
-                ? "pointer-events-none group-hover/scroll-area:pointer-events-auto group-focus-within/scroll-area:pointer-events-auto"
-                : "pointer-events-auto",
+              "group/thumb absolute right-0 flex w-full cursor-default touch-none justify-end",
+              "pointer-events-none group-hover/scroll-area:pointer-events-auto group-focus-within/scroll-area:pointer-events-auto",
             )}
             style={{
               height: `${scrollbar.thumbHeight}px`,
@@ -174,7 +170,7 @@ export function OverlayScrollArea({
             onPointerUp={handleThumbPointerUp}
             onPointerCancel={handleThumbPointerUp}
           >
-            <span className="pointer-events-none h-full w-1 rounded-full bg-muted-foreground/55 transition-colors group-hover/thumb:bg-muted-foreground/70" />
+            <span className="pointer-events-none h-full w-1.5 rounded-full bg-muted-foreground/55 transition-colors group-hover/thumb:bg-muted-foreground/70" />
           </div>
         </div>
       ) : null}

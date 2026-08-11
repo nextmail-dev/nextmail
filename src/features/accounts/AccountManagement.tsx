@@ -52,22 +52,24 @@ export function AccountsManagement({
 
   return (
     <Stack className="mt-5 min-h-0 flex-1" gap="lg">
-      <Inline className="justify-between">
+      <Inline className="flex-wrap justify-between">
         <LabelText>{t("accounts.accountList")}</LabelText>
         {accounts.length ? <Button variant="primary" size="sm" onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button> : null}
       </Inline>
       {accounts.length ? (
-        <Page className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] gap-6 overflow-hidden">
+        <Page className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] gap-5 overflow-hidden">
           <OverlayScrollArea
-            className="min-h-0 rounded-lg bg-muted/50"
+            className="min-h-0 rounded-lg border border-border/70 bg-muted/35 shadow-[var(--shadow-control)]"
             contentClassName="gap-1"
-            viewportClassName="p-2 pr-3"
+            viewportClassName="p-2"
           >
             {accounts.map((account) => (
               <Button
                 key={account.id}
                 variant="ghost"
-                className={account.id === activeAccountId ? "h-auto justify-start bg-card px-3 py-2.5 shadow-sm hover:bg-card" : "h-auto justify-start px-3 py-2.5"}
+                className={account.id === activeAccountId
+                  ? "relative h-auto justify-start bg-selection px-3 py-2.5 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-selection"
+                  : "h-auto justify-start px-3 py-2.5"}
                 onClick={() => onSelectedAccountChange(account.id)}
               >
                 <Stack className="min-w-0 items-start" gap="xs">
@@ -80,7 +82,7 @@ export function AccountsManagement({
           {activeAccountId ? (
             <OverlayScrollArea
               className="account-management-detail-scroll -ml-1 min-h-0"
-              viewportClassName="pr-3 pl-1"
+              viewportClassName="px-1"
             >
               <AccountManagementPanel
                 accountId={activeAccountId}
@@ -102,7 +104,6 @@ export function AccountsManagement({
         <OverlayScrollArea
           intrinsic
           className="mt-5 max-h-[72vh]"
-          viewportClassName="pr-3"
         >
           <PasswordAccountForm submitLabel={t("accounts.add")} onSubmit={addAccount} />
         </OverlayScrollArea>
@@ -262,7 +263,6 @@ export function AccountManagementPanel({
         <OverlayScrollArea
           intrinsic
           className="mt-5 max-h-[70vh]"
-          viewportClassName="pr-3"
         >
           {connectionQuery.isPending ? <Spinner size={22} /> : connectionQuery.data ? (
             <PasswordAccountForm key={accountId} initial={connectionQuery.data} passwordRequired={false} submitLabel={t("common.save")} onSubmit={updateAccount} />
@@ -274,7 +274,7 @@ export function AccountManagementPanel({
         <Stack className="mt-5" gap="lg">
           <Text>{t("accounts.reauthenticateDescription")}</Text>
           <PasswordField required label={t("onboarding.password")} showPasswordLabel={t("onboarding.showPassword")} hidePasswordLabel={t("onboarding.hidePassword")} value={password} onChange={(event) => setPassword(event.currentTarget.value)} />
-          <Inline className="justify-end"><Button loading={reauthMutation.isPending} disabled={!password} onClick={() => reauthMutation.mutate()}>{t("accounts.reauthenticate")}</Button></Inline>
+          <Inline className="flex-wrap justify-end"><Button loading={reauthMutation.isPending} disabled={!password} onClick={() => reauthMutation.mutate()}>{t("accounts.reauthenticate")}</Button></Inline>
         </Stack>
       </Modal>
 
@@ -287,7 +287,7 @@ export function AccountManagementPanel({
                   ? t("accounts.removeDescription", { drafts: impactQuery.data.editingDrafts })
                   : t("accounts.removeBlockedDescription", { jobs: impactQuery.data.queuedSendJobs, operations: impactQuery.data.pendingOperations })}
               </Alert>
-              <Inline className="justify-end">
+              <Inline className="flex-wrap justify-end">
                 <Button variant="secondary" onClick={() => setRemoveOpen(false)}>{t("common.cancel")}</Button>
                 <Button loading={removeMutation.isPending} disabled={!impactQuery.data.canRemove} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => removeMutation.mutate()}>{t("accounts.confirmRemove")}</Button>
               </Inline>

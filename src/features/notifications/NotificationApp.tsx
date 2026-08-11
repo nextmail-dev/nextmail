@@ -99,10 +99,10 @@ export function NotificationApp({ notificationId }: { notificationId: string }) 
 
   const account = notification.accountName || notification.accountEmail;
   return (
-    <AppShell className="relative overflow-hidden bg-card">
+    <AppShell className="relative overflow-hidden border border-border/80 bg-card shadow-[inset_0_1px_0_var(--surface-highlight)]">
       <Button
         variant="ghost"
-        className="h-full w-full justify-start rounded-none px-4 py-3 pr-11 text-left whitespace-normal hover:bg-primary/6"
+        className="h-full w-full justify-start rounded-none px-4 py-3 pr-11 text-left whitespace-normal hover:bg-primary/[0.045]"
         aria-label={t("notifications.openMessage", { subject: notification.subject || t("mail.noSubject") })}
         disabled={pending}
         onClick={activate}

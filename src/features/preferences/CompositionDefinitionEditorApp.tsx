@@ -285,9 +285,9 @@ function DefinitionEditorForm({
           void submit();
         }}
       >
-        <Stack className="shrink-0 border-b border-border px-6 pt-5 pb-4" gap="sm">
+        <Stack className="shrink-0 border-b border-border/70 bg-card px-6 pt-4 pb-4" gap="sm">
           <Stack gap="xs">
-            <Heading level={1} className="text-xl">{title}</Heading>
+            <Heading level={1} className="text-lg lg:text-lg">{title}</Heading>
             <Text className="text-xs">{t("compositionLibrary.editorWindowDescription")}</Text>
           </Stack>
           <TextField
@@ -336,7 +336,7 @@ function DefinitionEditorForm({
         </Stack>
         <Page className="flex min-h-0 flex-1 flex-col px-6 pt-4">
           <LabelText className="mb-2 shrink-0">{label}</LabelText>
-          <Page className="flex min-h-0 flex-1 overflow-hidden rounded-lg ring-1 ring-border">
+          <Page className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-border/80 bg-card shadow-[var(--shadow-raised)]">
             <RichTextEditor
               initialJson={content.editorJson}
               initialHtml={content.html}
@@ -348,13 +348,13 @@ function DefinitionEditorForm({
             />
           </Page>
         </Page>
-        <Stack className="shrink-0 px-6 pt-3 pb-5" gap="sm">
+        <Stack className="shrink-0 border-t border-border/70 bg-muted/20 px-6 py-3" gap="sm">
           {error ? (
             <Alert tone="danger" title={t("errors.title")}>
               {t(`errors.${normalizeCommandError(error).code}`, { defaultValue: t("common.unexpectedError") })}
             </Alert>
           ) : null}
-          <Inline className="justify-end">
+          <Inline className="flex-wrap justify-end">
             <Button type="button" variant="ghost" disabled={saving} onClick={() => void close()}>
               {t("common.cancel")}
             </Button>

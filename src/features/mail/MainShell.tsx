@@ -97,7 +97,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     setFolderPaneWidth,
     setMessagePaneWidth,
     visibleFolderWidth,
-  } = usePaneLayout(accounts.length > 0);
+  } = usePaneLayout();
   useMailRuntimeEvents({
     selectedAccountId,
     selectedMailboxId,

@@ -24,7 +24,7 @@ export function SearchField({
   return (
     <form
       role="search"
-      className={cn("flex h-9 w-64 items-center gap-2 rounded-md bg-muted px-3 text-muted-foreground focus-within:ring-3 focus-within:ring-ring/20", className)}
+      className={cn("flex h-9 w-64 items-center gap-2 rounded-md border border-border/80 bg-input px-3 text-muted-foreground shadow-[var(--shadow-control)] transition-[background-color,border-color,box-shadow] focus-within:border-ring/70 focus-within:bg-card focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/20", className)}
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();

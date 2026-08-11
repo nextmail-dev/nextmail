@@ -6,7 +6,7 @@ export function Surface({ className, ...props }: HTMLAttributes<HTMLElement>) {
   return (
     <section
       className={cn(
-        "min-w-0 rounded-lg border-0 bg-card text-card-foreground shadow-[0_10px_30px_rgb(15_23_42/0.06)]",
+        "min-w-0 rounded-lg border border-border/80 bg-card text-card-foreground shadow-[var(--shadow-raised)]",
         className,
       )}
       {...props}

@@ -51,16 +51,18 @@ export function AccountManagementApp() {
   const accounts = accountsQuery.data ?? [];
   return (
     <AppShell className="overflow-hidden bg-card">
-      <Page className="flex size-full min-h-0 flex-col px-7 pt-6 pb-7">
-        <Stack className="shrink-0" gap="xs">
-          <Heading level={1} className="text-2xl">{t("accounts.title")}</Heading>
-          <Text>{t("accounts.description")}</Text>
+      <Page className="flex size-full min-h-0 flex-col">
+        <Stack className="shrink-0 border-b border-border/70 px-6 py-4" gap="xs">
+          <Heading level={1} className="text-xl lg:text-xl">{t("accounts.title")}</Heading>
+          <Text className="text-xs">{t("accounts.description")}</Text>
         </Stack>
-        <AccountsManagement
-          accounts={accounts}
-          selectedAccountId={selectedAccountId}
-          onSelectedAccountChange={setSelectedAccountId}
-        />
+        <Page className="flex min-h-0 flex-1 px-6 pb-6">
+          <AccountsManagement
+            accounts={accounts}
+            selectedAccountId={selectedAccountId}
+            onSelectedAccountChange={setSelectedAccountId}
+          />
+        </Page>
       </Page>
     </AppShell>
   );

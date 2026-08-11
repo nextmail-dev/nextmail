@@ -80,12 +80,12 @@ export function ResizeHandle({
       onPointerCancel={handlePointerUp}
       onKeyDown={handleKeyDown}
     >
-      <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-foreground/20 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100" />
+      <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border-strong transition-[width,background-color] duration-150 group-hover:w-[2px] group-hover:bg-primary group-focus-visible:w-[2px] group-focus-visible:bg-primary" />
       {onCollapsedChange ? (
         <Button
           variant="secondary"
           size="icon"
-          className="absolute top-1/2 z-20 size-5 -translate-y-1/2 rounded-full bg-card p-0 opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+          className="absolute top-1/2 z-20 size-5 -translate-y-1/2 rounded-full bg-card p-0 opacity-0 shadow-[var(--shadow-raised)] transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
           aria-label={collapsed ? expandLabel : collapseLabel}
           title={collapsed ? expandLabel : collapseLabel}
           onPointerDown={(event) => event.stopPropagation()}

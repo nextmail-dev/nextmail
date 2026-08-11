@@ -114,12 +114,15 @@ describe("MessageListPane", () => {
   });
 
   it("keeps the current row selected when it is clicked again", async () => {
-    vi.mocked(api.listMessages).mockResolvedValue({ items: [serverResult], nextCursor: null });
+    vi.mocked(api.listMessages).mockResolvedValue({
+      items: [serverResult, { ...serverResult, id: "message-two", subject: "Second message", unread: true }],
+      nextCursor: null,
+    });
     const onSelect = vi.fn();
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    render(
+    const { container } = render(
       <QueryClientProvider client={queryClient}>
         <MessageListPane
           accountId="account-one"
@@ -137,7 +140,26 @@ describe("MessageListPane", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Alice.*Server-side result/i }));
+    const rowButton = await screen.findByRole("button", { name: /Alice.*Server-side result/i });
+    const row = rowButton.parentElement;
+    const lastRow = screen.getByRole("button", { name: /Alice.*Second message/i }).parentElement;
+    const viewport = container.querySelector(".native-scrollbar-hidden");
+    const scrollArea = container.querySelector('[data-scrollbar-auto-hide="true"]');
+    expect(scrollArea).toBeInTheDocument();
+    expect(viewport).not.toHaveClass("pr-4");
+    expect(row).toHaveClass(
+      "bg-selection",
+      "before:w-0.5",
+      "after:inset-x-5",
+      "after:h-px",
+      "after:bg-border/80",
+    );
+    expect(rowButton).toHaveClass("px-5", "py-2.5");
+    expect(row).not.toHaveClass("after:hidden");
+    expect(lastRow).toHaveClass("after:hidden", "bg-primary/[0.035]");
+    expect(screen.getByText("Second message")).toHaveClass("font-semibold");
+
+    fireEvent.click(rowButton);
     expect(onSelect).toHaveBeenCalledWith("message-one");
   });
 

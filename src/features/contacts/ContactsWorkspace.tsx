@@ -247,10 +247,10 @@ export function ContactsWorkspace({
           <OverlayScrollArea
             className="min-h-0 flex-1"
             contentClassName="gap-0"
-            viewportClassName="pr-2"
+            trackClassName="right-2 w-3"
             onViewportScroll={loadNextPageNearEnd}
           >
-            {contacts.map((contact) => {
+            {contacts.map((contact, index) => {
               const operationContacts = selectedContactIdSet.has(contact.id) ? selectedContacts : [contact];
               return (
                 <ContactActionsContextMenu
@@ -264,21 +264,25 @@ export function ContactsWorkspace({
                   onCopyError={() => setOperationError("common.unexpected_error")}
                 >
                   <div
+                    className={cn(
+                      "relative after:pointer-events-none after:absolute after:inset-x-5 after:bottom-0 after:h-px after:bg-border/80 after:content-['']",
+                      index === contacts.length - 1 && "after:hidden",
+                    )}
                     onContextMenu={() => selection.selectForContextMenu(contact.id)}
                   >
                     <button
                       type="button"
                       aria-pressed={selection.isSelected(contact.id)}
                       className={cn(
-                        "relative flex w-full cursor-pointer items-center gap-3 bg-card px-6 py-4 text-left outline-none transition-colors hover:bg-muted/75 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60",
+                        "relative flex w-full cursor-default items-center gap-3 bg-card px-6 py-3 text-left outline-none transition-colors hover:bg-muted/75 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70",
                         selection.isSelected(contact.id) && "bg-selection before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:rounded-r-full before:bg-primary hover:bg-selection",
                       )}
                       onClick={(event) => selection.select(contact.id, event)}
                     >
-                      <ContactInitial name={contact.name} className="size-10" />
+                      <ContactInitial name={contact.name} className="size-9" />
                       <span className="block min-w-0 flex-1">
                         <span className="block truncate text-sm font-semibold text-foreground">{contact.name}</span>
-                        <span className="block truncate pt-1 text-xs text-muted-foreground">{contact.email}</span>
+                        <span className="block truncate pt-0.5 text-xs text-muted-foreground">{contact.email}</span>
                       </span>
                     </button>
                   </div>
@@ -431,7 +435,7 @@ function ContactDetailView({
           <Inline className="min-w-0 gap-4">
             <ContactInitial name={detail.contact.name} className="size-20 text-2xl" />
             <Stack gap="xs">
-              <Heading level={1}>{detail.contact.name}</Heading>
+              <Heading level={1} className="text-2xl lg:text-2xl">{detail.contact.name}</Heading>
               <ContactIdentity address={{
                 contactId: detail.contact.id,
                 name: detail.contact.name,
@@ -460,7 +464,7 @@ function ContactDetailView({
                 <button
                   key={message.messageId}
                   type="button"
-                  className="flex w-full cursor-pointer items-center gap-3 border-b border-border px-4 py-3 text-left outline-none last:border-b-0 hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60"
+                  className="flex w-full cursor-default items-center gap-3 border-b border-border px-4 py-3 text-left outline-none last:border-b-0 hover:bg-muted/70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70"
                   onClick={() => onNavigate(message.mailboxId, message.messageId)}
                 >
                   <Mail size={17} className="shrink-0 text-primary" />
@@ -541,7 +545,7 @@ function ContactEditor({
         {errorCode ? (
           <Alert tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert>
         ) : null}
-        <Inline className="justify-end pt-2">
+        <Inline className="flex-wrap justify-end pt-2">
           <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button>
           <Button type="submit" loading={busy} disabled={!name.trim() || (state.mode === "create" && !email.trim())}>
             {t("common.save")}

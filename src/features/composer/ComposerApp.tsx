@@ -24,7 +24,6 @@ import { Modal } from "@/components/ui/dialog";
 import { AppShell, Inline, Page, Stack } from "@/components/ui/layout";
 import { Spinner } from "@/components/ui/spinner";
 import { SelectField } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Text } from "@/components/ui/typography";
 import { mailQueryKeys } from "@/features/mail/mail-query-keys";
 import {
@@ -486,12 +485,12 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   }
 
   return (
-    <AppShell className="flex min-h-0 flex-col overflow-hidden">
-      <Inline className="h-14 shrink-0 bg-card px-3">
-        <Button className="shadow-none" loading={sending} onClick={() => void sendMessage()} disabled={!editable || saveState === "saving"}>
+    <AppShell className="flex min-h-0 flex-col overflow-hidden bg-card">
+      <Inline className="h-12 shrink-0 border-b border-border/70 bg-muted/25 px-4 shadow-[inset_0_1px_0_var(--surface-highlight)]">
+        <Button size="sm" loading={sending} onClick={() => void sendMessage()} disabled={!editable || saveState === "saving"}>
           <Send size={16} />{t("composer.send")}
         </Button>
-        <Button variant="ghost" onClick={() => void addAttachments()} disabled={!editable}>
+        <Button variant="ghost" size="sm" onClick={() => void addAttachments()} disabled={!editable}>
           <Paperclip size={16} />{t("composer.attach")}
         </Button>
         <Page className="flex-1" />
@@ -560,7 +559,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           />
         ) : null}
         <CompactField label={t("composer.subject")} value={subject} disabled={!editable} onChange={(event) => { setSubject(event.currentTarget.value); markDirty(); }} />
-        <Inline className="min-h-12 shrink-0 flex-wrap bg-card px-4 py-2">
+        <Inline className="min-h-11 shrink-0 flex-wrap border-b border-border/70 bg-muted/25 px-4 py-1.5">
           <SelectField
             compact
             label={t("composer.template")}
@@ -590,14 +589,12 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
             onValueChange={(value) => void selectSignature(value)}
           />
         </Inline>
-        <Separator />
-
         {errorCode ? (
           <Alert className="m-3 mb-0" tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert>
         ) : null}
         {sendJob?.status === "failed" ? <SendFailure job={sendJob} onRetry={retrySend} /> : null}
         {attachments.some((attachment) => !attachment.isInline) ? (
-          <Inline className="flex-wrap bg-muted/50 px-4 py-2">
+          <Inline className="flex-wrap border-b border-border/70 bg-muted/35 px-4 py-2">
             {attachments.filter((attachment) => !attachment.isInline).map((attachment) => (
               <Inline key={attachment.id} className="rounded-md border-0 bg-card px-2.5 py-1.5 shadow-xs">
                 <Paperclip size={14} /><Text className="max-w-56 truncate text-xs text-foreground">{attachment.fileName}</Text>
@@ -630,7 +627,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       <Modal open={confirmEmptySubject} onOpenChange={setConfirmEmptySubject} title={t("composer.emptySubjectTitle")} closeLabel={t("common.close")}>
         <Stack className="mt-4">
           <Text>{t("composer.emptySubjectDescription")}</Text>
-          <Inline className="justify-end">
+          <Inline className="flex-wrap justify-end">
             <Button variant="secondary" onClick={() => setConfirmEmptySubject(false)}>{t("common.cancel")}</Button>
             <Button onClick={() => void sendMessage()}>{t("composer.sendAnyway")}</Button>
           </Inline>
@@ -644,7 +641,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       >
         <Stack className="mt-4">
           <Text>{t("composer.closeDescription")}</Text>
-          <Inline className="justify-end">
+          <Inline className="flex-wrap justify-end">
             <Button variant="secondary" disabled={closing} onClick={() => setConfirmClose(false)}>{t("common.cancel")}</Button>
             <Button variant="secondary" disabled={closing} onClick={() => void discardAndClose()}>{t("composer.discardAndClose")}</Button>
             <Button loading={closing} onClick={() => void saveAndClose()}>{t("composer.saveAndClose")}</Button>

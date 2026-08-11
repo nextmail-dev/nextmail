@@ -186,7 +186,7 @@ function ContactSuggestions({ id, contacts, activeIndex, onActiveIndexChange, on
           role="option"
           aria-selected={index === activeIndex}
           className={cn(
-            "flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
+            "flex w-full cursor-default items-center gap-2.5 rounded-md px-3 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
             index === activeIndex && "bg-muted",
           )}
           onMouseDown={(event) => event.preventDefault()}

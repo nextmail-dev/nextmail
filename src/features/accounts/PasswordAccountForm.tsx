@@ -175,7 +175,7 @@ export function PasswordAccountForm({
         ) : null}
 
         {errorCode ? <Alert title={t("errors.title")} tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert> : null}
-        <Inline className="justify-end">
+        <Inline className="flex-wrap justify-end">
           <Button type="submit" loading={saving} disabled={!manualVisible || !draft.email || (passwordRequired && !draft.password)}>
             <LockKeyhole size={17} />{saving ? t("onboarding.verifying") : submitLabel}
           </Button>

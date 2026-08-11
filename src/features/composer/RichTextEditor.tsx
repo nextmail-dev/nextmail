@@ -19,6 +19,7 @@ import {
   Highlighter,
   ImagePlus,
   Link2,
+  MoreHorizontal,
   Unlink,
 } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
@@ -340,7 +341,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
   return (
     <Page className={cn("flex min-h-0 flex-1 flex-col bg-card", className)}>
-      <Inline className="min-h-11 shrink-0 gap-0.5 overflow-x-auto bg-muted/35 px-3 py-1.5" role="toolbar">
+      <Inline className="min-h-11 shrink-0 flex-wrap gap-0.5 border-b border-border/70 bg-muted/35 px-3 py-1.5" role="toolbar">
         <SelectField
           compact
           className="shrink-0"
@@ -406,60 +407,71 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
         {action(t("composer.bulletList"), editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run(), <List size={16} />)}
         {action(t("composer.numberedList"), editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), <ListOrdered size={16} />)}
-        {action(t("composer.quote"), editor.isActive("blockquote"), () => editor.chain().focus().toggleBlockquote().run(), <Quote size={16} />)}
         <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-        {action(t("composer.link"), editor.isActive("link"), openLinkEditor, <Link2 size={16} />)}
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label={t("composer.removeLink")}
-          title={t("composer.removeLink")}
-          disabled={richDisabled || !editor.isActive("link")}
-          onClick={removeLink}
-        >
-          <Unlink size={16} />
-        </Button>
-        <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-        {onAddInlineImage ? (
-          <>
-            <input
-              ref={imageInputRef}
-              className="sr-only"
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
-              multiple
-              aria-label={t("composer.insertImage")}
-              disabled={richDisabled}
-              onChange={(event) => {
-                const files = Array.from(event.currentTarget.files ?? []);
-                event.currentTarget.value = "";
-                if (files.length) void insertCachedImages(editor, files, onAddInlineImage);
-              }}
-            />
-            {action(
-              t("composer.insertImage"),
-              false,
-              () => imageInputRef.current?.click(),
-              <ImagePlus size={16} />,
-            )}
-            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-          </>
-        ) : null}
         {action(t("composer.undo"), false, () => editor.chain().focus().undo().run(), <Undo2 size={16} />)}
         {action(t("composer.redo"), false, () => editor.chain().focus().redo().run(), <Redo2 size={16} />)}
+        {onAddInlineImage ? (
+          <input
+            ref={imageInputRef}
+            className="sr-only"
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
+            multiple
+            aria-label={t("composer.insertImage")}
+            disabled={richDisabled}
+            onChange={(event) => {
+              const files = Array.from(event.currentTarget.files ?? []);
+              event.currentTarget.value = "";
+              if (files.length) void insertCachedImages(editor, files, onAddInlineImage);
+            }}
+          />
+        ) : null}
         <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-        <Button
-          type="button"
-          size="icon"
-          variant={sourceMode ? "secondary" : "ghost"}
-          aria-label={t("composer.htmlSource")}
-          title={t("composer.htmlSource")}
-          disabled={disabled}
-          onClick={toggleSourceMode}
-        >
-          <Code2 size={16} />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant={sourceMode ? "secondary" : "ghost"}
+              aria-label={t("composer.moreFormatting")}
+              title={t("composer.moreFormatting")}
+              disabled={disabled}
+            >
+              <MoreHorizontal size={16} />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              className={editor.isActive("blockquote") ? "bg-accent text-accent-foreground" : undefined}
+              disabled={richDisabled}
+              onSelect={() => commitRichEdit(() => editor.chain().focus().toggleBlockquote().run())}
+            >
+              <Quote size={16} />{t("composer.quote")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className={editor.isActive("link") ? "bg-accent text-accent-foreground" : undefined}
+              disabled={richDisabled}
+              onSelect={openLinkEditor}
+            >
+              <Link2 size={16} />{t("composer.link")}
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={richDisabled || !editor.isActive("link")} onSelect={removeLink}>
+              <Unlink size={16} />{t("composer.removeLink")}
+            </DropdownMenuItem>
+            {onAddInlineImage ? (
+              <DropdownMenuItem disabled={richDisabled} onSelect={() => imageInputRef.current?.click()}>
+                <ImagePlus size={16} />{t("composer.insertImage")}
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuItem
+              className={sourceMode ? "bg-accent text-accent-foreground" : undefined}
+              disabled={disabled}
+              onSelect={toggleSourceMode}
+            >
+              <Code2 size={16} />{t("composer.htmlSource")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </Inline>
       {linkEditorOpen && !sourceMode ? (
         <Form
@@ -532,7 +544,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       ) : (
         <OverlayScrollArea
           className="min-h-0 flex-1"
-          viewportClassName="pr-3"
         >
           <EditorContent
             editor={editor}

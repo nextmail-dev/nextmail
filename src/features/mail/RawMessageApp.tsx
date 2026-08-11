@@ -49,12 +49,12 @@ export function RawMessageApp({ accountId, messageId }: RawMessageLocation) {
 
   return (
     <AppShell className="overflow-hidden bg-card">
-      <Page className="grid size-full min-h-0 grid-rows-[auto_minmax(0,1fr)] px-6 pt-5 pb-6">
-        <Stack className="pb-4" gap="xs">
-          <Heading level={1} className="text-xl">{t("mail.sourceTitle")}</Heading>
+      <Page className="grid size-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+        <Stack className="border-b border-border/70 px-5 py-4" gap="xs">
+          <Heading level={1} className="text-lg lg:text-lg">{t("mail.sourceTitle")}</Heading>
           <Text className="text-xs">{t("mail.sourceDescription")}</Text>
         </Stack>
-        <OverlayScrollArea className="min-h-0 rounded-md bg-muted/70" viewportClassName="p-4 pr-6">
+        <OverlayScrollArea className="m-4 min-h-0 rounded-lg border border-border/70 bg-muted/50 shadow-[var(--shadow-control)]" viewportClassName="p-4">
           <Text className="select-text whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-foreground">
             {rawQuery.data}
           </Text>

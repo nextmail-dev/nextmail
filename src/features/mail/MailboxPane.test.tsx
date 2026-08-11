@@ -37,12 +37,12 @@ describe("MailboxPane", () => {
 
     const compose = screen.getByRole("button", { name: "New message" });
     const mailbox = screen.getByRole("button", { name: "Inbox" });
-    expect(compose).toHaveClass("mx-auto", "size-11", "p-0");
-    expect(mailbox).toHaveClass("mx-auto", "size-11", "p-0");
+    expect(compose).toHaveClass("mx-auto", "size-10", "p-0");
+    expect(mailbox).toHaveClass("mx-auto", "size-10", "p-0");
     expect(mailbox.querySelector("svg")).toHaveClass("size-[18px]", "shrink-0");
   });
 
-  it("auto-hides only the folder-list custom scrollbar", () => {
+  it("auto-hides the folder scrollbar without reserving viewport width", () => {
     const inbox: MailboxSummary = {
       id: "inbox",
       accountId: "account-one",
@@ -66,7 +66,16 @@ describe("MailboxPane", () => {
       />,
     );
 
-    expect(container.querySelector('[data-scrollbar-auto-hide="true"]')).toBeInTheDocument();
+    const scrollArea = container.querySelector('[data-scrollbar-auto-hide="true"]');
+    expect(scrollArea).toBeInTheDocument();
+    const viewport = scrollArea?.querySelector(".native-scrollbar-hidden");
+    expect(scrollArea).toHaveClass("-mr-3");
+    expect(viewport).not.toHaveClass("pr-3", "pr-1.5");
+    expect(viewport?.firstElementChild).toHaveClass("pr-3");
+    expect(within(container).getByRole("button", { name: "Inbox" }).parentElement).toHaveClass(
+      "h-9",
+      "shadow-[inset_2px_0_0_var(--primary)]",
+    );
   });
 
   it("builds nested folders from the server delimiter instead of guessing separators", () => {

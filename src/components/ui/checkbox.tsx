@@ -26,15 +26,15 @@ export function Checkbox({
   return (
     <label
       className={cn(
-        "text-[length:var(--ui-font-control)] flex cursor-pointer items-start gap-2.5 leading-relaxed text-foreground",
-        description && "w-fit max-w-full gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-accent focus-within:bg-accent focus-within:ring-2 focus-within:ring-ring/20 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55",
+        "text-[length:var(--ui-font-control)] flex cursor-default items-start gap-2.5 leading-relaxed text-foreground",
+        description && "w-fit max-w-full gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-accent focus-within:bg-accent focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/60 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55",
         className,
       )}
     >
       <CheckboxPrimitive.Root
         aria-describedby={description ? `${id}-description` : undefined}
         aria-labelledby={`${id}-label`}
-        className="mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-sm border-0 bg-background text-primary-foreground shadow-sm ring-1 ring-inset ring-border outline-none focus-visible:ring-3 focus-visible:ring-ring/25 data-[state=checked]:bg-primary data-[state=checked]:ring-primary disabled:cursor-not-allowed"
+        className="mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-sm border border-border-strong bg-background text-primary-foreground shadow-[var(--shadow-control)] outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70 data-[state=checked]:border-primary data-[state=checked]:bg-primary disabled:cursor-not-allowed"
         checked={checked}
         disabled={disabled}
         onCheckedChange={(value) => onCheckedChange(value === true)}

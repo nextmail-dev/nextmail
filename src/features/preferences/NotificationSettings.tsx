@@ -149,7 +149,6 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
         <OverlayScrollArea
           intrinsic
           className="mt-5 max-h-[65vh]"
-          viewportClassName="pr-3"
         >
           <Stack gap="sm">
             <Text>{t("notifications.folderDescription")}</Text>

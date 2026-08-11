@@ -67,8 +67,9 @@ function renderNotification() {
 
 describe("NotificationApp", () => {
   it("renders minimal mail details and replaces content in the same window", async () => {
-    renderNotification();
+    const { container } = renderNotification();
     expect(await screen.findByText("Initial subject")).toBeInTheDocument();
+    expect(container.firstElementChild).toHaveClass("border", "bg-card");
     expect(screen.getByText("New mail · Alice")).toBeInTheDocument();
     expect(screen.getByText("Sender <sender@example.com>")).toBeInTheDocument();
 

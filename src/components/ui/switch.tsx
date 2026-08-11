@@ -19,8 +19,8 @@ export function Switch({
       aria-label={label}
       disabled={disabled}
       className={cn(
-        "relative h-6 w-11 shrink-0 rounded-full border-0 bg-muted outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50",
-        checked && "bg-primary",
+        "relative h-6 w-11 shrink-0 rounded-full border border-border-strong bg-muted shadow-[var(--shadow-control)] outline-none transition-[background-color,border-color,box-shadow] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70 disabled:cursor-not-allowed disabled:opacity-50",
+        checked && "border-primary bg-primary",
       )}
       onClick={() => onCheckedChange(!checked)}
     >

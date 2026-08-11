@@ -79,9 +79,13 @@ describe("RichTextEditor composition nodes", () => {
     );
     await waitFor(() => expect(ref.current).not.toBeNull());
 
+    expect(screen.getByRole("toolbar")).toHaveClass("flex-wrap");
+    expect(screen.getByRole("toolbar")).not.toHaveClass("overflow-x-auto");
+
     const editorViewport = container.querySelector(".native-scrollbar-hidden");
     expect(editorViewport).toBeInTheDocument();
-    expect(editorViewport?.parentElement).toHaveAttribute("data-scrollbar-auto-hide", "false");
+    expect(editorViewport?.parentElement).toHaveAttribute("data-scrollbar-auto-hide", "true");
+    expect(editorViewport).not.toHaveClass("pr-3");
     expect(container.querySelector("img[src^='https://cdn.example']")).toBeNull();
     const originalFrame = container.querySelector<HTMLIFrameElement>(".nextmail-composition-original-frame");
     expect(originalFrame).not.toBeNull();
@@ -158,7 +162,7 @@ describe("RichTextEditor composition nodes", () => {
     });
     observer.disconnect();
 
-    fireEvent.click(screen.getByRole("button", { name: "HTML source" }));
+    await selectMoreFormatting("HTML source");
     expect(screen.getByRole("textbox", { name: "HTML source" })).toBeInTheDocument();
     expect(screen.getByTitle("HTML preview")).toHaveAttribute("sandbox", "");
   });
@@ -226,7 +230,8 @@ describe("RichTextEditor composition nodes", () => {
         onAddInlineImage={onAddInlineImage}
       />,
     );
-    expect(await screen.findByRole("button", { name: "Insert image" })).toBeInTheDocument();
+    await openMoreFormatting();
+    expect(await screen.findByRole("menuitem", { name: "Insert image" })).toBeInTheDocument();
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     expect(input).not.toBeNull();
     const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "selected.png", {
@@ -363,12 +368,12 @@ describe("RichTextEditor composition nodes", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "HTML source" }));
+    await selectMoreFormatting("HTML source");
     const source = await screen.findByRole("textbox", { name: "HTML source" });
     expect(source.textContent).toBe(exactHtml);
 
-    fireEvent.click(screen.getByRole("button", { name: "HTML source" }));
-    fireEvent.click(screen.getByRole("button", { name: "HTML source" }));
+    await selectMoreFormatting("HTML source");
+    await selectMoreFormatting("HTML source");
     expect(await screen.findByRole("textbox", { name: "HTML source" })).toHaveTextContent(exactHtml);
   });
 
@@ -435,7 +440,7 @@ describe("RichTextEditor composition nodes", () => {
     const onChange = vi.fn<(content: DraftContent) => void>();
     render(<RichTextEditor initialJson={EMPTY} onChange={onChange} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Insert or edit link" }));
+    await selectMoreFormatting("Insert or edit link");
     fireEvent.change(screen.getByRole("textbox", { name: "Link address" }), {
       target: { value: " HTTPS://Example.COM:443/news " },
     });
@@ -474,6 +479,18 @@ describe("normalizeComposerLinkTarget", () => {
     }
   });
 });
+
+async function openMoreFormatting() {
+  fireEvent.pointerDown(await screen.findByRole("button", { name: "More formatting options" }), {
+    button: 0,
+    ctrlKey: false,
+  });
+}
+
+async function selectMoreFormatting(name: string) {
+  await openMoreFormatting();
+  fireEvent.click(await screen.findByRole("menuitem", { name }));
+}
 
 function definition(text: string): DraftContent {
   return {

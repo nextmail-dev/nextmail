@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ResizeHandle } from "./resize-handle";
 
 describe("ResizeHandle", () => {
-  it("reveals a theme-aware drag rail on hover and keyboard focus", () => {
+  it("keeps a theme-aware pane boundary visible and emphasizes it on interaction", () => {
     render(
       <ResizeHandle
         value={320}
@@ -21,10 +21,11 @@ describe("ResizeHandle", () => {
     expect(rail).toHaveClass(
       "inset-y-0",
       "w-px",
-      "bg-foreground/20",
-      "opacity-0",
-      "group-hover:opacity-100",
-      "group-focus-visible:opacity-100",
+      "bg-border-strong",
+      "group-hover:w-[2px]",
+      "group-hover:bg-primary",
+      "group-focus-visible:w-[2px]",
+      "group-focus-visible:bg-primary",
     );
   });
 });

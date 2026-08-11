@@ -15,7 +15,7 @@ interface ToastProps {
 export function Toast({ title, description, closeLabel, onClose }: ToastProps) {
   return createPortal(
     <aside
-      className="fixed top-[calc(var(--titlebar-height)+0.75rem)] right-4 z-[120] w-[min(22rem,calc(100vw-2rem))] rounded-lg bg-popover p-3.5 text-popover-foreground shadow-[0_20px_60px_rgb(15_23_42/0.2)]"
+      className="fixed top-[calc(var(--titlebar-height)+0.75rem)] right-4 z-[120] w-[min(22rem,calc(100vw-2rem))] rounded-lg border border-border/80 bg-popover p-3.5 text-popover-foreground shadow-[var(--shadow-float)]"
       role="status"
       aria-live="polite"
     >

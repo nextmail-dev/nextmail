@@ -84,8 +84,14 @@ describe("ContactsWorkspace", () => {
     expect(await screen.findByRole("heading", { name: "Edit contact" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(contactRow);
-    expect(contactRow).toHaveClass("bg-selection", "before:w-[3px]", "cursor-pointer");
-    expect(await screen.findByRole("heading", { name: "Alice Local", level: 1 })).toBeInTheDocument();
+    expect(contactRow).toHaveClass("bg-selection", "before:w-[3px]", "cursor-default");
+    expect(contactRow).toHaveClass("py-3", "focus-visible:ring-1");
+    expect(contactRow.querySelector("span.grid")).toHaveClass("size-9");
+    expect(await screen.findByRole("heading", { name: "Alice Local", level: 1 })).toHaveClass(
+      "break-words",
+      "text-2xl",
+      "lg:text-2xl",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Send email" }));
     await waitFor(() => expect(api.openContactComposer).toHaveBeenCalledWith("account-one", "contact-one"));
     fireEvent.click(screen.getByRole("button", { name: /Project update/ }));
@@ -114,6 +120,12 @@ describe("ContactsWorkspace", () => {
 
     const alice = await screen.findByRole("button", { name: /Alice Local/ });
     const bob = await screen.findByRole("button", { name: /Bob Local/ });
+    const scrollArea = alice.closest('[data-scrollbar-auto-hide="true"]');
+    expect(scrollArea).toBeInTheDocument();
+    expect(scrollArea?.querySelector(".native-scrollbar-hidden")).not.toHaveClass("pr-2");
+    expect(alice.parentElement).toHaveClass("after:inset-x-5", "after:h-px", "after:bg-border/80");
+    expect(alice.parentElement).not.toHaveClass("after:hidden");
+    expect(bob.parentElement).toHaveClass("after:hidden");
     fireEvent.click(alice);
     fireEvent.click(bob, { ctrlKey: true });
     expect(alice).toHaveAttribute("aria-pressed", "true");

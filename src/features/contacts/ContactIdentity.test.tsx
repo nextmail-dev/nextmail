@@ -28,7 +28,7 @@ describe("ContactIdentity", () => {
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     fireEvent.focus(identity);
     expect(screen.getByRole("tooltip")).toBeInTheDocument();
-    expect(identity).toHaveClass("bg-muted/55", "cursor-pointer");
+    expect(identity).toHaveClass("bg-muted/55", "cursor-default");
   });
 
   it("copies identity fields and can open the linked local contact", async () => {

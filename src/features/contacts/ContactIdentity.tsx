@@ -107,8 +107,8 @@ export function ContactIdentity({
           <span
             ref={triggerRef}
             className={cn(
-              "min-w-0 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-              tag && "inline-flex items-center rounded-md border border-border/70 bg-muted/55 px-2 py-1 text-foreground transition-colors hover:bg-muted",
+              "min-w-0 cursor-default rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70",
+              tag && "inline-flex max-w-full items-center rounded-md border border-border/70 bg-muted/55 px-2 py-1 text-foreground transition-colors hover:bg-muted [&>*]:min-w-0 [&>*]:truncate",
             )}
             tabIndex={focusable ? 0 : undefined}
             aria-label={combined}

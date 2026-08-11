@@ -50,11 +50,11 @@ export function UpdateWindowApp() {
 
   return (
     <AppShell className="bg-card">
-      <Page className="flex h-full min-h-0 flex-col gap-5 p-7">
+      <Page className="flex h-full min-h-0 flex-col gap-4 p-6">
         <Inline className="items-start gap-4">
           <IconTile large><Download size={25} /></IconTile>
           <Stack gap="xs">
-            <Heading level={1} className="text-2xl lg:text-3xl">
+            <Heading level={1} className="text-2xl lg:text-2xl">
               {t("updates.availableTitle", { version: update.version })}
             </Heading>
             <Text>{t("updates.availableDescription")}</Text>
@@ -63,8 +63,8 @@ export function UpdateWindowApp() {
         <Stack className="min-h-0 flex-1" gap="sm">
           <LabelText>{t("updates.releaseNotes")}</LabelText>
           <OverlayScrollArea
-            className="min-h-0 flex-1 rounded-lg bg-muted/60 ring-1 ring-border/60"
-            viewportClassName="p-4 pr-6"
+            className="min-h-0 flex-1 rounded-lg border border-border/70 bg-muted/45 shadow-[var(--shadow-control)]"
+            viewportClassName="p-4"
           >
             {update.notes ? (
               <ReleaseNotesMarkdown>{update.notes}</ReleaseNotesMarkdown>
@@ -78,7 +78,7 @@ export function UpdateWindowApp() {
             {t(`errors.${installError.code}`, { defaultValue: t("common.unexpectedError") })}
           </Alert>
         ) : null}
-        <Inline className="justify-end">
+        <Inline className="flex-wrap justify-end">
           <Button variant="ghost" disabled={installMutation.isPending} onClick={closeWindow}>
             {t("updates.later")}
           </Button>

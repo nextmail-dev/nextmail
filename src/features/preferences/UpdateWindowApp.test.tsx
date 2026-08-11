@@ -34,6 +34,11 @@ describe("UpdateWindowApp", () => {
 
     expect(await screen.findByRole("heading", { name: "NextMail 0.2.4 is available" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Fixes" })).toBeInTheDocument();
+    expect(screen.getByText("Safer updates").closest(".rounded-lg")).toHaveClass(
+      "border",
+      "bg-muted/45",
+      "shadow-[var(--shadow-control)]",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Download and install" }));
     await waitFor(() => expect(api.installUpdate).toHaveBeenCalledOnce());
   });

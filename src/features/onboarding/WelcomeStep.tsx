@@ -56,7 +56,7 @@ export function WelcomeStep({
           />
         </Stack>
 
-        <Inline className="justify-end">
+        <Inline className="flex-wrap justify-end">
           <Button size="lg" onClick={onContinue}>
             {t("onboarding.welcomeStart")}
             <ArrowRight size={18} />

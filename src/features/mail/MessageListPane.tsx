@@ -161,9 +161,9 @@ export function MessageListPane({
 
   return (
     <Stack className="min-h-0 flex-1 bg-card" gap="none">
-      <Stack className="px-6 pt-6 pb-5" gap="md">
+      <Stack className="px-5 pt-5 pb-4" gap="sm">
         <Stack gap="xs">
-          <Heading level={2} className="text-xl">{mailboxName}</Heading>
+          <Heading level={2} className="text-lg">{mailboxName}</Heading>
           <Text className="text-xs">
             {selection.orderedSelectedIds.length > 1
               ? t("mail.selectedCount", { count: selection.orderedSelectedIds.length })
@@ -171,7 +171,7 @@ export function MessageListPane({
           </Text>
         </Stack>
         <SearchField
-          className="h-11 w-full rounded-lg bg-muted px-4"
+          className="h-10 w-full rounded-lg bg-muted px-3.5"
           value={searchQuery}
           placeholder={t("mail.searchPlaceholder")}
           clearLabel={t("mail.clearSearch")}
@@ -194,11 +194,10 @@ export function MessageListPane({
         <OverlayScrollArea
           key={`${accountId}:${mailboxId}`}
           className="min-h-0 flex-1"
-          viewportClassName="pr-4"
           trackClassName="right-2 w-3"
           onViewportScroll={loadNextPageNearEnd}
         >
-          {items.map((message) => {
+          {items.map((message, index) => {
             const operationMessages = selectedMessageIdSet.has(message.id) ? selectedMessages : [message];
             return (
               <MessageActionsContextMenu
@@ -216,6 +215,7 @@ export function MessageListPane({
                 <MessageRow
                   message={message}
                   selected={selection.isSelected(message.id)}
+                  divider={index < items.length - 1}
                   yesterdayLabel={t("mail.yesterday")}
                   noSubject={t("mail.noSubject")}
                   starLabel={message.flagged ? t("mail.removeStar") : t("mail.addStar")}
@@ -259,6 +259,7 @@ export function MessageListPane({
 interface MessageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"> {
   message: MessageListItem;
   selected: boolean;
+  divider: boolean;
   yesterdayLabel: string;
   noSubject: string;
   starLabel: string;
@@ -272,6 +273,7 @@ interface MessageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"
 const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageRow({
   message,
   selected,
+  divider,
   yesterdayLabel,
   noSubject,
   starLabel,
@@ -288,14 +290,21 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
   return (
     <Inline
       ref={ref}
-      className={cn(selected
-        ? "group relative gap-0 bg-selection before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:rounded-r-full before:bg-primary"
-        : "group relative gap-0 bg-card transition-colors hover:bg-muted/75", className)}
+      className={cn(
+        "group relative gap-0 after:pointer-events-none after:absolute after:inset-x-5 after:bottom-0 after:h-px after:bg-border/80 after:content-['']",
+        !divider && "after:hidden",
+        selected
+          ? "bg-selection before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary"
+          : message.unread
+            ? "bg-primary/[0.035] transition-colors hover:bg-primary/[0.065]"
+            : "bg-card transition-colors hover:bg-muted/65",
+        className,
+      )}
       {...props}
     >
       <Button
         variant="ghost"
-        className="h-auto min-w-0 flex-1 items-start rounded-none bg-transparent px-6 py-4 pr-12 text-left hover:bg-transparent"
+        className="h-auto min-w-0 flex-1 items-start rounded-none bg-transparent px-5 py-2.5 pr-12 text-left hover:bg-transparent"
         onClick={onClick}
         onDoubleClick={(event) => {
           event.preventDefault();
@@ -307,12 +316,18 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
             {message.unread ? <UnreadDot /> : null}
             {sender ? (
               <ContactIdentity address={sender} className="min-w-0 flex-1" onOpenContact={onOpenContact} onEditContact={onEditContact} focusable={false}>
-                <span className="block truncate text-sm font-semibold text-foreground">{sender.name || sender.email}</span>
+                <span className={cn(
+                  "block truncate text-sm text-foreground",
+                  message.unread ? "font-semibold" : "font-medium text-foreground/80",
+                )}>{sender.name || sender.email}</span>
               </ContactIdentity>
-            ) : <Text className="min-w-0 flex-1 truncate font-semibold text-foreground">—</Text>}
-            <Text className="shrink-0 text-[length:var(--ui-font-caption)]">{date}</Text>
+            ) : <Text className={cn("min-w-0 flex-1 truncate text-foreground", message.unread ? "font-semibold" : "font-medium text-foreground/80")}>—</Text>}
+            <Text className={cn("shrink-0 text-[length:var(--ui-font-caption)]", message.unread && "font-medium text-foreground/75")}>{date}</Text>
           </Inline>
-          <Text className="truncate text-[length:var(--ui-font-control)] font-medium text-foreground">{message.subject || noSubject}</Text>
+          <Text className={cn(
+            "truncate text-[length:var(--ui-font-control)] text-foreground",
+            message.unread ? "font-semibold" : "font-normal text-foreground/85",
+          )}>{message.subject || noSubject}</Text>
           <Inline className="w-full text-muted-foreground">
             <Text className="min-w-0 flex-1 truncate text-xs">{message.preview}</Text>
             {message.hasAttachments ? <Paperclip size={13} /> : null}
@@ -323,7 +338,7 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
       <Button
         variant="ghost"
         size="icon"
-        className="absolute right-3 top-1/2 size-8 -translate-y-1/2 bg-transparent hover:bg-foreground/7"
+        className="absolute right-4 top-1/2 size-8 -translate-y-1/2 bg-transparent hover:bg-foreground/7"
         aria-label={starLabel}
         title={starLabel}
         onClick={onToggleFlag}
@@ -438,8 +453,6 @@ function MailboxContextSubmenu({
       <ContextMenuSubTrigger disabled={disabled || !mailboxes.length}>{icon}{label}</ContextMenuSubTrigger>
       <ContextMenuSubContent>
         <OverlayScrollArea
-          className="-mr-1.5"
-          viewportClassName="pr-1.5"
           trackClassName="right-0"
           style={{ height: `${Math.min(276, mailboxes.length * 36)}px`, maxHeight: "calc(100vh - 32px)" }}
         >

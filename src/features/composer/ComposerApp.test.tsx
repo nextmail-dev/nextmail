@@ -228,6 +228,8 @@ describe("ComposerApp close lifecycle", () => {
   it("shows Cc by default and toggles only Bcc with a secondary button", async () => {
     renderComposer();
 
+    const send = await screen.findByRole("button", { name: "Send" });
+    expect(send.parentElement).toHaveClass("h-12", "border-b", "bg-muted/25");
     const fromLabel = await screen.findByText("From", { selector: "p" });
     const toLabel = screen.getByText("To", { selector: "label" });
     const ccLabel = screen.getByText("Cc", { selector: "label" });

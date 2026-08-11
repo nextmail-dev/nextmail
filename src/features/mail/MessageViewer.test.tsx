@@ -131,7 +131,14 @@ describe("MessageViewer", () => {
     expect(sender).not.toContainElement(senderName);
     expect(sender).toHaveTextContent("alice@example.com");
     expect(sender).toHaveClass("bg-muted/55");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveClass("text-xl", "lg:text-xl");
+    const subject = screen.getByRole("heading", { level: 1 });
+    expect(subject).toHaveClass("text-lg", "lg:text-lg");
+    const senderHeader = senderName.closest(".border-b");
+    expect(senderHeader).toContainElement(subject);
+    expect(senderHeader).toContainElement(screen.getByRole("toolbar", { name: "Message actions" }));
+    const readerSurface = senderHeader?.parentElement;
+    expect(readerSurface).toHaveClass("flex-1", "overflow-hidden", "bg-card");
+    expect(readerSurface).not.toHaveClass("mx-5", "mb-5", "rounded-xl", "border");
     const recipient = screen.getByLabelText("user@example.com");
     expect(recipient.closest(".select-text")).not.toBeNull();
     expect(recipient).toHaveClass("bg-muted/55");
@@ -214,6 +221,43 @@ describe("MessageViewer", () => {
       expect(api.openRawMessageWindow).toHaveBeenCalledWith("account-one", "message-one");
     });
     expect(screen.queryByRole("dialog", { name: "Message source" })).not.toBeInTheDocument();
+  });
+
+  it("keeps move and copy destinations in the overflow menu", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageViewer
+          accountId="account-one"
+          mailboxId="inbox"
+          messageId="message-one"
+          mailboxes={[{
+            id: "archive",
+            accountId: "account-one",
+            name: "Archive",
+            delimiter: "/",
+            role: "archive",
+            selectable: true,
+            totalCount: 1,
+            unreadCount: 0,
+            revision: 1,
+          }]}
+          onMessageRemoved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Attachment" });
+    expect(screen.queryByRole("button", { name: "Move to" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy to" })).not.toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More actions" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(await screen.findByRole("menuitem", { name: "Move to" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Copy to" })).toBeInTheDocument();
   });
 
   it("reveals an attachment through the account-scoped command", async () => {
