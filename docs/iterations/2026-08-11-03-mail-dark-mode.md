@@ -60,3 +60,4 @@
 - `cargo clippy --offline --locked --all-targets -- -D warnings` 通过。
 - `git diff --check` 通过。
 - 完整 Vitest 因沙箱外执行审批超时未运行；前端 TypeScript 与生产构建门禁已通过。
+- 本阶段变更随 `v0.4.0` 发布。
