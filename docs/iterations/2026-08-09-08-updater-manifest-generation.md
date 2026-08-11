@@ -4,7 +4,7 @@
 
 ## 状态
 
-实施中。
+已验收。
 
 ## 背景
 
@@ -50,6 +50,7 @@
 - `node --test .github/scripts/generate-updater-manifests.test.mjs`：通过，使用与公开 `v0.2.3` 资产一致的七类文件名验证 11 个平台键、直连 URL、代理 URL 和 JSON 落盘结果。
 - `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/release.yml`：通过。
 - `git diff --check`：通过，仅有仓库既有的行尾转换提示。
-- 未在本地运行产品构建或 Tauri bundle；跨平台构建与草稿 Release 发布链将在重新推送 `v0.3.0` 后由 GitHub Actions 实际验证。
-- 首次远端运行的四个平台构建通过，最终任务在 `Extract changelog entry` 因 `unterminated regexp` 失败；已针对该根因修复，等待下一次 Tag 运行验证。
-- 第二次远端运行通过 Changelog 提取，但生成清单时因合并后的签名中不存在可识别的 macOS arm64 文件名而失败；已从运行 `31315051256` 的四个 workflow artifacts 核对全部实际文件名并修复 macOS 规范化，等待下一次 Tag 运行验证。
+- 未在本地运行产品构建或 Tauri bundle；跨平台构建与草稿 Release 发布链由 GitHub Actions 实际验证。
+- 首次远端运行的四个平台构建通过，最终任务在 `Extract changelog entry` 因 `unterminated regexp` 失败；已针对该根因修复。
+- 第二次远端运行通过 Changelog 提取，但生成清单时因合并后的签名中不存在可识别的 macOS arm64 文件名而失败；已从运行 `31315051256` 的四个 workflow artifacts 核对全部实际文件名并修复 macOS 规范化。
+- 2026-08-11：修正后的 `v0.3.0` 四平台构建、Changelog 提取、11 平台 updater 清单生成、直连/大陆代理 URL、Release 公开发布及最终产物均通过，用户确认全部验收通过。
