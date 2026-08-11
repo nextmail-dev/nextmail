@@ -240,6 +240,7 @@ cache/attachment-open/...
 - 正式测试和测试语料长期保留；临时探针、凭据、日志、截图、coverage 和临时数据在验证后清理。
 - `dist/` 和 `src-tauri/target/` 是正常增量缓存，默认保留。
 - Git 历史承担逐提交细节；iteration 保留每次开发计划的范围、变更摘要、验证和验收。
+- 发布新版本时保持两个顺序提交：先提交已经验收的功能、测试与实现文档，再单独提交版本号、`CHANGELOG.md` 和发布记录；不得把整轮功能变更与发布准备压进同一个 commit。
 - 既有编号 iteration 作为历史保留；2026-08-09 起的新计划按 `YYYY-MM-DD-NN-主题.md` 命名，`NN` 只表示当天实施顺序，不是全局阶段编号。状态使用“规划中”“实施中”“等待手动验收”“已验收”或明确的“未排期”。
 - 不重新建立会话 handoff、独立 changes 流水账或重复的 architecture/technical-reference/master-plan。
 
@@ -295,6 +296,7 @@ git diff --check
 - macOS ad-hoc identity `-` 不等于正式签名或公证。
 - 不为测试工作流随意创建/推送 tag。
 - 用户明确说“发布”且未指定版本时，以仓库最新有效 `vMAJOR.MINOR.PATCH` tag 为基准自动递增 patch 版本，同步应用版本后提交、推送、创建并推送新 tag；指定版本时使用指定版本。
+- 发布 tag 成功推送到远端即完成代理侧发布动作；默认不等待 GitHub Actions 构建结束，后续失败由用户提出后再排查，除非用户明确要求持续跟踪。
 
 ## 10. 长期记忆与已知限制
 
