@@ -47,7 +47,7 @@ pub fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 });
             }
-            QUIT_ID => app.exit(0),
+            QUIT_ID => crate::exit_app(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -140,7 +140,7 @@ pub fn apply_main_close_action(app: &AppHandle, action: MainCloseAction) -> Comm
                 .map_err(|_| CommandError::new("window.main_hide_failed"))
         }
         MainCloseAction::Quit => {
-            app.exit(0);
+            crate::exit_app(app);
             Ok(())
         }
     }

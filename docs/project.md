@@ -1,6 +1,6 @@
 # NextMail 项目开发手册
 
-更新时间：2026-08-11
+更新时间：2026-08-13
 
 本文是 NextMail 新会话唯一必读的长期技术文档，集中保存当前实现事实、开发细则、工程约定和项目记忆。历史范围与验收记录保留在 `iterations/`；重大架构或安全取舍保留在 `adr/`，都只在任务相关时按需查阅。
 
@@ -56,7 +56,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - `0.3.1` 已完成 Composer 地址栏、联系人候选键盘操作、富文本 Tab、邮件标题与按钮 hover 优化，并为回复/转发提供同一行的明确原文标题；本轮已通过自动验证和用户手动验收。
 - `0.3.0` 已完成独立安全更新窗口、全局对话框层级修正、设置选择项交互优化、分段 MIME 附件名兼容与新应用图标；四平台 Release workflow、自行生成的直连/大陆代理 updater 清单及公开发布链已经实际运行并验收通过。
 
-当前计划见 [`2026-08-13-01-light-mail-and-avatars`](./iterations/2026-08-13-01-light-mail-and-avatars.md)；最近完成记录见 [`2026-08-12-02-imap-session-budget-expansion`](./iterations/2026-08-12-02-imap-session-budget-expansion.md)。
+当前计划见 [`2026-08-13-02-windows-webview-exit-cleanup`](./iterations/2026-08-13-02-windows-webview-exit-cleanup.md)；最近完成记录见 [`2026-08-13-01-light-mail-and-avatars`](./iterations/2026-08-13-01-light-mail-and-avatars.md)。
 
 仍未排期：
 
@@ -136,6 +136,7 @@ docs/adr/                按需查阅的长期架构决策
 - 业务窗口标题随语言变化；主窗口和通知保留 `NextMail`。
 - 系统托盘由 Rust 创建并按界面语言更新菜单；Windows/macOS 左键显示主窗口，右键提供显示、设置、退出。Linux 受 Tauri/AppIndicator 限制不产生托盘点击事件，左键显示菜单并通过“显示主界面”恢复窗口。
 - 主窗口关闭请求由 Rust 统一拦截。默认询问最小化到托盘或退出；关闭询问后由设备级偏好直接隐藏或退出。托盘不可用时不得隐藏成无法恢复的窗口，托盘菜单“退出”作为明确动作不二次询问。
+- App 明确退出统一先销毁全部 WebView 窗口，再调用 Tauri `app.exit(0)`，避免 Windows Chromium/WebView2 在进程退出时残留窗口类清理错误；不得用 `std::process::exit` 绕过 Tauri 的退出事件与插件清理。
 
 ## 5. 数据、同步与协议记忆
 

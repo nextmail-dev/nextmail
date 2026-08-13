@@ -174,6 +174,19 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+pub(crate) fn exit_app(app: &tauri::AppHandle) {
+    for window in app.webview_windows().into_values() {
+        if let Err(error) = window.destroy() {
+            tracing::warn!(
+                label = window.label(),
+                ?error,
+                "webview window destruction failed during exit"
+            );
+        }
+    }
+    app.exit(0);
+}
+
 fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let config = app
         .config()

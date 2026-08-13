@@ -483,7 +483,7 @@ pub fn get_app_about() -> AppAbout {
 
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
-    app.exit(0);
+    crate::exit_app(&app);
 }
 
 #[tauri::command]
