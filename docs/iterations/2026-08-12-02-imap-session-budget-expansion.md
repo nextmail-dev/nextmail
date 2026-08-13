@@ -1,6 +1,6 @@
 # 扩充账户级 IMAP 会话预算
 
-状态：等待手动验收
+状态：已验收
 
 ## 目标
 
@@ -27,10 +27,11 @@
 
 ## 验证结果
 
-- 2026-08-12：自动验证通过，等待用户手动验收。
+- 2026-08-12：自动验证通过。
+- 2026-08-13：用户实机验收通过，未发现连接重置或 `too many connections`。
 - `cargo fmt --all -- --check` 通过。
 - `cargo test --lib` 通过，共 170 项测试（含更新的 `keeps_interactive_slots_while_sync_workers_are_active`）。
 - `cargo clippy --locked --all-targets -- -D warnings` 通过，无警告。
 - `git diff --check` 通过。
 - 说明：`--offline` 因本机 registry 索引缺 `tauri-plugin-updater` 无法解析，本轮以非离线模式运行 `--locked`。
-- 实机验收待做：完整同步期间连续打开缺正文邮件、触发待办重放，确认无连接重置或 "too many connections"；若严格服务器出问题需回调或改为可配置。
+- 实机验收已完成；若后续在更严格的服务器上出现连接限制，再回调或改为可配置。

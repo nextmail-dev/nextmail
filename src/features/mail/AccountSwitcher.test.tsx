@@ -73,7 +73,7 @@ describe("AccountSwitcher", () => {
   });
 
   it("allows long account names and addresses to wrap without losing width to the chevron", () => {
-    renderSwitcher([{
+    const { container } = renderSwitcher([{
       id: "one",
       email: "a-very-long-address@example-corporate-domain.com",
       displayName: "A very long account display name",
@@ -87,15 +87,17 @@ describe("AccountSwitcher", () => {
       "break-all",
       "whitespace-normal",
     );
-    expect(screen.getByRole("button", { name: "Open account menu" })).toHaveClass(
-      "w-full",
-      "overflow-hidden",
+    expect(screen.getByRole("button", { name: "Open account menu" })).toHaveClass("w-full");
+    expect(screen.getByRole("button", { name: "Open account menu" })).not.toHaveClass("overflow-hidden");
+    expect(container.querySelector('[data-slot="identity-avatar"]')).toHaveClass(
+      "[background:var(--primary-gradient)]",
+      "shadow-[var(--shadow-primary)]",
     );
   });
 });
 
 function renderSwitcher(accounts: AccountSummary[], onManageAccounts = vi.fn()) {
-  render(
+  return render(
     <AccountSwitcher
       accounts={accounts}
       selectedAccountId="one"

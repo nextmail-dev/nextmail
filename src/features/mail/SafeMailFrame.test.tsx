@@ -17,9 +17,20 @@ describe("SafeMailFrame", () => {
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
     expect(frame).not.toHaveAttribute("allow");
     expect(frame).toHaveStyle({ colorScheme: "light" });
-    expect(frame.getAttribute("srcdoc")).toContain("background:#fff");
-    expect(frame.getAttribute("srcdoc")).not.toContain("!important");
+    expect(frame.getAttribute("srcdoc")).toContain("background:#fbfcfe");
+    expect(frame.getAttribute("srcdoc")).toContain("background-color: rgb(251, 252, 254) !important");
     expect(frame.getAttribute("srcdoc")).toContain("Hello Taylor");
+  });
+
+  it("places light reader defaults before authored non-white backgrounds", () => {
+    const source = "<!doctype html><html><head><style>body{background:#fefefe}</style></head><body>Mail</body></html>";
+    render(<SafeMailFrame document={source} title="Tinted" />);
+
+    const frameSource = screen.getByTitle("Tinted").getAttribute("srcdoc") ?? "";
+    expect(frameSource.indexOf('id="nextmail-reader-theme"')).toBeLessThan(
+      frameSource.indexOf("body{background:#fefefe}"),
+    );
+    expect(new DOMParser().parseFromString(frameSource, "text/html").body.style.backgroundColor).toBe("");
   });
 
   it("only enables remote image sources after explicit approval and adapts dark mail bodies", () => {

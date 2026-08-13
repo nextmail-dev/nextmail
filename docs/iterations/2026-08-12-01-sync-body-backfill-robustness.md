@@ -1,6 +1,6 @@
 # 同步 body 回填对服务器已消失邮件的健壮性
 
-状态：等待手动验收
+状态：已验收
 
 ## 目标
 
@@ -71,7 +71,8 @@
 
 ## 验证结果
 
-- 2026-08-12：自动验证通过，等待用户手动验收。
+- 2026-08-12：自动验证通过。
+- 2026-08-13：用户手动验收通过。
 - `cargo fmt --all -- --check` 通过。
 - `cargo test --lib` 通过，共 170 项测试（含新增 `classifies_message_unavailable_errors`）。
 - `cargo clippy --locked --all-targets -- -D warnings` 通过，无警告。

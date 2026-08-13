@@ -4,19 +4,38 @@ import mixedBackgroundTable from "../../../testdata/mail-rendering/mixed-backgro
 
 import {
   contrastRatio,
+  harmonizeLightMailDocument,
   hasAuthoredDarkMode,
   invertLightness,
   smartInvertMailDocument,
 } from "./mail-dark-mode";
 
 describe("mail smart inversion", () => {
+  it("maps only opaque white mail backgrounds to the light reader surface", () => {
+    const result = harmonizeLightMailDocument(`<!doctype html><html><head><style>
+      .white { background-color: #fff; }
+      .tinted { background-color: #fefefe; }
+    </style></head><body bgcolor="#ffffff">
+      <div class="white">White</div><div class="tinted">Tinted</div>
+    </body></html>`);
+    const document = new DOMParser().parseFromString(result, "text/html");
+    const white = document.querySelector<HTMLElement>(".white")!;
+    const tinted = document.querySelector<HTMLElement>(".tinted")!;
+
+    expect(document.documentElement.style.backgroundColor).toBe("rgb(251, 252, 254)");
+    expect(document.body.style.backgroundColor).toBe("rgb(251, 252, 254)");
+    expect(white.style.backgroundColor).toBe("rgb(251, 252, 254)");
+    expect(white.style.getPropertyPriority("background-color")).toBe("important");
+    expect(tinted.style.backgroundColor).toBe("");
+  });
+
   it("inverts lightness while retaining the dominant hue", () => {
     const white = invertLightness({ r: 255, g: 255, b: 255, a: 1 });
     const black = invertLightness({ r: 0, g: 0, b: 0, a: 1 });
     const blue = invertLightness({ r: 32, g: 96, b: 224, a: 1 });
 
     expect(white.r).toBeCloseTo(23, 0);
-    expect(black.r).toBeCloseTo(230, 0);
+    expect(black.r).toBeCloseTo(229.5, 5);
     expect(blue.b).toBeGreaterThan(blue.g);
     expect(blue.g).toBeGreaterThan(blue.r);
   });

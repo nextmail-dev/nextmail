@@ -56,7 +56,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - `0.3.1` 已完成 Composer 地址栏、联系人候选键盘操作、富文本 Tab、邮件标题与按钮 hover 优化，并为回复/转发提供同一行的明确原文标题；本轮已通过自动验证和用户手动验收。
 - `0.3.0` 已完成独立安全更新窗口、全局对话框层级修正、设置选择项交互优化、分段 MIME 附件名兼容与新应用图标；四平台 Release workflow、自行生成的直连/大陆代理 updater 清单及公开发布链已经实际运行并验收通过。
 
-当前计划见 [`2026-08-11-03-mail-dark-mode`](./iterations/2026-08-11-03-mail-dark-mode.md)；最近完成记录见 [`2026-08-11-02-ui-reconstruction`](./iterations/2026-08-11-02-ui-reconstruction.md)。
+当前计划见 [`2026-08-13-01-light-mail-and-avatars`](./iterations/2026-08-13-01-light-mail-and-avatars.md)；最近完成记录见 [`2026-08-12-02-imap-session-budget-expansion`](./iterations/2026-08-12-02-imap-session-budget-expansion.md)。
 
 仍未排期：
 
@@ -237,6 +237,8 @@ cache/attachment-open/...
 - 保留平台差异：仅 Windows 显示 WebView 自绘窗口按钮；macOS 使用原生交通灯，其他带系统装饰的平台使用原生窗口控制。
 - 邮件 HTML 与 Composer 原文不进入主 React DOM；保真优化不能越过安全边界。
 - 邮件深色模式优先信任作者的 `color-scheme`、`supported-color-schemes`、`prefers-color-scheme: dark` 或 Outlook `data-ogsc` / `data-ogsb` 适配信号；其他邮件对清洗后允许保留的 `color`、`background-color` 与四侧 border color 静态计算 cascade，并把安全清洗后保留的 `bgcolor`、`font[color]`、`hr[color]` 及表格 `bordercolor` 纳入同一过程。带色背景先限制暗色表面亮度；文字对比度不足时优先继续压暗其有效带色背景以保留作者文字色，仍不达标才最小调整文字明度，最终保持至少 4.5:1；作者边框相对有效背景至少保持 3:1。默认白色邮件表面映射为与 App 阅读面板相同的 `#171717`，阅读区保留外围内边距但不形成异色框；阅读器为未声明颜色的现有边框提供统一可见兜底，图片与视频保持清洗后的原样。
+- 浅色邮件同样复用安全静态 cascade，只把不透明纯白作者背景映射为阅读面板的 `#fbfcfe`；近白色、品牌底色、图片和视频保持原样。
+- 联系人、邮件发件人与账户入口复用主题渐变身份头像；头像阴影不得由负责文本截断的父容器裁切。
 
 ## 8. 依赖、Git 与交付约定
 

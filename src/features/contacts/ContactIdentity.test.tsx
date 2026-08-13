@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import i18n from "@/app/i18n";
-import { ContactIdentity } from "./ContactIdentity";
+import { ContactIdentity, ContactInitial } from "./ContactIdentity";
 
 beforeAll(async () => {
   await i18n.changeLanguage("en-US");
@@ -14,6 +14,14 @@ afterEach(() => {
 });
 
 describe("ContactIdentity", () => {
+  it("uses the shared theme gradient for contact avatars", () => {
+    const { container } = render(<ContactInitial name="Alice" />);
+    expect(container.querySelector('[data-slot="identity-avatar"]')).toHaveClass(
+      "[background:var(--primary-gradient)]",
+      "text-primary-foreground",
+    );
+  });
+
   it("waits before showing a pointer-hover card but opens immediately for keyboard focus", () => {
     vi.useFakeTimers();
     render(<ContactIdentity address={{ name: "Alice", email: "alice@example.com" }} tag />);

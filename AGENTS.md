@@ -109,7 +109,8 @@ git diff --check
 - 任何可能产生纵向滚动的容器统一用 `OverlayScrollArea`：6px 滑块绝对覆盖在右侧，仅在容器 hover 或键盘 focus-within 时显示并使用默认指针；不得为滚动条预留 `padding`、gutter 或空白，滑块出现与消失不得改变内容或分割线坐标。
 - 文件夹列表是唯一位置例外：展开侧栏的滚动容器可向右延伸并用等量 `content` 右内边距维持圆角列表项宽度，让滑块位于列表项外侧；不得改用 viewport padding。
 - 邮件 HTML 与 Composer 原文不进入主 React DOM；保真优化不能越过安全边界。
-- 邮件深色适配只处理 Rust 权威清洗后的字符串：在惰性 DOM 中按清洗器允许的 CSS 子集静态计算 cascade、转换 HSL 明度并写回 inline style，再交给原有无 scripts / same-origin 的 sandbox iframe；清洗器须保留常见安全表现属性 `bgcolor`、`font[color]`、`hr[color]` 与表格 `bordercolor`，让浅色保真和深色转换共享同一作者颜色。高亮等带色背景须先通过继续压暗背景来保留作者文字色，再对仍不达标的文字做最小明度校正；边框相对有效背景至少保持 3:1。默认白色邮件表面须映射为与 App 阅读面板相同的深色表面，不得为读取计算样式放宽 iframe 或把邮件节点挂入主 DOM。作者已声明原生深色适配时跳过自动转换，图片与视频保持原样。
+- 邮件主题适配只处理 Rust 权威清洗后的字符串：在惰性 DOM 中按清洗器允许的 CSS 子集静态计算 cascade、转换颜色并写回 inline style，再交给原有无 scripts / same-origin 的 sandbox iframe；清洗器须保留常见安全表现属性 `bgcolor`、`font[color]`、`hr[color]` 与表格 `bordercolor`。深色下，高亮等带色背景须先通过继续压暗背景来保留作者文字色，再对仍不达标的文字做最小明度校正，边框相对有效背景至少保持 3:1；浅色下只把不透明纯白作者背景映射为 App 阅读面板表面，其他颜色保持原样。不得为读取计算样式放宽 iframe 或把邮件节点挂入主 DOM；作者已声明原生深色适配时跳过深色转换，图片与视频保持原样。
+- 联系人、邮件发件人与账户入口共用主题渐变身份头像；文本裁切容器不得同时裁切头像阴影。
 - 仅 Windows 显示 WebView 自绘窗口按钮；macOS 和其他带系统装饰的平台使用原生窗口控制。窗口失焦时降低标题与自绘控件强调度，但保留标题栏边界。
 
 ## Git 与交付约定

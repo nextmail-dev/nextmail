@@ -53,6 +53,7 @@ type Cascade = Map<HTMLElement, Partial<Record<ColorProperty, Candidate>>>;
 
 const LIGHT_FOREGROUND: Rgba = { r: 32, g: 33, b: 36, a: 1 };
 const LIGHT_BACKGROUND: Rgba = { r: 255, g: 255, b: 255, a: 1 };
+export const LIGHT_MAIL_SURFACE = "#fbfcfe";
 export const DARK_MAIL_SURFACE = "#171717";
 const DARK_READER_BACKGROUND: Rgba = { r: 23, g: 23, b: 23, a: 1 };
 const TRANSPARENT: Rgba = { r: 0, g: 0, b: 0, a: 0 };
@@ -72,6 +73,27 @@ export function smartInvertMailDocument(source: string) {
   if (!parser) return source;
   try {
     writeDarkColors(mailDocument, elements, cascade, parser.parse);
+  } finally {
+    parser.dispose();
+  }
+  return `<!doctype html>${mailDocument.documentElement.outerHTML}`;
+}
+
+export function harmonizeLightMailDocument(source: string) {
+  if (typeof DOMParser === "undefined" || typeof globalThis.document === "undefined") return source;
+  const mailDocument = new DOMParser().parseFromString(source, "text/html");
+  const elements = Array.from(mailDocument.querySelectorAll<HTMLElement>("html, body, body *"));
+  if (!elements.length || elements.length > MAX_MAIL_ELEMENTS) return source;
+
+  const cascade: Cascade = new Map();
+  applyPresentationalColors(elements, cascade);
+  if (!applyStyleSheetColors(mailDocument, cascade)) return source;
+  applyInlineColors(elements, cascade);
+
+  const parser = createColorParser();
+  if (!parser) return source;
+  try {
+    writeLightSurfaces(mailDocument, elements, cascade, parser.parse);
   } finally {
     parser.dispose();
   }
@@ -170,6 +192,13 @@ function applyStyleSheetColors(mailDocument: Document, cascade: Cascade) {
 
 function parseStyleRules(source: string) {
   if (!source.trim()) return [];
+  try {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(source);
+    return Array.from(sheet.cssRules);
+  } catch {
+    // Older WebViews do not support constructable style sheets.
+  }
   const owner = globalThis.document.implementation.createHTMLDocument("");
   const style = owner.createElement("style");
   style.textContent = source;
@@ -232,6 +261,41 @@ function winsCascade(next: Candidate, current: Candidate) {
   if (next.important !== current.important) return next.important;
   if (next.specificity !== current.specificity) return next.specificity > current.specificity;
   return next.order >= current.order;
+}
+
+function writeLightSurfaces(
+  mailDocument: Document,
+  elements: HTMLElement[],
+  cascade: Cascade,
+  parseColor: (value: string) => Rgba | null,
+) {
+  const backgrounds = new Map<HTMLElement, Rgba>();
+  for (const element of elements) {
+    const parentBackground = element.parentElement
+      ? backgrounds.get(element.parentElement) ?? TRANSPARENT
+      : LIGHT_BACKGROUND;
+    const candidate = cascade.get(element)?.["background-color"];
+    const initial = element === mailDocument.documentElement ? LIGHT_BACKGROUND : TRANSPARENT;
+    const background = resolveColor(
+      candidate?.value,
+      "background-color",
+      LIGHT_FOREGROUND,
+      parentBackground,
+      initial,
+      parseColor,
+    );
+    backgrounds.set(element, background);
+    if ((candidate || element === mailDocument.documentElement)
+      && element.localName !== "img"
+      && element.localName !== "video"
+      && isOpaqueWhite(background)) {
+      element.style.setProperty("background-color", LIGHT_MAIL_SURFACE, "important");
+    }
+  }
+}
+
+function isOpaqueWhite(color: Rgba) {
+  return color.a >= 0.999 && color.r >= 254.5 && color.g >= 254.5 && color.b >= 254.5;
 }
 
 function writeDarkColors(

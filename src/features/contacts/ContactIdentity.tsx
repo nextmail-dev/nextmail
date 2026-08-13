@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import type { AddressPresentation, MessageAddress } from "@/app/types";
+import { IdentityAvatar } from "@/components/ui/identity-avatar";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -171,15 +172,7 @@ export function ContactIdentity({
 }
 
 export function ContactInitial({ name, className }: { name: string; className?: string }) {
-  const initial = name.trim().charAt(0).toLocaleUpperCase() || "?";
-  return (
-    <span
-      aria-hidden="true"
-      className={cn("grid size-9 shrink-0 place-items-center rounded-full bg-primary/12 text-sm font-bold text-primary", className)}
-    >
-      {initial}
-    </span>
-  );
+  return <IdentityAvatar label={name} className={className} />;
 }
 
 export async function writeClipboardText(value: string) {

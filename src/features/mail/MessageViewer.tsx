@@ -46,7 +46,7 @@ import { SafeMailFrame } from "./SafeMailFrame";
 import { formatBytes, MessageAttachment } from "./MessageAttachment";
 import { activateMessageAttachment } from "./message-attachment-actions";
 import { mailQueryKeys, messageQueryKeys } from "./mail-query-keys";
-import { ContactIdentity } from "@/features/contacts/ContactIdentity";
+import { ContactIdentity, ContactInitial } from "@/features/contacts/ContactIdentity";
 
 export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allowOpenInNewWindow = true, onMessageRemoved, onOpenContact, onEditContact }: {
   accountId: string;
@@ -150,7 +150,6 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
   const sender = message.from[0];
   const senderName = sender?.name?.trim() || null;
   const senderLabel = sender?.name || sender?.email || "—";
-  const senderInitial = senderLabel.trim().charAt(0).toLocaleUpperCase();
   const isDraft = mailboxes.find((mailbox) => mailbox.id === mailboxId)?.role === "drafts";
   const attachmentBytes = message.attachments.reduce((total, attachment) => total + attachment.size, 0);
 
@@ -232,7 +231,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
         </Inline>
 
         <Inline className="items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/12 text-sm font-bold text-primary">{senderInitial}</span>
+          <ContactInitial name={senderLabel} className="size-10" />
           <Stack className="min-w-0 flex-1" gap="xs">
             <Inline className="flex-wrap gap-x-3 gap-y-1">
               {sender ? (

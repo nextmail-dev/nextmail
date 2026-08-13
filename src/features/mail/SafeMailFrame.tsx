@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { DARK_MAIL_SURFACE, hasAuthoredDarkMode, smartInvertMailDocument } from "./mail-dark-mode";
+import {
+  DARK_MAIL_SURFACE,
+  harmonizeLightMailDocument,
+  hasAuthoredDarkMode,
+  LIGHT_MAIL_SURFACE,
+  smartInvertMailDocument,
+} from "./mail-dark-mode";
 
 interface SafeMailFrameProps {
   document: string;
@@ -51,12 +57,14 @@ function prepareFrameDocument(source: string, allowRemoteImages: boolean, dark: 
     : source;
   if (dark && !hasAuthoredDarkMode(document)) {
     document = smartInvertMailDocument(document);
+  } else if (!dark) {
+    document = harmonizeLightMailDocument(document);
   }
   const themeStyle = dark
     ? `<style id="nextmail-reader-theme">html{color-scheme:dark;background:${DARK_MAIL_SURFACE};color:#e8e8e8}body{background:${DARK_MAIL_SURFACE};color:#e8e8e8}a{color:#8ab4f8}*{border-color:#6f6f6f}</style>`
-    : `<style id="nextmail-reader-theme">html{color-scheme:light;background:#fff;color:#202124}body{background:#fff;color:#202124}</style>`;
-  document = document.includes("</head>")
-    ? document.replace("</head>", `${themeStyle}</head>`)
+    : `<style id="nextmail-reader-theme">html{color-scheme:light;background:${LIGHT_MAIL_SURFACE};color:#202124}body{background:${LIGHT_MAIL_SURFACE};color:#202124}</style>`;
+  document = /<head(?:\s[^>]*)?>/i.test(document)
+    ? document.replace(/<head(\s[^>]*)?>/i, (head) => `${head}${themeStyle}`)
     : `${themeStyle}${document}`;
   return document;
 }
