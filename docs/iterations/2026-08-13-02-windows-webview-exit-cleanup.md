@@ -38,3 +38,4 @@
 ## 手动验收
 
 - 2026-08-13：Windows 实机验收通过，App 正常退出且不再出现 Chromium `Chrome_WidgetWin_0` 错误 1412。
+- 本阶段变更随 `v0.4.1` 发布。

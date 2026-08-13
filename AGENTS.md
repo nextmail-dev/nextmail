@@ -1,6 +1,6 @@
 # AGENTS.md
 
-NextMail 是基于 Tauri 2、React 19 / TypeScript 5.8 和 Rust 的本地优先桌面邮件客户端，当前版本 0.4.0。本文件是给 AI 编码代理（Codex 等）的最小必读指令；完整实现事实、开发细则与项目记忆以 [`docs/project.md`](./docs/project.md) 为准，发生冲突时以代码与 `docs/project.md` 为准。
+NextMail 是基于 Tauri 2、React 19 / TypeScript 5.8 和 Rust 的本地优先桌面邮件客户端，当前版本 0.4.1。本文件是给 AI 编码代理（Codex 等）的最小必读指令；完整实现事实、开发细则与项目记忆以 [`docs/project.md`](./docs/project.md) 为准，发生冲突时以代码与 `docs/project.md` 为准。
 
 ## 仓库结构
 
