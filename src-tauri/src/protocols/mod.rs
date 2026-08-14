@@ -15,14 +15,13 @@ use crate::core::{CommandError, CommandResult};
 use mail_parser::{parsers::MessageStream, MessagePart, MimeHeaders};
 
 pub(crate) fn attachment_file_name(part: &MessagePart<'_>, fallback: &str) -> String {
-    let Some(value) = part
-        .attachment_name()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
+    normalize_attachment_file_name(part.attachment_name(), fallback)
+}
+
+pub(crate) fn normalize_attachment_file_name(value: Option<&str>, fallback: &str) -> String {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
         return fallback.to_owned();
     };
-
     decode_complete_rfc2047_word(value).unwrap_or_else(|| value.to_owned())
 }
 

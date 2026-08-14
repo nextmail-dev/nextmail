@@ -1,5 +1,4 @@
 import {
-  Download,
   ExternalLink,
   File,
   FileArchive,
@@ -10,6 +9,7 @@ import {
   FileText,
   FileVideo,
   FolderOpen,
+  ListRestart,
   Presentation,
   Save,
   type LucideIcon,
@@ -17,8 +17,15 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type { AttachmentSummary } from "@/app/types";
-import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Inline, Stack } from "@/components/ui/layout";
+import { Spinner } from "@/components/ui/spinner";
 import { InlineText, Text } from "@/components/ui/typography";
 import { cn } from "@/lib/utils";
 
@@ -41,64 +48,47 @@ export function MessageAttachment({
 }) {
   const { t } = useTranslation();
   const available = attachment.availability === "available";
+  const busy = opening || saving || revealing;
   const fileVisual = attachmentFileVisual(attachment);
   const FileIcon = fileVisual.icon;
   return (
-    <div className="group/attachment relative h-[72px] w-80 max-w-full overflow-hidden rounded-lg border border-border/70 bg-muted/45 transition-colors hover:border-primary/25 hover:bg-muted/70 focus-within:border-primary/35">
-      <Button
-        variant="ghost"
-        className="size-full min-w-0 justify-start rounded-lg bg-transparent p-3 pr-[116px] text-left text-foreground hover:bg-transparent"
-        loading={opening}
-        title={attachment.fileName}
-        aria-label={t("mail.attachmentPrimaryAction", { name: attachment.fileName })}
-        onClick={onOpen}
-      >
-        <Inline className="min-w-0 gap-3">
-          <span className={cn("grid size-10 shrink-0 place-items-center rounded-md", fileVisual.className)}>
-            <FileIcon size={21} aria-hidden="true" />
-          </span>
-          <Stack className="min-w-0" gap="xs">
-            <InlineText className="block min-w-0 truncate text-sm font-medium text-inherit">{attachment.fileName}</InlineText>
-            <Text className="text-[length:var(--ui-font-caption)]">{formatBytes(attachment.size)}</Text>
-          </Stack>
-        </Inline>
-      </Button>
-      <Inline className="absolute right-2 top-1/2 -translate-y-1/2 gap-0.5 opacity-0 transition-opacity group-hover/attachment:opacity-100 group-focus-within/attachment:opacity-100">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 bg-card/90 text-muted-foreground shadow-sm hover:bg-card hover:text-foreground"
-          loading={opening}
-          aria-label={available ? t("mail.openAttachment", { name: attachment.fileName }) : t("mail.downloadAttachment", { name: attachment.fileName })}
-          title={available ? t("mail.openAttachment", { name: attachment.fileName }) : t("mail.downloadAttachment", { name: attachment.fileName })}
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <button
+          type="button"
+          className="h-12 w-64 max-w-full min-w-0 rounded-md border border-border/70 bg-muted/35 px-2.5 text-left text-foreground outline-none transition-colors hover:border-primary/25 hover:bg-muted/60 focus-visible:shadow-[inset_0_0_0_1px_var(--primary)] disabled:opacity-70"
+          title={attachment.fileName}
+          aria-label={t("mail.openAttachment", { name: attachment.fileName })}
+          disabled={busy}
           onClick={onOpen}
         >
-          {available ? <ExternalLink size={15} /> : <Download size={15} />}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 bg-card/90 text-muted-foreground shadow-sm hover:bg-card hover:text-foreground"
-          loading={saving}
-          aria-label={t("mail.saveAttachmentAs", { name: attachment.fileName })}
-          title={t("mail.saveAs")}
-          onClick={onSaveAs}
-        >
-          <Save size={15} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 bg-card/90 text-muted-foreground shadow-sm hover:bg-card hover:text-foreground"
-          loading={revealing}
-          aria-label={t("mail.revealAttachment", { name: attachment.fileName })}
-          title={t("mail.showInFolder")}
-          onClick={onReveal}
-        >
-          <FolderOpen size={15} />
-        </Button>
-      </Inline>
-    </div>
+          <Inline className="min-w-0 gap-2.5">
+            <span className={cn("grid size-8 shrink-0 place-items-center rounded-sm", fileVisual.className)}>
+              {busy && !available ? <Spinner size={16} /> : <FileIcon size={17} aria-hidden="true" />}
+            </span>
+            <Stack className="min-w-0 gap-0">
+              <InlineText className="block min-w-0 truncate text-[13px] font-medium text-inherit">{attachment.fileName}</InlineText>
+              <Text className="text-[11px] leading-4">{formatBytes(attachment.size)}</Text>
+            </Stack>
+          </Inline>
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem disabled={busy} onSelect={onOpen}>
+          <ExternalLink size={14} />{t("mail.open")}
+        </ContextMenuItem>
+        <ContextMenuItem disabled>
+          <ListRestart size={14} />{t("mail.openWith")}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem disabled={busy} onSelect={onReveal}>
+          <FolderOpen size={14} />{t("mail.showInFolder")}
+        </ContextMenuItem>
+        <ContextMenuItem disabled={busy} onSelect={onSaveAs}>
+          <Save size={14} />{t("mail.saveAs")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

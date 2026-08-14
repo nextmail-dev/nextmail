@@ -5,6 +5,7 @@
   --layer-window-titlebar: 100;
   --layer-dialog-overlay: 200;
   --layer-dialog-content: 201;
+  --layer-floating-content: 210;
   --scrollbar-thumb: color-mix(in srgb, var(--muted-foreground) 42%, transparent);
   --scrollbar-thumb-hover: color-mix(in srgb, var(--muted-foreground) 58%, transparent);
 }
@@ -137,6 +138,11 @@ textarea,
 
 .app-dialog-content {
   z-index: var(--layer-dialog-content);
+}
+
+.app-floating-content {
+  z-index: var(--layer-floating-content);
+  -webkit-app-region: no-drag;
 }
 
 ::-webkit-scrollbar {

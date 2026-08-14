@@ -5,6 +5,7 @@ mod path_lock;
 mod provider;
 mod session;
 mod session_budget;
+mod structure;
 mod timeout;
 
 use std::collections::HashSet;
@@ -17,8 +18,9 @@ pub use provider::AsyncImapProvider;
 
 use crate::core::{
     AddressPresentation, CommandError, CommandResult, ContentAvailability, ImapAccountConfig,
-    MailSyncSink, MailboxRole, MailboxSyncTarget, MessageListItem, RemoteMailbox, RemoteMessage,
-    RemoteMessageState, StoredMailbox, StoredMessageLocation, SyncNotice, SyncObserver,
+    MailSyncSink, MailboxRole, MailboxSyncTarget, MessageListItem, RemoteAttachment, RemoteMailbox,
+    RemoteMessage, RemoteMessageState, StoredMailbox, StoredMessageLocation, SyncNotice,
+    SyncObserver,
 };
 use async_imap::{
     types::{Flag, NameAttribute},
@@ -32,6 +34,7 @@ use tokio::{
 };
 
 const FETCH_BATCH_SIZE: usize = 1;
+pub const SELECTIVE_FETCH_UNSUPPORTED: &str = "sync.message_selective_fetch_unsupported";
 struct FetchedMessageSummary {
     uid: u32,
     received_at: i64,
@@ -40,6 +43,7 @@ struct FetchedMessageSummary {
     header: Vec<u8>,
     size: u64,
     modseq: Option<u64>,
+    attachments: Vec<RemoteAttachment>,
 }
 
 struct FolderSyncContext<'a> {
@@ -378,6 +382,7 @@ where
             })
             .await?;
             message.modseq = summary.modseq;
+            message.attachments = summary.attachments;
             // Serialize the DB write across workers (see sync_folder). The guard
             // is held only for the upsert; parsing and observer notifies stay
             // outside the lock so a slow write never blocks another worker's
@@ -436,7 +441,7 @@ async fn fetch_missing_bodies<T>(
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    let pending = pending_body_uids(
+    let pending = pending_body_locations(
         sink.pending_body_locations(&context.mailbox.id, None)
             .await?,
         context.uid_validity,
@@ -444,24 +449,32 @@ where
     // Only fetch bodies for messages the server still lists. A UID present
     // locally but absent from uid_search was expunged or moved since we stored
     // its header; reconcile_flags (run next) prunes the local stub.
-    let uids = pending
-        .iter()
-        .copied()
-        .filter(|uid| remote_uids.contains(uid))
+    let pending_len = pending.len();
+    let locations = pending
+        .into_iter()
+        .filter(|location| remote_uids.contains(&location.uid))
         .collect::<Vec<_>>();
-    if uids.len() < pending.len() {
+    if locations.len() < pending_len {
         tracing::debug!(
-            skipped = pending.len() - uids.len(),
+            skipped = pending_len - locations.len(),
             mailbox_name = %context.mailbox_name,
             "skipped body fetch for messages no longer listed on server"
         );
     }
-    let total = uids.len() as u64;
+    let total = locations.len() as u64;
     if total == 0 {
         return Ok(());
     }
 
     let completed = AtomicU64::new(0);
+    let message_ids = locations
+        .iter()
+        .map(|location| (location.uid, location.message_id.as_str()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let uids = locations
+        .iter()
+        .map(|location| location.uid)
+        .collect::<Vec<_>>();
     let chunks = split_uids(&uids, sessions.len());
     let results = join_all(sessions.iter_mut().enumerate().map(|(index, session)| {
         fetch_bodies_worker(
@@ -471,6 +484,7 @@ where
             sink,
             observer,
             context,
+            &message_ids,
             &completed,
             total,
             write_lock,
@@ -483,14 +497,13 @@ where
     Ok(())
 }
 
-fn pending_body_uids(locations: Vec<StoredMessageLocation>, current_uid_validity: u32) -> Vec<u32> {
-    let mut uids = locations
-        .into_iter()
-        .filter(|location| location.uid_validity == current_uid_validity)
-        .map(|location| location.uid)
-        .collect::<Vec<_>>();
-    uids.sort_unstable();
-    uids
+fn pending_body_locations(
+    mut locations: Vec<StoredMessageLocation>,
+    current_uid_validity: u32,
+) -> Vec<StoredMessageLocation> {
+    locations.retain(|location| location.uid_validity == current_uid_validity);
+    locations.sort_unstable_by_key(|location| location.uid);
+    locations
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -501,6 +514,7 @@ async fn fetch_bodies_worker<T>(
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
     context: &FolderSyncContext<'_>,
+    message_ids: &std::collections::HashMap<u32, &str>,
     completed: &AtomicU64,
     total: u64,
     write_lock: &Mutex<()>,
@@ -509,14 +523,30 @@ where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
     for uid in uids {
-        match session::fetch_remote_messages(
-            session,
-            std::slice::from_ref(uid),
-            context.uid_validity,
-        )
-        .await
-        {
-            Ok(messages) => {
+        match session::fetch_remote_message_body(session, *uid).await {
+            Ok(body) => {
+                let message_id = message_ids
+                    .get(uid)
+                    .ok_or_else(|| CommandError::new("message.not_found"))?;
+                {
+                    let _write_guard = write_lock.lock().await;
+                    sink.replace_message_body(&account.account_slot_id, message_id, &body)
+                        .await?;
+                }
+                let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                observer.notify(SyncNotice::Bodies {
+                    completed: done,
+                    total,
+                    mailbox_name: context.mailbox_name.to_owned(),
+                });
+            }
+            Err(error) if error.code == SELECTIVE_FETCH_UNSUPPORTED => {
+                let messages = session::fetch_remote_messages(
+                    session,
+                    std::slice::from_ref(uid),
+                    context.uid_validity,
+                )
+                .await?;
                 for message in messages {
                     {
                         let _write_guard = write_lock.lock().await;
@@ -567,9 +597,9 @@ where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
     let query = if condstore {
-        "(UID FLAGS MODSEQ INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
+        "(UID FLAGS MODSEQ INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODYSTRUCTURE)"
     } else {
-        "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
+        "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODYSTRUCTURE)"
     };
     Ok(session
         .uid_fetch(format_uid_set(uids), query)
@@ -586,6 +616,11 @@ where
                 .map(|value| value.timestamp())
                 .unwrap_or_default();
             let (unread, flagged) = message_flag_state(summary.flags());
+            let attachments = summary
+                .bodystructure()
+                .map(structure::analyze_bodystructure)
+                .map(|structure| structure.attachments)
+                .unwrap_or_default();
             Some(FetchedMessageSummary {
                 uid,
                 received_at,
@@ -594,6 +629,7 @@ where
                 header: summary.header().unwrap_or_default().to_vec(),
                 size: summary.size.unwrap_or_default() as u64,
                 modseq: summary.modseq,
+                attachments,
             })
         })
         .collect())
@@ -750,24 +786,33 @@ mod tests {
 
     #[test]
     fn full_message_sync_fetches_only_missing_bodies_for_current_uid_validity() {
-        let uids = pending_body_uids(
+        let locations = pending_body_locations(
             vec![
                 StoredMessageLocation {
+                    message_id: "nine".to_owned(),
                     uid: 9,
                     uid_validity: 2,
                 },
                 StoredMessageLocation {
+                    message_id: "three".to_owned(),
                     uid: 3,
                     uid_validity: 2,
                 },
                 StoredMessageLocation {
+                    message_id: "one".to_owned(),
                     uid: 1,
                     uid_validity: 1,
                 },
             ],
             2,
         );
-        assert_eq!(uids, vec![3, 9]);
+        assert_eq!(
+            locations
+                .into_iter()
+                .map(|location| location.uid)
+                .collect::<Vec<_>>(),
+            vec![3, 9]
+        );
     }
 
     #[test]

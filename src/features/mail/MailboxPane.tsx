@@ -142,6 +142,11 @@ export function MailboxPane({
     });
   }
 
+  function openFolderDialog(action: MailboxDialogAction) {
+    // Let Radix release the ContextMenu body lock before Dialog acquires it.
+    setTimeout(() => setFolderDialogAction(action), 0);
+  }
+
   return (
     <Stack className={collapsed ? "min-h-0 flex-1 items-center px-2 py-4" : "min-h-0 flex-1 px-4 py-4"} gap="sm">
       <Inline className={collapsed ? "w-full justify-center gap-0" : "w-full gap-1"}>
@@ -209,7 +214,7 @@ export function MailboxPane({
           <ContextMenuContent>
             <ContextMenuItem
               disabled={folderActionBusy}
-              onSelect={() => setFolderDialogAction({ kind: "create", parent: null })}
+              onSelect={() => openFolderDialog({ kind: "create", parent: null })}
             >
               <FolderPlus size={15} />
               {t("mail.createRootFolder")}
@@ -256,14 +261,14 @@ export function MailboxPane({
               <ContextMenuContent>
                 <ContextMenuItem
                   disabled={folderActionBusy || !mailbox.delimiter}
-                  onSelect={() => setFolderDialogAction({ kind: "create", parent: mailbox })}
+                  onSelect={() => openFolderDialog({ kind: "create", parent: mailbox })}
                 >
                   <FolderPlus size={15} />
                   {t("mail.createSubfolder")}
                 </ContextMenuItem>
                 <ContextMenuItem
                   disabled={folderActionBusy || !structureMutable}
-                  onSelect={() => setFolderDialogAction({
+                  onSelect={() => openFolderDialog({
                     kind: "rename",
                     mailbox,
                     displayName,
@@ -274,7 +279,7 @@ export function MailboxPane({
                 </ContextMenuItem>
                 <ContextMenuItem
                   disabled={folderActionBusy || !structureMutable}
-                  onSelect={() => setFolderDialogAction({
+                  onSelect={() => openFolderDialog({
                     kind: "move",
                     mailbox,
                     displayName,
@@ -296,7 +301,7 @@ export function MailboxPane({
                 <ContextMenuItem
                   className="text-destructive focus:text-destructive"
                   disabled={folderActionBusy || !structureMutable}
-                  onSelect={() => setFolderDialogAction({
+                  onSelect={() => openFolderDialog({
                     kind: "delete",
                     mailbox,
                     displayName,

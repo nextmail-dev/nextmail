@@ -54,6 +54,13 @@ pub struct ComposerInlineImage {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReaderInlineImage {
+    pub content_id: String,
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
 pub fn sanitize_raw_message_body(raw: &[u8]) -> Option<SanitizedMessageBody> {
     let message = MessageParser::default().parse(raw)?;
     let plain_text = message.body_text(0).map(|value| value.into_owned());
@@ -134,6 +141,25 @@ pub fn sanitize_mail_html_with_cid_images(input: &str, message: &Message<'_>) ->
     sanitize_mail_html_with_data_urls(input, inline_image_data_urls(message, input))
 }
 
+pub fn sanitize_mail_html_with_inline_images(
+    input: &str,
+    images: &[ReaderInlineImage],
+) -> SanitizedHtml {
+    sanitize_mail_html_with_data_urls(
+        input,
+        inline_image_data_urls_from_parts(
+            input,
+            images.iter().map(|image| {
+                (
+                    image.content_id.as_str(),
+                    image.content_type.as_str(),
+                    image.bytes.as_slice(),
+                )
+            }),
+        ),
+    )
+}
+
 fn sanitize_mail_html_with_data_urls(
     input: &str,
     cid_images: HashMap<String, String>,
@@ -194,14 +220,37 @@ fn dark_color_scheme_meta(input: &str) -> bool {
 }
 
 fn inline_image_data_urls(message: &Message<'_>, input: &str) -> HashMap<String, String> {
+    inline_image_data_urls_from_parts(
+        input,
+        message.parts.iter().filter_map(|part| {
+            let content_id = part.content_id()?;
+            let content_type = part.content_type()?;
+            Some((
+                content_id,
+                format!(
+                    "{}/{}",
+                    content_type.ctype(),
+                    content_type.subtype().unwrap_or("octet-stream")
+                ),
+                part.contents(),
+            ))
+        }),
+    )
+}
+
+fn inline_image_data_urls_from_parts<'a, I, S>(input: &str, parts: I) -> HashMap<String, String>
+where
+    I: IntoIterator<Item = (&'a str, S, &'a [u8])>,
+    S: AsRef<str>,
+{
     let referenced_content_ids = referenced_content_ids(input);
     let mut total_bytes = 0usize;
     let mut images = HashMap::new();
-    for part in &message.parts {
-        let Some(content_id) = part.content_id().and_then(normalize_content_id_header) else {
+    for (content_id, declared_content_type, contents) in parts {
+        let Some(content_id) = normalize_content_id_header(content_id) else {
             continue;
         };
-        let size = part.len();
+        let size = contents.len();
         if content_id.is_empty()
             || size > MAX_INLINE_READER_IMAGE_BYTES
             || total_bytes.saturating_add(size) > MAX_TOTAL_INLINE_READER_IMAGE_BYTES
@@ -209,32 +258,21 @@ fn inline_image_data_urls(message: &Message<'_>, input: &str) -> HashMap<String,
         {
             continue;
         }
-        let Some(declared_content_type) = part.content_type() else {
-            continue;
-        };
-        let declared_content_type = format!(
-            "{}/{}",
-            declared_content_type.ctype(),
-            declared_content_type.subtype().unwrap_or("octet-stream")
-        );
         let Some(content_type) =
-            inline_raster_content_type(&declared_content_type, part.contents())
+            inline_raster_content_type(declared_content_type.as_ref(), contents)
         else {
             continue;
         };
         total_bytes += size;
         images.insert(
             content_id,
-            format!(
-                "data:{content_type};base64,{}",
-                STANDARD.encode(part.contents())
-            ),
+            format!("data:{content_type};base64,{}", STANDARD.encode(contents)),
         );
     }
     images
 }
 
-fn referenced_content_ids(input: &str) -> HashSet<String> {
+pub(crate) fn referenced_content_ids(input: &str) -> HashSet<String> {
     let bytes = input.as_bytes();
     let mut references = HashSet::new();
     let mut position = 0usize;

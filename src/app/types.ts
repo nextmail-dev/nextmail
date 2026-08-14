@@ -55,7 +55,6 @@ export interface AppearancePreferences {
 
 export interface ReadingPreferences {
   autoLoadRemoteImages: boolean;
-  autoOpenDownloadedAttachments: boolean;
   autoLoadMoreMessages: boolean;
   autoLoadMoreContacts: boolean;
 }

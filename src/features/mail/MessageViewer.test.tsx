@@ -35,7 +35,6 @@ vi.mock("@/app/api", () => ({
     }),
     getReadingPreferences: vi.fn().mockResolvedValue({
       autoLoadRemoteImages: false,
-      autoOpenDownloadedAttachments: false,
       autoLoadMoreMessages: true,
       autoLoadMoreContacts: true,
     }),
@@ -47,6 +46,7 @@ vi.mock("@/app/api", () => ({
       availability: "available",
     }),
     requestMessageBody: vi.fn(),
+    openMessageAttachment: vi.fn().mockResolvedValue(undefined),
     revealMessageAttachment: vi.fn().mockResolvedValue(undefined),
     openRawMessageWindow: vi.fn().mockResolvedValue(undefined),
     openMessagePreviewWindow: vi.fn().mockResolvedValue(undefined),
@@ -223,10 +223,11 @@ describe("MessageViewer", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Download report.pdf" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open report.pdf" }));
 
     await waitFor(() => {
       expect(api.requestAttachment).toHaveBeenCalledWith("account-one", "attachment-one");
+      expect(api.openMessageAttachment).toHaveBeenCalledWith("account-one", "attachment-one");
       expect(invalidateQueries).toHaveBeenCalledWith({
         queryKey: messageQueryKeys.detail("account-one", "inbox", "message-one"),
       });
@@ -314,7 +315,9 @@ describe("MessageViewer", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Show report.pdf in folder" }));
+    const attachment = await screen.findByRole("button", { name: "Open report.pdf" });
+    fireEvent.contextMenu(attachment);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Show in folder" }));
     await waitFor(() => expect(api.revealMessageAttachment).toHaveBeenCalledWith(
       "account-one",
       "attachment-one",

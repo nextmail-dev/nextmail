@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::core::{
     CommandError, CommandResult, MailSyncSink, MessageUpsertOutcome, RemoteMailbox, RemoteMessage,
-    RemoteMessageState, StoredMailbox, StoredMessageLocation,
+    RemoteMessageBody, RemoteMessageState, StoredMailbox, StoredMessageLocation,
 };
 
 use super::repository::{
@@ -219,12 +219,13 @@ impl MailSyncSink for SyncSinkRepository {
 
         for attachments in message.attachments.chunks(ATTACHMENT_INSERT_BATCH_SIZE) {
             let mut query = QueryBuilder::<Sqlite>::new(
-                "INSERT INTO attachments(id, message_id, part_index, file_name, content_type, size, content_id) ",
+                "INSERT INTO attachments(id, message_id, part_index, imap_section, file_name, content_type, size, content_id) ",
             );
             query.push_values(attachments, |mut row, attachment| {
                 row.push_bind(Uuid::new_v4().to_string())
                     .push_bind(&message_id)
                     .push_bind(i64::from(attachment.part_index))
+                    .push_bind(&attachment.imap_section)
                     .push_bind(&attachment.file_name)
                     .push_bind(&attachment.content_type)
                     .push_bind(attachment.size as i64)
@@ -232,7 +233,9 @@ impl MailSyncSink for SyncSinkRepository {
             });
             query.push(
                 " ON CONFLICT(message_id, part_index) DO UPDATE SET \
-                 file_name = excluded.file_name, content_type = excluded.content_type, size = excluded.size, \
+                 imap_section = COALESCE(excluded.imap_section, attachments.imap_section), \
+                 file_name = excluded.file_name, content_type = excluded.content_type, \
+                 size = CASE WHEN attachments.availability = 'available' THEN attachments.size ELSE excluded.size END, \
                  content_id = excluded.content_id",
             );
             query
@@ -308,7 +311,7 @@ impl MailSyncSink for SyncSinkRepository {
         received_after: Option<i64>,
     ) -> CommandResult<Vec<StoredMessageLocation>> {
         let rows = sqlx::query(
-            "SELECT l.uid, l.uid_validity FROM message_locations l \
+            "SELECT l.message_id, l.uid, l.uid_validity FROM message_locations l \
              JOIN messages m ON m.id = l.message_id \
              WHERE l.mailbox_id = ? AND m.body_availability != 'available' \
                AND (? IS NULL OR l.internal_date >= ?) ORDER BY l.uid",
@@ -322,6 +325,7 @@ impl MailSyncSink for SyncSinkRepository {
         rows.into_iter()
             .map(|row| {
                 Ok(StoredMessageLocation {
+                    message_id: row.try_get("message_id").map_err(storage_read_error)?,
                     uid: row.try_get::<i64, _>("uid").map_err(storage_read_error)? as u32,
                     uid_validity: row
                         .try_get::<i64, _>("uid_validity")
@@ -329,6 +333,15 @@ impl MailSyncSink for SyncSinkRepository {
                 })
             })
             .collect()
+    }
+
+    async fn replace_message_body(
+        &self,
+        account_slot_id: &str,
+        message_id: &str,
+        body: &RemoteMessageBody,
+    ) -> CommandResult<()> {
+        SyncSinkRepository::replace_message_body(self, account_slot_id, message_id, body).await
     }
 
     async fn reconcile_mailbox(

@@ -53,7 +53,6 @@ beforeEach(() => {
   vi.mocked(api.listMessages).mockResolvedValue({ items: [], nextCursor: null });
   vi.mocked(api.getReadingPreferences).mockResolvedValue({
     autoLoadRemoteImages: false,
-    autoOpenDownloadedAttachments: true,
     autoLoadMoreMessages: true,
     autoLoadMoreContacts: true,
   });

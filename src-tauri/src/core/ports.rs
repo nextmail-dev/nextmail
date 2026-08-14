@@ -139,10 +139,21 @@ pub struct RemoteMessageState {
 #[derive(Clone, Debug)]
 pub struct RemoteAttachment {
     pub part_index: u32,
+    pub imap_section: Option<String>,
     pub file_name: String,
     pub content_type: String,
     pub size: u64,
     pub content_id: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RemoteMessageBody {
+    pub plain_text: Option<String>,
+    pub safe_html: Option<String>,
+    pub preview: Option<String>,
+    pub attachments: Vec<RemoteAttachment>,
+    pub remote_images_blocked: bool,
+    pub inline_content_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -162,6 +173,7 @@ pub struct MessageUpsertOutcome {
 
 #[derive(Clone, Debug)]
 pub struct StoredMessageLocation {
+    pub message_id: String,
     pub uid: u32,
     pub uid_validity: u32,
 }
@@ -195,6 +207,13 @@ pub trait MailSyncSink: Send + Sync {
         mailbox_id: &str,
         received_after: Option<i64>,
     ) -> CommandResult<Vec<StoredMessageLocation>>;
+
+    async fn replace_message_body(
+        &self,
+        account_slot_id: &str,
+        message_id: &str,
+        body: &RemoteMessageBody,
+    ) -> CommandResult<()>;
 
     async fn reconcile_mailbox(
         &self,
@@ -319,6 +338,23 @@ pub trait ImapSyncProvider: Send + Sync {
         uid: u32,
         expected_uid_validity: u32,
     ) -> CommandResult<RemoteMessage>;
+
+    async fn fetch_message_body(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        uid: u32,
+        expected_uid_validity: u32,
+    ) -> CommandResult<RemoteMessageBody>;
+
+    async fn fetch_attachment(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        uid: u32,
+        expected_uid_validity: u32,
+        imap_section: &str,
+    ) -> CommandResult<Vec<u8>>;
 
     async fn apply_operation(
         &self,

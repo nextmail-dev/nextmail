@@ -74,10 +74,7 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
   });
   const attachmentMutation = useMutation({
     mutationFn: async (attachment: AttachmentSummary) => {
-      const autoOpenAfterDownload = attachment.availability === "available"
-        ? true
-        : (readingPreferences.data ?? await api.getReadingPreferences()).autoOpenDownloadedAttachments;
-      await activateMessageAttachment(attachment, autoOpenAfterDownload, {
+      await activateMessageAttachment(attachment, {
         download: (attachmentId) => api.requestAttachment(accountId, attachmentId),
         open: (attachmentId) => api.openMessageAttachment(accountId, attachmentId),
       });
@@ -307,14 +304,13 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
       </Stack>
 
       {message.attachments.length ? (
-        <Stack className="shrink-0 border-t border-border/70 bg-muted/20 px-5 py-3.5" gap="sm">
-          <Inline><Paperclip size={15} /><LabelText>{t("mail.attachments")}</LabelText></Inline>
+        <Stack className="shrink-0 border-t border-border/70 bg-muted/20 px-5 py-2.5">
           <OverlayScrollArea
             intrinsic
             className="max-h-[168px]"
             trackClassName="right-0"
           >
-            <Inline className="flex-wrap gap-2.5">
+            <Inline className="flex-wrap gap-2">
               {message.attachments.map((attachment) => (
                 <MessageAttachment
                   key={attachment.id}

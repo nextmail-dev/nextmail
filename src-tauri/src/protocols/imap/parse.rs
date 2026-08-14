@@ -174,6 +174,7 @@ fn attachment_summaries(
                 .unwrap_or_else(|| "application/octet-stream".to_owned());
             Some(RemoteAttachment {
                 part_index: index as u32,
+                imap_section: None,
                 file_name: attachment_file_name(attachment, "attachment"),
                 content_type,
                 size: attachment.len() as u64,

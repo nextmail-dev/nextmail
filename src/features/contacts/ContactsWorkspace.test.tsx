@@ -52,7 +52,6 @@ beforeEach(() => {
   vi.mocked(api.deleteContacts).mockResolvedValue(undefined);
   vi.mocked(api.getReadingPreferences).mockResolvedValue({
     autoLoadRemoteImages: false,
-    autoOpenDownloadedAttachments: true,
     autoLoadMoreMessages: true,
     autoLoadMoreContacts: true,
   });
@@ -142,7 +141,6 @@ describe("ContactsWorkspace", () => {
   it("keeps the explicit load-more action when contact auto-pagination is disabled", async () => {
     vi.mocked(api.getReadingPreferences).mockResolvedValue({
       autoLoadRemoteImages: false,
-      autoOpenDownloadedAttachments: true,
       autoLoadMoreMessages: true,
       autoLoadMoreContacts: false,
     });

@@ -33,6 +33,8 @@ describe("global dialog layer", () => {
     expect(baseStyles).toMatch(/--layer-window-titlebar:\s*100/);
     expect(baseStyles).toMatch(/--layer-dialog-overlay:\s*200/);
     expect(baseStyles).toMatch(/--layer-dialog-content:\s*201/);
+    expect(baseStyles).toMatch(/--layer-floating-content:\s*210/);
+    expect(baseStyles).toMatch(/\.app-floating-content\s*\{[^}]*z-index:\s*var\(--layer-floating-content\)/m);
     expect(baseStyles).toMatch(/\.app-dialog-overlay,\s*\.app-dialog-content\s*\{[^}]*-webkit-app-region:\s*no-drag/m);
   });
 

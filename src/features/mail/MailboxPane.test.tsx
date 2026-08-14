@@ -249,6 +249,68 @@ describe("MailboxPane", () => {
     await waitFor(() => expect(onMarkFolderAllRead).toHaveBeenCalledWith("archive"));
   });
 
+  it("restores interaction after closing a folder dialog opened from a context menu", async () => {
+    const archive: MailboxSummary = {
+      id: "archive",
+      accountId: "account-one",
+      name: "Archive",
+      delimiter: "/",
+      role: "other",
+      selectable: true,
+      totalCount: 1,
+      unreadCount: 0,
+      revision: 1,
+    };
+    const { container } = render(
+      <MailboxPane
+        mailboxes={[archive]}
+        selectedMailboxId="archive"
+        onSelect={vi.fn()}
+        onCompose={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(within(container).getByRole("button", { name: "Archive" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename folder" }));
+    expect(await screen.findByRole("dialog", { name: "Rename folder" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rename folder" })).not.toBeInTheDocument());
+    expect(document.querySelector(".app-dialog-overlay")).not.toBeInTheDocument();
+    expect(document.body.style.pointerEvents).not.toBe("none");
+  });
+
+  it("renders and selects move destinations above the folder dialog", async () => {
+    const mailboxes: MailboxSummary[] = [
+      { id: "archive", accountId: "account-one", name: "Archive", delimiter: "/", role: "other", selectable: true, totalCount: 1, unreadCount: 0, revision: 1 },
+      { id: "projects", accountId: "account-one", name: "Projects", delimiter: "/", role: "other", selectable: true, totalCount: 1, unreadCount: 0, revision: 1 },
+    ];
+    const { container } = render(
+      <MailboxPane
+        mailboxes={mailboxes}
+        selectedMailboxId="archive"
+        onSelect={vi.fn()}
+        onCompose={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(within(container).getByRole("button", { name: "Archive" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move folder" }));
+    expect(await screen.findByRole("dialog", { name: "Move folder" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Destination" }));
+    const option = await screen.findByRole("option", { name: "Projects" });
+    expect(option.closest(".app-floating-content")).toBeInTheDocument();
+    fireEvent.click(option);
+    expect(screen.getByRole("combobox", { name: "Destination" })).toHaveTextContent("Projects");
+  });
+
   it("shows message progress without exposing folder-count progress", () => {
     const baseProps = {
       mailboxes: [],

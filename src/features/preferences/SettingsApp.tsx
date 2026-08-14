@@ -284,14 +284,6 @@ function SettingsContent({
             onCheckedChange={(autoLoadRemoteImages) => onReadingChange({ ...readingPreferences, autoLoadRemoteImages })}
           />
         </SettingsGroup>
-        <SettingsGroup title={t("settings.group.attachments")}>
-          <Checkbox
-            checked={readingPreferences.autoOpenDownloadedAttachments}
-            label={t("settings.autoOpenDownloadedAttachments")}
-            description={t("settings.autoOpenDownloadedAttachmentsDescription")}
-            onCheckedChange={(autoOpenDownloadedAttachments) => onReadingChange({ ...readingPreferences, autoOpenDownloadedAttachments })}
-          />
-        </SettingsGroup>
         <SettingsGroup title={t("settings.group.listBehavior")}>
           <Checkbox
             checked={readingPreferences.autoLoadMoreMessages}

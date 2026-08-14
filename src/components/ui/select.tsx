@@ -52,7 +52,7 @@ export function SelectField({
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal>
           <SelectPrimitive.Content
-            className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-[var(--shadow-float)]"
+            className="app-floating-content min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-[var(--shadow-float)]"
             position="popper"
             sideOffset={5}
           >

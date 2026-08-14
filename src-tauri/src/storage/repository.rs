@@ -7,7 +7,7 @@ use std::{
 use crate::core::{
     AddressPresentation, AttachmentSummary, CommandError, CommandResult, ContentAvailability,
     MailboxRole, MailboxSummary, MessageAddress, MessageDetail, MessageListItem, MessageListPage,
-    SyncInterval,
+    RemoteMessageBody, SyncInterval,
 };
 use async_trait::async_trait;
 use sqlx::{
@@ -206,10 +206,7 @@ impl SyncSinkRepository {
         &self,
         account_slot_id: &str,
         message_id: &str,
-        plain_text: Option<&str>,
-        safe_html: Option<&str>,
-        remote_images_blocked: bool,
-        inline_content_ids: &[String],
+        body: &RemoteMessageBody,
     ) -> CommandResult<()> {
         let mut transaction = self
             .pool
@@ -218,9 +215,11 @@ impl SyncSinkRepository {
             .map_err(map_storage_err("storage.message_body_write_failed"))?;
         let result = sqlx::query(
             "UPDATE messages SET body_availability = 'available', remote_images_blocked = ?, \
+             preview = COALESCE(?, preview), \
              revision = revision + 1 WHERE id = ? AND account_slot_id = ?",
         )
-        .bind(i64::from(remote_images_blocked))
+        .bind(i64::from(body.remote_images_blocked))
+        .bind(&body.preview)
         .bind(message_id)
         .bind(account_slot_id)
         .execute(&mut *transaction)
@@ -236,13 +235,34 @@ impl SyncSinkRepository {
              updated_at = excluded.updated_at",
         )
         .bind(message_id)
-        .bind(plain_text)
-        .bind(safe_html)
+        .bind(&body.plain_text)
+        .bind(&body.safe_html)
         .bind(now())
         .execute(&mut *transaction)
         .await
         .map_err(map_storage_err("storage.message_body_write_failed"))?;
-        for content_id in inline_content_ids {
+        for attachment in &body.attachments {
+            sqlx::query(
+                "INSERT INTO attachments(id, message_id, part_index, imap_section, file_name, content_type, size, content_id) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(message_id, part_index) DO UPDATE SET \
+                 imap_section = COALESCE(excluded.imap_section, attachments.imap_section), \
+                 file_name = excluded.file_name, content_type = excluded.content_type, \
+                 size = CASE WHEN attachments.availability = 'available' THEN attachments.size ELSE excluded.size END, \
+                 content_id = excluded.content_id",
+            )
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(message_id)
+            .bind(i64::from(attachment.part_index))
+            .bind(&attachment.imap_section)
+            .bind(&attachment.file_name)
+            .bind(&attachment.content_type)
+            .bind(attachment.size as i64)
+            .bind(&attachment.content_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(map_storage_err("storage.attachment_write_failed"))?;
+        }
+        for content_id in &body.inline_content_ids {
             sqlx::query("DELETE FROM attachments WHERE message_id = ? AND lower(content_id) = ?")
                 .bind(message_id)
                 .bind(content_id)
@@ -250,6 +270,16 @@ impl SyncSinkRepository {
                 .await
                 .map_err(map_storage_err("storage.message_body_write_failed"))?;
         }
+        sqlx::query(
+            "UPDATE messages SET has_attachments = EXISTS(SELECT 1 FROM attachments WHERE message_id = ?) \
+             WHERE id = ? AND account_slot_id = ?",
+        )
+        .bind(message_id)
+        .bind(message_id)
+        .bind(account_slot_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(map_storage_err("storage.message_body_write_failed"))?;
         transaction
             .commit()
             .await
@@ -737,9 +767,9 @@ impl MailReadRepository {
         &self,
         account_slot_id: &str,
         attachment_id: &str,
-    ) -> CommandResult<(String, u32)> {
+    ) -> CommandResult<(String, u32, Option<String>)> {
         let row = sqlx::query(
-            "SELECT a.message_id, a.part_index FROM attachments a \
+            "SELECT a.message_id, a.part_index, a.imap_section FROM attachments a \
              JOIN messages m ON m.id = a.message_id \
              WHERE a.id = ? AND m.account_slot_id = ?",
         )
@@ -753,6 +783,7 @@ impl MailReadRepository {
             row.try_get("message_id").map_err(storage_read_error)?,
             row.try_get::<i64, _>("part_index")
                 .map_err(storage_read_error)? as u32,
+            row.try_get("imap_section").map_err(storage_read_error)?,
         ))
     }
 
@@ -821,10 +852,11 @@ impl MailReadRepository {
             .await?;
         let hash = self.content.write_attachment(content).await?;
         sqlx::query(
-            "UPDATE attachments SET availability = 'available', content_hash = ? WHERE id = ? \
+            "UPDATE attachments SET availability = 'available', content_hash = ?, size = ? WHERE id = ? \
              AND EXISTS(SELECT 1 FROM messages m WHERE m.id = attachments.message_id AND m.account_slot_id = ?)",
         )
         .bind(hash)
+        .bind(content.len() as i64)
         .bind(attachment_id)
         .bind(account_slot_id)
         .execute(&self.pool)
@@ -1508,6 +1540,7 @@ mod tests {
         let mut remote = remote_message(1, 1, "Cached");
         remote.attachments = vec![crate::core::RemoteAttachment {
             part_index: 0,
+            imap_section: None,
             file_name: "inline.png".to_owned(),
             content_type: "image/png".to_owned(),
             size: 128,
@@ -1531,10 +1564,14 @@ mod tests {
             .replace_message_body(
                 "another-slot",
                 &message.id,
-                Some("wrong account"),
-                Some("<p>wrong account</p>"),
-                false,
-                &[],
+                &crate::core::RemoteMessageBody {
+                    plain_text: Some("wrong account".to_owned()),
+                    safe_html: Some("<p>wrong account</p>".to_owned()),
+                    preview: None,
+                    attachments: Vec::new(),
+                    remote_images_blocked: false,
+                    inline_content_ids: Vec::new(),
+                },
             )
             .await
             .unwrap_err();
@@ -1545,10 +1582,14 @@ mod tests {
             .replace_message_body(
                 "slot",
                 &message.id,
-                Some("offline body"),
-                Some("<p>offline body</p>"),
-                true,
-                &["logo@example.test".to_owned()],
+                &crate::core::RemoteMessageBody {
+                    plain_text: Some("offline body".to_owned()),
+                    safe_html: Some("<p>offline body</p>".to_owned()),
+                    preview: None,
+                    attachments: Vec::new(),
+                    remote_images_blocked: true,
+                    inline_content_ids: vec!["logo@example.test".to_owned()],
+                },
             )
             .await
             .unwrap();
@@ -1623,6 +1664,7 @@ mod tests {
         first.plain_text = Some("请核对电子发票和本地正文索引".to_owned());
         first.attachments = vec![crate::core::RemoteAttachment {
             part_index: 1,
+            imap_section: None,
             file_name: "financial-report.pdf".to_owned(),
             content_type: "application/pdf".to_owned(),
             size: 42,
@@ -1744,10 +1786,14 @@ mod tests {
             .replace_message_body(
                 "slot",
                 &first_id,
-                Some("replacement searchable content"),
-                None,
-                false,
-                &[],
+                &crate::core::RemoteMessageBody {
+                    plain_text: Some("replacement searchable content".to_owned()),
+                    safe_html: None,
+                    preview: None,
+                    attachments: Vec::new(),
+                    remote_images_blocked: false,
+                    inline_content_ids: Vec::new(),
+                },
             )
             .await
             .unwrap();
@@ -2401,6 +2447,7 @@ mod tests {
         message.attachments = vec![
             crate::core::RemoteAttachment {
                 part_index: 1,
+                imap_section: None,
                 file_name: "one.txt".to_owned(),
                 content_type: "text/plain".to_owned(),
                 size: 3,
@@ -2408,6 +2455,7 @@ mod tests {
             },
             crate::core::RemoteAttachment {
                 part_index: 2,
+                imap_section: Some("2".to_owned()),
                 file_name: "two.txt".to_owned(),
                 content_type: "text/plain".to_owned(),
                 size: 3,
@@ -2426,6 +2474,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(attachment_count, 2);
+        let section: Option<String> =
+            sqlx::query_scalar("SELECT imap_section FROM attachments WHERE part_index = 2")
+                .fetch_one(&repository.pool)
+                .await
+                .unwrap();
+        assert_eq!(section.as_deref(), Some("2"));
+
+        sqlx::query(
+            "UPDATE attachments SET availability = 'available', size = 2 WHERE part_index = 2",
+        )
+        .execute(&repository.pool)
+        .await
+        .unwrap();
+        message.attachments[1].size = 4;
+        repository
+            .sync_sink()
+            .upsert_message("slot", &mailbox.id, &message)
+            .await
+            .unwrap();
+        let size: i64 = sqlx::query_scalar("SELECT size FROM attachments WHERE part_index = 2")
+            .fetch_one(&repository.pool)
+            .await
+            .unwrap();
+        assert_eq!(size, 2);
     }
 
     #[tokio::test]
@@ -2539,6 +2611,7 @@ mod tests {
         let mut message = remote_message(1, 7, "Atomic");
         message.attachments = vec![crate::core::RemoteAttachment {
             part_index: 1,
+            imap_section: None,
             file_name: "failure.txt".to_owned(),
             content_type: "text/plain".to_owned(),
             size: 7,

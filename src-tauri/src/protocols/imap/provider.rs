@@ -7,15 +7,16 @@ use super::{
     path_lock::MailboxPathLockRegistry,
     session::{
         append_message_session, apply_mailbox_operation_session, apply_operation_session,
-        fetch_message_session, replace_draft_session,
+        fetch_attachment_session, fetch_message_body_session, fetch_message_session,
+        replace_draft_session,
     },
     session_budget::{SessionBudgetRegistry, SYNC_SESSION_COUNT},
     sync_mailbox_session, sync_session,
 };
 use crate::core::{
     CommandResult, ImapAccountConfig, ImapSyncProvider, MailSyncSink, MailboxSyncTarget,
-    RemoteMailboxOperation, RemoteMailboxOperationOutcome, RemoteMessage, RemoteOperation,
-    RemoteOperationOutcome, SyncObserver,
+    RemoteMailboxOperation, RemoteMailboxOperationOutcome, RemoteMessage, RemoteMessageBody,
+    RemoteOperation, RemoteOperationOutcome, SyncObserver,
 };
 
 #[derive(Default)]
@@ -58,6 +59,40 @@ impl ImapSyncProvider for AsyncImapProvider {
         let _path_guard = path_lock.read().await;
         let (_permit, session) = self.connect_budgeted_session(account).await?;
         fetch_message_session(session, mailbox_name, uid, expected_uid_validity).await
+    }
+
+    async fn fetch_message_body(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        uid: u32,
+        expected_uid_validity: u32,
+    ) -> CommandResult<RemoteMessageBody> {
+        let path_lock = self.mailbox_path_locks.lock(&account.account_id);
+        let _path_guard = path_lock.read().await;
+        let (_permit, session) = self.connect_budgeted_session(account).await?;
+        fetch_message_body_session(session, mailbox_name, uid, expected_uid_validity).await
+    }
+
+    async fn fetch_attachment(
+        &self,
+        account: &ImapAccountConfig,
+        mailbox_name: &str,
+        uid: u32,
+        expected_uid_validity: u32,
+        imap_section: &str,
+    ) -> CommandResult<Vec<u8>> {
+        let path_lock = self.mailbox_path_locks.lock(&account.account_id);
+        let _path_guard = path_lock.read().await;
+        let (_permit, session) = self.connect_budgeted_session(account).await?;
+        fetch_attachment_session(
+            session,
+            mailbox_name,
+            uid,
+            expected_uid_validity,
+            imap_section,
+        )
+        .await
     }
 
     async fn synchronize_mailbox(

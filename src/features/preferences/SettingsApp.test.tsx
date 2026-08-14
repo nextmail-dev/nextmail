@@ -50,7 +50,6 @@ vi.mock("@/app/api", () => ({
     getAppAbout: vi.fn().mockResolvedValue({ name: "NextMail", version: "0.2.3" }),
     getReadingPreferences: vi.fn().mockResolvedValue({
       autoLoadRemoteImages: false,
-      autoOpenDownloadedAttachments: true,
       autoLoadMoreMessages: true,
       autoLoadMoreContacts: true,
     }),
@@ -120,10 +119,8 @@ describe("SettingsApp", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Reading" }));
     expect(screen.getByText("Automatically load remote images")).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
-    expect(screen.getByText("Open attachments after downloading")).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")[1]).toBeChecked();
     expect(screen.getByText("Load more messages at the end of the list")).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")[2]).toBeChecked();
+    expect(screen.getAllByRole("checkbox")[1]).toBeChecked();
   });
 
   it("offers visual theme modes and an accessible theme-color palette", async () => {

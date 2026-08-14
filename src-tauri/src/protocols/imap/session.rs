@@ -1,20 +1,32 @@
 use std::collections::{HashMap, HashSet};
 
-use async_imap::Session;
+use async_imap::{
+    imap_proto::types::{MessageSection, SectionPath},
+    Session,
+};
 use futures_util::TryStreamExt;
 use mail_parser::MessageParser;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::core::{
     CommandError, CommandResult, RemoteMailboxOperation, RemoteMailboxOperationOutcome,
-    RemoteMessage, RemoteOperation, RemoteOperationKind, RemoteOperationOutcome,
+    RemoteMessage, RemoteMessageBody, RemoteOperation, RemoteOperationKind, RemoteOperationOutcome,
 };
+use crate::protocols::{sanitize_mail_html_with_inline_images, ReaderInlineImage};
 
 use super::{
     encoding::encode_modified_utf7,
     format_uid_set,
     parse::{message_flag_state, parse_message_in_background, MessageParseInput},
+    structure::{
+        analyze_bodystructure, canonical_section_path, parse_binary_section, parse_text_section,
+        MessageSectionDescriptor, MessageStructure, TextSectionKind,
+    },
+    SELECTIVE_FETCH_UNSUPPORTED,
 };
+
+const MAX_INLINE_SECTION_BYTES: u64 = (25 * 1024 * 1024 * 4 / 3) + 4;
+const MAX_TOTAL_INLINE_SECTION_BYTES: u64 = (100 * 1024 * 1024 * 4 / 3) + 4;
 
 pub(super) async fn apply_mailbox_operation_session<T>(
     mut session: Session<T>,
@@ -374,6 +386,252 @@ where
     let message = fetch_remote_message(&mut session, uid, uid_validity).await?;
     let _ = session.logout().await;
     Ok(message)
+}
+
+pub(super) async fn fetch_message_body_session<T>(
+    mut session: Session<T>,
+    mailbox_name: &str,
+    uid: u32,
+    expected_uid_validity: u32,
+) -> CommandResult<RemoteMessageBody>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    validate_uid_validity(&mut session, mailbox_name, expected_uid_validity).await?;
+    let body = fetch_remote_message_body(&mut session, uid).await?;
+    let _ = session.logout().await;
+    Ok(body)
+}
+
+pub(super) async fn fetch_attachment_session<T>(
+    mut session: Session<T>,
+    mailbox_name: &str,
+    uid: u32,
+    expected_uid_validity: u32,
+    imap_section: &str,
+) -> CommandResult<Vec<u8>>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    validate_uid_validity(&mut session, mailbox_name, expected_uid_validity).await?;
+    let content = fetch_remote_attachment(&mut session, uid, imap_section).await?;
+    let _ = session.logout().await;
+    Ok(content)
+}
+
+async fn validate_uid_validity<T>(
+    session: &mut Session<T>,
+    mailbox_name: &str,
+    expected_uid_validity: u32,
+) -> CommandResult<()>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let selected = session
+        .examine(mailbox_name)
+        .await
+        .map_err(map_operation_err("sync.mailbox_open_failed"))?;
+    let uid_validity = selected.uid_validity.unwrap_or_default();
+    if uid_validity == 0 || uid_validity != expected_uid_validity {
+        return Err(CommandError::new("sync.uid_validity_changed"));
+    }
+    Ok(())
+}
+
+pub(super) async fn fetch_remote_message_body<T>(
+    session: &mut Session<T>,
+    uid: u32,
+) -> CommandResult<RemoteMessageBody>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let structure = fetch_message_structure(session, uid).await?;
+    if structure.requires_full_fetch || structure.text_sections.is_empty() {
+        return Err(CommandError::new(SELECTIVE_FETCH_UNSUPPORTED));
+    }
+    let fetched = fetch_section_pairs(
+        session,
+        uid,
+        &structure.text_sections,
+        "sync.message_body_fetch_failed",
+    )
+    .await?;
+    let mut plain_text = None;
+    let mut html = None;
+    let mut preview = None;
+    for descriptor in &structure.text_sections {
+        let (mime, body) = fetched
+            .get(&descriptor.section)
+            .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?;
+        let kind = descriptor
+            .text_kind
+            .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?;
+        let parsed = parse_text_section(kind, mime, body)
+            .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?;
+        if preview.as_deref().is_none_or(str::is_empty) && !parsed.preview.is_empty() {
+            preview = Some(parsed.preview);
+        }
+        match kind {
+            TextSectionKind::Plain => plain_text = Some(parsed.text),
+            TextSectionKind::Html => html = Some(parsed.text),
+        }
+    }
+
+    let mut inline_images = Vec::new();
+    if let Some(html) = html.as_deref() {
+        let referenced = super::super::html::referenced_content_ids(html);
+        let mut total = 0u64;
+        let mut selected = Vec::new();
+        for part in &structure.inline_sections {
+            if part
+                .content_id
+                .as_ref()
+                .is_some_and(|content_id| referenced.contains(content_id))
+                && part.encoded_size <= MAX_INLINE_SECTION_BYTES
+                && total
+                    .checked_add(part.encoded_size)
+                    .is_some_and(|next| next <= MAX_TOTAL_INLINE_SECTION_BYTES)
+            {
+                total += part.encoded_size;
+                selected.push(part.clone());
+            }
+        }
+        let fetched_inline =
+            fetch_section_pairs(session, uid, &selected, "sync.message_body_fetch_failed").await?;
+        for descriptor in selected {
+            let (mime, body) = fetched_inline
+                .get(&descriptor.section)
+                .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?;
+            let bytes = parse_binary_section(mime, body)
+                .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?;
+            inline_images.push(ReaderInlineImage {
+                content_id: descriptor.content_id.unwrap_or_default(),
+                content_type: descriptor.content_type,
+                bytes,
+            });
+        }
+    }
+
+    let sanitized = html
+        .as_deref()
+        .map(|value| sanitize_mail_html_with_inline_images(value, &inline_images));
+    Ok(RemoteMessageBody {
+        plain_text,
+        safe_html: sanitized.as_ref().map(|value| value.document.clone()),
+        preview,
+        attachments: structure.attachments,
+        remote_images_blocked: sanitized
+            .as_ref()
+            .is_some_and(|value| value.remote_images_blocked),
+        inline_content_ids: sanitized
+            .map(|value| value.inline_content_ids.into_iter().collect())
+            .unwrap_or_default(),
+    })
+}
+
+pub(super) async fn fetch_remote_attachment<T>(
+    session: &mut Session<T>,
+    uid: u32,
+    imap_section: &str,
+) -> CommandResult<Vec<u8>>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    canonical_section_path(imap_section)
+        .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?;
+    let descriptor = MessageSectionDescriptor {
+        section: imap_section.to_owned(),
+        content_type: String::new(),
+        content_id: None,
+        encoded_size: 0,
+        text_kind: None,
+    };
+    let fetched = fetch_section_pairs(
+        session,
+        uid,
+        std::slice::from_ref(&descriptor),
+        "attachment.download_failed",
+    )
+    .await?;
+    let (mime, body) = fetched
+        .get(imap_section)
+        .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?;
+    parse_binary_section(mime, body).ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))
+}
+
+async fn fetch_message_structure<T>(
+    session: &mut Session<T>,
+    uid: u32,
+) -> CommandResult<MessageStructure>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let responses = session
+        .uid_fetch(uid.to_string(), "(UID BODYSTRUCTURE)")
+        .await
+        .map_err(map_operation_err("sync.message_body_fetch_failed"))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(map_operation_err("sync.message_body_fetch_failed"))?;
+    let fetched = responses
+        .iter()
+        .find(|response| response.uid == Some(uid))
+        .ok_or_else(|| CommandError::new("sync.message_not_found"))?;
+    fetched
+        .bodystructure()
+        .map(analyze_bodystructure)
+        .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))
+}
+
+async fn fetch_section_pairs<T>(
+    session: &mut Session<T>,
+    uid: u32,
+    descriptors: &[MessageSectionDescriptor],
+    failure_code: &'static str,
+) -> CommandResult<HashMap<String, (Vec<u8>, Vec<u8>)>>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    if descriptors.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut paths = Vec::with_capacity(descriptors.len());
+    let mut items = Vec::with_capacity(descriptors.len() * 2 + 1);
+    items.push("UID".to_owned());
+    for descriptor in descriptors {
+        let path = canonical_section_path(&descriptor.section)
+            .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?;
+        items.push(format!("BODY.PEEK[{}.MIME]", descriptor.section));
+        items.push(format!("BODY.PEEK[{}]", descriptor.section));
+        paths.push((descriptor.section.clone(), path));
+    }
+    let responses = session
+        .uid_fetch(uid.to_string(), format!("({})", items.join(" ")))
+        .await
+        .map_err(map_operation_err(failure_code))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(map_operation_err(failure_code))?;
+    let fetched = responses
+        .iter()
+        .find(|response| response.uid == Some(uid))
+        .ok_or_else(|| CommandError::new("sync.message_not_found"))?;
+    paths
+        .into_iter()
+        .map(|(section, path)| {
+            let mime_path = SectionPath::Part(path.clone(), Some(MessageSection::Mime));
+            let body_path = SectionPath::Part(path, None);
+            let mime = fetched
+                .section(&mime_path)
+                .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?
+                .to_vec();
+            let body = fetched
+                .section(&body_path)
+                .ok_or_else(|| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?
+                .to_vec();
+            Ok((section, (mime, body)))
+        })
+        .collect()
 }
 
 async fn fetch_remote_message<T>(

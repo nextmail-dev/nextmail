@@ -9,7 +9,7 @@ beforeAll(async () => {
 });
 
 describe("MessageAttachment", () => {
-  it("keeps a downloaded attachment openable and exposes save as", () => {
+  it("keeps single-click open and exposes secondary actions in the context menu", async () => {
     const onOpen = vi.fn();
     const onSaveAs = vi.fn();
     const onReveal = vi.fn();
@@ -26,18 +26,20 @@ describe("MessageAttachment", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Open report.pdf" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save report.pdf as" }));
-    fireEvent.click(screen.getByRole("button", { name: "Show report.pdf in folder" }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Open report.pdf" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Save as" }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Open report.pdf" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Show in folder" }));
     expect(onOpen).toHaveBeenCalledOnce();
     expect(onSaveAs).toHaveBeenCalledOnce();
     expect(onReveal).toHaveBeenCalledOnce();
   });
 
-  it("labels unavailable content as a download action", () => {
-    render(
+  it("shows a spinner while an unavailable attachment is downloading", () => {
+    const { container } = render(
       <MessageAttachment
         attachment={{ id: "a", fileName: "archive.zip", contentType: "application/zip", size: 512, availability: "missing" }}
-        opening={false}
+        opening
         saving={false}
         revealing={false}
         onOpen={vi.fn()}
@@ -45,6 +47,7 @@ describe("MessageAttachment", () => {
         onReveal={vi.fn()}
       />,
     );
-    expect(screen.getByRole("button", { name: "Download archive.zip" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Open archive.zip" })).toBeDisabled();
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 });

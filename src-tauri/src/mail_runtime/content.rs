@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use crate::{
     adapters::{open_prepared_attachment, reveal_prepared_attachment},
-    core::{AttachmentSummary, CommandError, CommandResult, MailSyncSink, MessageDetail},
+    core::{
+        AttachmentSummary, CommandError, CommandResult, MailSyncSink, MessageDetail,
+        RemoteMessageBody,
+    },
 };
 use tauri::Emitter;
 use tauri_plugin_dialog::DialogExt;
@@ -82,16 +85,17 @@ impl MailRuntime {
             .await
             .map_err(|_| CommandError::new("message.mime_parse_failed"))?;
             if let Some(body) = body {
+                let body = RemoteMessageBody {
+                    plain_text: body.plain_text,
+                    safe_html: body.safe_html,
+                    preview: None,
+                    attachments: Vec::new(),
+                    remote_images_blocked: body.remote_images_blocked,
+                    inline_content_ids: body.inline_content_ids,
+                };
                 repository
                     .sync_sink()
-                    .replace_message_body(
-                        &account.data_slot_id,
-                        message_id,
-                        body.plain_text.as_deref(),
-                        body.safe_html.as_deref(),
-                        body.remote_images_blocked,
-                        &body.inline_content_ids,
-                    )
+                    .replace_message_body(&account.data_slot_id, message_id, &body)
                     .await?;
                 if emit_progress {
                     self.emit_message_body_progress(account_id, message_id, "updating", 90);
@@ -124,7 +128,8 @@ impl MailRuntime {
         if emit_progress {
             self.emit_message_body_progress(account_id, message_id, "downloading", 20);
         }
-        self.fetch_and_store_message(account_id, message_id).await?;
+        self.fetch_and_store_message_body(account_id, message_id)
+            .await?;
         if emit_progress {
             self.emit_message_body_progress(account_id, message_id, "updating", 90);
         }
@@ -179,27 +184,68 @@ impl MailRuntime {
             return Ok(current);
         }
         self.ensure_account_writable(account_id)?;
-        let (message_id, part_index) = repository
+        let (message_id, part_index, imap_section) = repository
             .read()
             .attachment_context(&account.data_slot_id, attachment_id)
             .await?;
-        let raw = match repository
+        let content = match repository
             .read()
             .raw_message(&account.data_slot_id, &message_id)
             .await?
         {
-            Some(raw) => raw,
-            None => {
-                self.fetch_and_store_message(&account.id, &message_id)
-                    .await?;
-                repository
-                    .read()
-                    .raw_message(&account.data_slot_id, &message_id)
-                    .await?
-                    .ok_or_else(|| CommandError::new("message.raw_unavailable"))?
-            }
+            Some(raw) => crate::protocols::extract_attachment(&raw, part_index)?,
+            None => match imap_section {
+                Some(section) => {
+                    let context = repository
+                        .read()
+                        .remote_message_context(&account.data_slot_id, &message_id)
+                        .await?;
+                    let config = self.imap_config(&account.id).await?;
+                    let _permit = self
+                        .network_limit
+                        .acquire()
+                        .await
+                        .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+                    match self
+                        .provider
+                        .fetch_attachment(
+                            &config,
+                            &context.mailbox_name,
+                            context.uid,
+                            context.uid_validity,
+                            &section,
+                        )
+                        .await
+                    {
+                        Ok(content) => content,
+                        Err(error)
+                            if error.code == crate::protocols::SELECTIVE_FETCH_UNSUPPORTED =>
+                        {
+                            drop(_permit);
+                            self.fetch_and_store_message(&account.id, &message_id)
+                                .await?;
+                            let raw = repository
+                                .read()
+                                .raw_message(&account.data_slot_id, &message_id)
+                                .await?
+                                .ok_or_else(|| CommandError::new("message.raw_unavailable"))?;
+                            crate::protocols::extract_attachment(&raw, part_index)?
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                None => {
+                    self.fetch_and_store_message(&account.id, &message_id)
+                        .await?;
+                    let raw = repository
+                        .read()
+                        .raw_message(&account.data_slot_id, &message_id)
+                        .await?
+                        .ok_or_else(|| CommandError::new("message.raw_unavailable"))?;
+                    crate::protocols::extract_attachment(&raw, part_index)?
+                }
+            },
         };
-        let content = crate::protocols::extract_attachment(&raw, part_index)?;
         repository
             .read()
             .store_attachment_content(&account.data_slot_id, attachment_id, &content)
@@ -333,5 +379,67 @@ impl MailRuntime {
             tracing::warn!(%account_id, %message_id, ?error, "message content event failed");
         }
         Ok(())
+    }
+
+    async fn fetch_and_store_message_body(
+        &self,
+        account_id: &str,
+        message_id: &str,
+    ) -> CommandResult<()> {
+        self.ensure_account_writable(account_id)?;
+        let account = self.service.account_record(account_id)?;
+        let repository = Arc::clone(self.repository().await?);
+        let context = repository
+            .read()
+            .remote_message_context(&account.data_slot_id, message_id)
+            .await?;
+        let config = self.imap_config(&account.id).await?;
+        let _permit = self
+            .network_limit
+            .acquire()
+            .await
+            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        match self
+            .provider
+            .fetch_message_body(
+                &config,
+                &context.mailbox_name,
+                context.uid,
+                context.uid_validity,
+            )
+            .await
+        {
+            Ok(body) => {
+                repository
+                    .sync_sink()
+                    .replace_message_body(&account.data_slot_id, message_id, &body)
+                    .await?;
+                let revision = repository
+                    .read()
+                    .get_message_detail(
+                        &account.data_slot_id,
+                        message_id,
+                        Some(&context.mailbox_id),
+                    )
+                    .await?
+                    .revision;
+                if let Err(error) = self.app.emit(
+                    "message-content-changed",
+                    MessageContentChangedEvent {
+                        account_id: account_id.to_owned(),
+                        message_id: message_id.to_owned(),
+                        revision,
+                    },
+                ) {
+                    tracing::warn!(%account_id, %message_id, ?error, "message content event failed");
+                }
+                Ok(())
+            }
+            Err(error) if error.code == crate::protocols::SELECTIVE_FETCH_UNSUPPORTED => {
+                drop(_permit);
+                self.fetch_and_store_message(account_id, message_id).await
+            }
+            Err(error) => Err(error),
+        }
     }
 }

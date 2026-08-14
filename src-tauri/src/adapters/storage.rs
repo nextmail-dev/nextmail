@@ -382,7 +382,6 @@ mod tests {
         );
         let preferences = ReadingPreferences {
             auto_load_remote_images: true,
-            auto_open_downloaded_attachments: false,
             auto_load_more_messages: false,
             auto_load_more_contacts: false,
         };
@@ -391,13 +390,12 @@ mod tests {
     }
 
     #[test]
-    fn legacy_reading_preferences_enable_attachment_auto_open() {
+    fn legacy_reading_preferences_use_current_defaults() {
         let preferences: ReadingPreferences =
             serde_json::from_str(r#"{"autoLoadRemoteImages":true}"#)
                 .expect("deserialize legacy reading preferences");
 
         assert!(preferences.auto_load_remote_images);
-        assert!(preferences.auto_open_downloaded_attachments);
         assert!(preferences.auto_load_more_messages);
         assert!(preferences.auto_load_more_contacts);
     }

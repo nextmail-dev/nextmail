@@ -120,8 +120,8 @@ describe("AccountsManagement", () => {
 
     expect(await screen.findByText("Automatic synchronization")).toBeInTheDocument();
     expect(screen.getByText("Every minute")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Download full messages" })).not.toBeChecked();
-    fireEvent.click(screen.getByRole("checkbox", { name: "Download full messages" }));
+    expect(screen.getByRole("checkbox", { name: "Download message bodies" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Download message bodies" }));
     await waitFor(() => {
       expect(api.setAccountDownloadFullMessages).toHaveBeenCalledWith("account-one", true);
     });

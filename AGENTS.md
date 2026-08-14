@@ -76,7 +76,7 @@ git diff --check
 
 ## 数据与迁移
 
-- SQLx 迁移在 `src-tauri/migrations/`，**只增不改**：已发布迁移不得修改，只能新增。当前到 `0026`。
+- SQLx 迁移在 `src-tauri/migrations/`，**只增不改**：已发布迁移不得修改，只能新增。当前到 `0027`。
 - 所有账户业务数据按匿名 `account_slot_id` 隔离。
 - 多表可见状态用 SQLx 事务；网络、MIME、慢文件 I/O 不持有 SQLite 写锁。
 - 内部路径和内容哈希不返回 React。
