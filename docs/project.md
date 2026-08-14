@@ -20,7 +20,7 @@
 
 ## 2. 产品与当前状态
 
-NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.5.0`。
+NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.6.0`。
 
 平台边界：
 
@@ -52,6 +52,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 
 当前实施状态：
 
+- `0.6.0` 已完成并通过实机验收：长浮层受视界约束，Composer 支持文件拖入附件和签名分隔，邮件与联系人可取消单选；补齐 macOS Dock 恢复、通知从属禁用、文件夹排序反馈与 WebView 原生右键菜单策略，并修复草稿附件无法删除的问题。
 - `0.5.0` 已完成并通过 Windows 实机验收：邮件头同步保存 `BODYSTRUCTURE`，正文、CID 资源和普通附件按 MIME section 选择性获取；附件区改为按需下载的紧凑文件块与右键菜单，并修复文件夹操作对话框的交互锁和浮层遮挡问题。
 - `0.4.1` 已完成并通过 Windows 实机验收：同步正文回填容忍服务器端已消失邮件，单账户 IMAP 会话预算扩充为 6；浅色邮件表面与身份头像视觉统一，并修复 Windows 退出时的 Chromium WebView 窗口类清理错误。
 - `0.4.0` 已完成并通过 Windows 实机验收：统一重构桌面表面层级、标题栏边界、信息密度、中性灰阶深色基调及键盘焦点态；邮件深色模式在不放宽 opaque sandbox 的前提下，增加作者原生深色识别、安全 CSS cascade、HSL 明度转换和文字/背景/边框对比度校正。
@@ -200,7 +201,7 @@ cache/attachment-open/...
 - Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
 - SMTP 前生成不可变 MIME/Message-ID，写入 `raw/` 后创建持久化 `send_job`；重试复用相同 MIME。
 - SendWorker 账户内 FIFO、账户间轮转；全局最多两封、每账户最多一封。SMTP 成功后独立 APPEND Sent，归档失败不得再次发信。
-- 客户端头为 `X-Mailer: NextMail/0.5.0`；该值由 Cargo package version 自动生成，版本变化时同步核对各 manifest。
+- 客户端头为 `X-Mailer: NextMail/0.6.0`；该值由 Cargo package version 自动生成，版本变化时同步核对各 manifest。
 
 ## 6. 安全边界
 
