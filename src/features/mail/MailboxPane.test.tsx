@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import i18n from "../../app/i18n";
@@ -247,6 +247,53 @@ describe("MailboxPane", () => {
     expect(screen.getByRole("menuitem", { name: "Move folder" })).toBeEnabled();
     fireEvent.click(screen.getByRole("menuitem", { name: "Mark all as read" }));
     await waitFor(() => expect(onMarkFolderAllRead).toHaveBeenCalledWith("archive"));
+  });
+
+  it("shows a circle-and-line insertion marker while reordering folders", () => {
+    vi.useFakeTimers();
+    const originalElementFromPoint = document.elementFromPoint;
+    try {
+      const { container } = render(
+        <MailboxPane
+          mailboxes={[
+            { id: "archive", accountId: "account-one", name: "Archive", delimiter: "/", role: "other", selectable: true, totalCount: 0, unreadCount: 0, revision: 1 },
+            { id: "projects", accountId: "account-one", name: "Projects", delimiter: "/", role: "other", selectable: true, totalCount: 0, unreadCount: 0, revision: 1 },
+          ]}
+          selectedMailboxId=""
+          onSelect={vi.fn()}
+          onCompose={vi.fn()}
+          onReceive={vi.fn()}
+          receiving={false}
+          onOpenSettings={vi.fn()}
+        />,
+      );
+      const current = within(container);
+      const source = current.getByRole("button", { name: "Archive" });
+      const target = current.getByRole("button", { name: "Projects" }).closest<HTMLElement>("[data-mailbox-reorder-id]")!;
+      target.getBoundingClientRect = () => ({
+        x: 0, y: 100, top: 100, left: 0, right: 200, bottom: 136, width: 200, height: 36,
+        toJSON: () => ({}),
+      });
+      Object.defineProperty(document, "elementFromPoint", {
+        configurable: true,
+        value: () => target,
+      });
+
+      fireEvent.pointerDown(source, { button: 0, pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 10 });
+      act(() => vi.advanceTimersByTime(360));
+      fireEvent.pointerMove(source, { pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 110 });
+
+      const marker = target.querySelector('[data-mailbox-drop-indicator="before"]');
+      expect(marker).toHaveClass("top-0", "-translate-y-1/2");
+      expect(marker?.children[0]).toHaveClass("rounded-full", "border-2");
+      expect(marker?.children[1]).toHaveClass("h-0.5", "bg-primary");
+    } finally {
+      Object.defineProperty(document, "elementFromPoint", {
+        configurable: true,
+        value: originalElementFromPoint,
+      });
+      vi.useRealTimers();
+    }
   });
 
   it("restores interaction after closing a folder dialog opened from a context menu", async () => {

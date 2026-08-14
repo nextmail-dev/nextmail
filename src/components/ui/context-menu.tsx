@@ -16,7 +16,7 @@ export function ContextMenuContent({
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Content
         className={cn(
-          "app-floating-content min-w-52 overflow-hidden rounded-md border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-[var(--shadow-float)] outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+          "app-floating-content max-h-[var(--radix-context-menu-content-available-height)] min-w-52 overflow-y-auto overscroll-contain rounded-md border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-[var(--shadow-float)] outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           className,
         )}
         {...props}
@@ -78,7 +78,7 @@ export function ContextMenuSubContent({
   return (
     <ContextMenuPrimitive.SubContent
       className={cn(
-        "app-floating-content min-w-48 overflow-hidden rounded-md border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-[var(--shadow-float)] outline-none",
+        "app-floating-content max-h-[var(--radix-context-menu-content-available-height)] min-w-48 overflow-y-auto overscroll-contain rounded-md border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-[var(--shadow-float)] outline-none",
         className,
       )}
       {...props}

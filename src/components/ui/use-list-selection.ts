@@ -71,6 +71,13 @@ export function useListSelection({
       return;
     }
 
+    if (selectedIds.size === 1 && selectedIds.has(id)) {
+      setSelectedIds(new Set());
+      anchorIdRef.current = "";
+      onPrimaryChange("");
+      return;
+    }
+
     setSelectedIds(new Set([id]));
     anchorIdRef.current = id;
     onPrimaryChange(id);

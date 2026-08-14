@@ -128,6 +128,17 @@ pub fn handle_main_window_event(window: &Window, event: &WindowEvent) {
     }
 }
 
+pub fn handle_run_event(_app: &AppHandle, _event: tauri::RunEvent) {
+    #[cfg(target_os = "macos")]
+    if let tauri::RunEvent::Reopen {
+        has_visible_windows: false,
+        ..
+    } = _event
+    {
+        show_main_window(_app);
+    }
+}
+
 pub fn apply_main_close_action(app: &AppHandle, action: MainCloseAction) -> CommandResult<()> {
     match action {
         MainCloseAction::MinimizeToTray => {

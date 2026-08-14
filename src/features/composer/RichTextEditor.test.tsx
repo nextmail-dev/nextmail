@@ -29,6 +29,13 @@ describe("RichTextEditor composition nodes", () => {
       expect(ref.current?.replaceSignature("signature-one", definition("First"))).toBe(true);
     });
     await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(latestDocument(onChange).content?.map((node) => node.type)).toEqual([
+      "paragraph",
+      "paragraph",
+      "nextmailSignatureDivider",
+      "nextmailSignature",
+      "paragraph",
+    ]);
 
     act(() => {
       expect(ref.current?.replaceSignature("signature-two", definition("Second"))).toBe(true);
@@ -47,6 +54,7 @@ describe("RichTextEditor composition nodes", () => {
     await waitFor(() => {
       const document = latestDocument(onChange);
       expect(document.content?.some((node) => node.type === "nextmailSignature")).toBe(false);
+      expect(document.content?.some((node) => node.type === "nextmailSignatureDivider")).toBe(false);
     });
   });
 

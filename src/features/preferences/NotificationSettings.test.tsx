@@ -64,7 +64,7 @@ afterEach(() => {
 });
 
 describe("NotificationSettings", () => {
-  it("persists global and folder settings with inbox-only defaults", async () => {
+  it("persists folder settings with inbox-only defaults", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
@@ -75,14 +75,6 @@ describe("NotificationSettings", () => {
     const globalSwitch = await screen.findByRole("switch", { name: "New mail notifications" });
     expect(globalSwitch).toBeChecked();
     expect(screen.getByRole("switch", { name: "Notifications for Alice" })).toBeChecked();
-    fireEvent.click(globalSwitch);
-    await waitFor(() => {
-      const calls = vi.mocked(api.setNotificationPreferences).mock.calls;
-      expect(calls[0]?.[0]).toEqual({
-        ...initialPreferences,
-        enabled: false,
-      });
-    });
 
     fireEvent.click(screen.getByRole("button", { name: "Manage notification folders for Alice" }));
     expect(await screen.findByRole("switch", { name: "Notifications for Inbox" })).toBeChecked();
@@ -98,6 +90,30 @@ describe("NotificationSettings", () => {
         { accountId: "account-one", mailboxId: "archive", enabled: true },
       ]);
     });
+  });
+
+  it("disables every subordinate control when the global switch is off", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <NotificationSettings accounts={[{ id: "account-one", email: "alice@example.com", displayName: "Alice" }]} />
+      </QueryClientProvider>,
+    );
+
+    const globalSwitch = await screen.findByRole("switch", { name: "New mail notifications" });
+    fireEvent.click(globalSwitch);
+    await waitFor(() => expect(vi.mocked(api.setNotificationPreferences).mock.calls[0]?.[0]).toEqual({
+      ...initialPreferences,
+      enabled: false,
+    }));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("combobox")).toHaveLength(3);
+      screen.getAllByRole("combobox").forEach((control) => expect(control).toBeDisabled());
+      expect(screen.getByRole("switch", { name: "Notifications for Alice" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Manage notification folders for Alice" })).toBeDisabled();
+    });
+    expect(globalSwitch).not.toBeDisabled();
   });
 
   it("resolves explicit account and folder overrides", () => {

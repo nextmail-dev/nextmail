@@ -54,6 +54,7 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
   }
 
   const folderAccount = accounts.find((account) => account.id === folderAccountId);
+  const subordinateDisabled = mutation.isPending || !preferences.enabled;
   return (
     <Stack gap="lg">
       {normalizedError ? <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert> : null}
@@ -80,7 +81,7 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
             { value: "stacked", label: t("notifications.stacked") },
             { value: "replace", label: t("notifications.replace") },
           ]}
-          disabled={mutation.isPending}
+          disabled={subordinateDisabled}
           onValueChange={(displayMode) => save({ ...preferences, displayMode: displayMode as NotificationPreferences["displayMode"] })}
         />
         {preferences.displayMode === "stacked" ? (
@@ -88,7 +89,7 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
             label={t("notifications.maxStacked")}
             value={String(preferences.maxStacked)}
             options={Array.from({ length: 10 }, (_, index) => ({ value: String(index + 1), label: String(index + 1) }))}
-            disabled={mutation.isPending}
+            disabled={subordinateDisabled}
             onValueChange={(value) => save({ ...preferences, maxStacked: Number(value) })}
           />
         ) : null}
@@ -99,7 +100,7 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
             value: String(seconds),
             label: t("notifications.seconds", { count: seconds }),
           }))}
-          disabled={mutation.isPending}
+          disabled={subordinateDisabled}
           onValueChange={(value) => save({ ...preferences, displayDurationSeconds: Number(value) })}
         />
       </Surface>
@@ -121,13 +122,14 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
                 <Inline>
                   <Switch
                     checked={enabled}
-                    disabled={mutation.isPending}
+                    disabled={subordinateDisabled}
                     label={t("notifications.accountToggle", { account: account.displayName || account.email })}
                     onCheckedChange={(nextEnabled) => save(updateAccountSetting(preferences, account.id, nextEnabled))}
                   />
                   <Button
                     variant="ghost"
                     size="icon"
+                    disabled={subordinateDisabled}
                     aria-label={t("notifications.manageFolders", { account: account.displayName || account.email })}
                     onClick={() => setFolderAccountId(account.id)}
                   >
@@ -161,7 +163,7 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
                 </Stack>
                 <Switch
                   checked={notificationFolderEnabled(preferences, folderAccountId ?? "", mailbox)}
-                  disabled={mutation.isPending}
+                  disabled={subordinateDisabled}
                   label={t("notifications.folderToggle", { folder: mailbox.name })}
                   onCheckedChange={(enabled) => save(updateFolderSetting(preferences, folderAccountId ?? "", mailbox.id, enabled))}
                 />

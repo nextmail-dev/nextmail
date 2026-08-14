@@ -12,27 +12,33 @@ const {
   destroyMock,
   eventListenMock,
   onCloseRequestedMock,
+  onDragDropEventMock,
   openMock,
   replaceSignatureMock,
   replaceTemplateMock,
   unlistenCloseMock,
+  unlistenDragDropMock,
 } = vi.hoisted(() => ({
   destroyMock: vi.fn(),
   eventListenMock: vi.fn(),
   onCloseRequestedMock: vi.fn(),
+  onDragDropEventMock: vi.fn(),
   openMock: vi.fn(),
   replaceSignatureMock: vi.fn(() => true),
   replaceTemplateMock: vi.fn(() => true),
   unlistenCloseMock: vi.fn(),
+  unlistenDragDropMock: vi.fn(),
 }));
 
 let closeHandler: ((event: { preventDefault: () => void }) => Promise<void>) | undefined;
+let dragDropHandler: ((event: { payload: { type: string; paths: string[] } }) => void) | undefined;
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: eventListenMock }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     destroy: destroyMock,
     onCloseRequested: onCloseRequestedMock,
+    onDragDropEvent: onDragDropEventMock,
   }),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: openMock }));
@@ -131,6 +137,7 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   closeHandler = undefined;
+  dragDropHandler = undefined;
   vi.mocked(api.getPreferences).mockResolvedValue({
     theme: "system",
     accentColor: "#2563eb",
@@ -151,6 +158,10 @@ beforeEach(() => {
   onCloseRequestedMock.mockImplementation((handler) => {
     closeHandler = handler;
     return Promise.resolve(unlistenCloseMock);
+  });
+  onDragDropEventMock.mockImplementation((handler) => {
+    dragDropHandler = handler;
+    return Promise.resolve(unlistenDragDropMock);
   });
 });
 
@@ -249,6 +260,32 @@ describe("ComposerApp close lifecycle", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     fireEvent.click(toggle);
     expect(screen.queryByRole("combobox", { name: "Bcc" })).not.toBeInTheDocument();
+  });
+
+  it("adds files dropped on the composer through the existing attachment command", async () => {
+    vi.mocked(api.addDraftAttachments).mockResolvedValue([{
+      id: "attachment-one",
+      fileName: "report.pdf",
+      contentType: "application/pdf",
+      size: 2048,
+      contentId: null,
+      isInline: false,
+      previewDataUrl: null,
+    }]);
+    renderComposer();
+    await screen.findByRole("button", { name: "Change body" });
+    await waitFor(() => expect(onDragDropEventMock).toHaveBeenCalledOnce());
+
+    await act(async () => {
+      dragDropHandler?.({ payload: { type: "drop", paths: ["C:\\Users\\Alice\\report.pdf"] } });
+    });
+
+    expect(api.addDraftAttachments).toHaveBeenCalledWith(
+      "account-one",
+      "draft-one",
+      ["C:\\Users\\Alice\\report.pdf"],
+    );
+    expect(await screen.findByText("report.pdf")).toBeInTheDocument();
   });
 
   it("renders and replaces an explicitly selected template through the stable editor handle", async () => {

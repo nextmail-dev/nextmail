@@ -25,7 +25,14 @@ use tauri_plugin_window_state::StateFlags;
 pub fn run() {
     install_crypto_provider();
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("context-menu-policy")
+                .js_init_script_on_all_frames(
+                    "window.addEventListener('contextmenu', event => event.preventDefault());",
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
@@ -170,8 +177,9 @@ pub fn run() {
             commands::retry_send_job,
             commands::get_send_job,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while running tauri application");
+    app.run(tray_runtime::handle_run_event);
 }
 
 pub(crate) fn exit_app(app: &tauri::AppHandle) {

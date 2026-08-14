@@ -275,7 +275,7 @@ export function ContactsWorkspace({
                       aria-pressed={selection.isSelected(contact.id)}
                       className={cn(
                         "relative flex w-full cursor-default items-center gap-3 bg-card px-6 py-3 text-left outline-none transition-colors hover:bg-muted/75 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70",
-                        selection.isSelected(contact.id) && "bg-selection before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:rounded-r-full before:bg-primary hover:bg-selection",
+                        selection.isSelected(contact.id) && "bg-selection before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary hover:bg-selection",
                       )}
                       onClick={(event) => selection.select(contact.id, event)}
                     >

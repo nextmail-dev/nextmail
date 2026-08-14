@@ -276,10 +276,10 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     return () => window.clearTimeout(timeout);
   }, [sendJob?.status]);
 
-  const markDirty = () => {
+  const markDirty = useCallback(() => {
     changeVersionRef.current += 1;
     setDirty(true);
-  };
+  }, []);
 
   const recipients = (): DraftRecipientFields => ({
     to: addRecipientInput(to, toInput).addresses,
@@ -402,9 +402,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     }
   }
 
-  async function addAttachments() {
-    const selected = await open({ multiple: true, directory: false });
-    const paths = typeof selected === "string" ? [selected] : selected ?? [];
+  const addAttachmentPaths = useCallback(async (paths: string[]) => {
     if (!paths.length) return;
     try {
       const added = await api.addDraftAttachments(sender.id, draft.id, paths);
@@ -414,6 +412,21 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     } catch (error) {
       setErrorCode(normalizeCommandError(error).code);
     }
+  }, [draft.id, markDirty, sender.id]);
+
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onDragDropEvent((event) => {
+      if (editable && event.payload.type === "drop") {
+        void addAttachmentPaths(event.payload.paths);
+      }
+    });
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, [addAttachmentPaths, editable]);
+
+  async function addAttachments() {
+    const selected = await open({ multiple: true, directory: false });
+    const paths = typeof selected === "string" ? [selected] : selected ?? [];
+    await addAttachmentPaths(paths);
   }
 
   async function removeAttachment(attachment: DraftAttachmentSummary) {

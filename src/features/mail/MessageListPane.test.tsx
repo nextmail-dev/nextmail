@@ -112,7 +112,7 @@ describe("MessageListPane", () => {
     ));
   });
 
-  it("keeps the current row selected when it is clicked again", async () => {
+  it("clears the current row when it is clicked again", async () => {
     vi.mocked(api.listMessages).mockResolvedValue({
       items: [serverResult, { ...serverResult, id: "message-two", subject: "Second message", unread: true }],
       nextCursor: null,
@@ -159,7 +159,8 @@ describe("MessageListPane", () => {
     expect(screen.getByText("Second message")).toHaveClass("font-semibold");
 
     fireEvent.click(rowButton);
-    expect(onSelect).toHaveBeenCalledWith("message-one");
+    expect(onSelect).toHaveBeenCalledWith("");
+    expect(rowButton).toHaveAttribute("aria-pressed", "false");
   });
 
   it("opens a message in an independent window from double click or the context menu", async () => {

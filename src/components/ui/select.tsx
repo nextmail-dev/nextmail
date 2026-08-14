@@ -52,11 +52,11 @@ export function SelectField({
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal>
           <SelectPrimitive.Content
-            className="app-floating-content min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-[var(--shadow-float)]"
+            className="app-floating-content max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-border/80 bg-popover p-1.5 text-popover-foreground shadow-[var(--shadow-float)]"
             position="popper"
             sideOffset={5}
           >
-            <SelectPrimitive.Viewport>
+            <SelectPrimitive.Viewport className="app-select-viewport max-h-[calc(var(--radix-select-content-available-height)-0.75rem)] overflow-y-auto overscroll-contain">
               {options.map((option) => (
                 <SelectPrimitive.Item
                   className="text-[length:var(--ui-font-control)] relative flex h-8 cursor-default items-center rounded-xs py-0 pr-8 pl-2.5 outline-none select-none focus:bg-accent focus:text-accent-foreground"

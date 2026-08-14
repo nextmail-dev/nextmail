@@ -78,14 +78,15 @@ describe("ContactsWorkspace", () => {
     );
 
     const contactRow = await screen.findByRole("button", { name: /Alice Local/ });
+    fireEvent.click(contactRow);
+    expect(contactRow).toHaveClass("bg-selection", "before:w-0.5", "cursor-default");
+    expect(contactRow).not.toHaveClass("before:rounded-r-full");
+    expect(contactRow).toHaveClass("py-3", "focus-visible:ring-1");
+    expect(contactRow.querySelector("span.grid")).toHaveClass("size-9");
     fireEvent.contextMenu(contactRow);
     fireEvent.click(await screen.findByText("Edit contact"));
     expect(await screen.findByRole("heading", { name: "Edit contact" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    fireEvent.click(contactRow);
-    expect(contactRow).toHaveClass("bg-selection", "before:w-[3px]", "cursor-default");
-    expect(contactRow).toHaveClass("py-3", "focus-visible:ring-1");
-    expect(contactRow.querySelector("span.grid")).toHaveClass("size-9");
     expect(await screen.findByRole("heading", { name: "Alice Local", level: 1 })).toHaveClass(
       "break-words",
       "text-2xl",
@@ -99,6 +100,9 @@ describe("ContactsWorkspace", () => {
       mailboxId: "inbox",
       messageId: "message-one",
     });
+    fireEvent.click(contactRow);
+    expect(contactRow).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("Select a contact")).toBeInTheDocument();
   });
 
   it("deletes the current multi-selection from the row context menu", async () => {

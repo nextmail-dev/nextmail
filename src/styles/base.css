@@ -177,6 +177,15 @@ textarea,
   background: transparent;
 }
 
+/* Radix hides Select scrollbars by default; long desktop menus need a visible thumb. */
+.app-select-viewport[data-radix-select-viewport] {
+  scrollbar-width: thin;
+}
+
+.app-select-viewport[data-radix-select-viewport]::-webkit-scrollbar {
+  display: block;
+}
+
 .native-scrollbar-hidden {
   -ms-overflow-style: none;
   scrollbar-width: none;

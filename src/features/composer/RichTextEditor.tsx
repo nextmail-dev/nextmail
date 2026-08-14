@@ -950,6 +950,7 @@ function replaceCompositionNode(
   }
   return editor.chain().insertContentAt(editor.state.doc.content.size, [
     { type: "paragraph" },
+    { type: "nextmailSignatureDivider" },
     node,
   ]).run();
 }

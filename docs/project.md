@@ -58,7 +58,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - `0.3.1` 已完成 Composer 地址栏、联系人候选键盘操作、富文本 Tab、邮件标题与按钮 hover 优化，并为回复/转发提供同一行的明确原文标题；本轮已通过自动验证和用户手动验收。
 - `0.3.0` 已完成独立安全更新窗口、全局对话框层级修正、设置选择项交互优化、分段 MIME 附件名兼容与新应用图标；四平台 Release workflow、自行生成的直连/大陆代理 updater 清单及公开发布链已经实际运行并验收通过。
 
-最近完成并通过 Windows 实机验收的计划为 [`2026-08-14-01-imap-selective-content-and-attachments`](./iterations/2026-08-14-01-imap-selective-content-and-attachments.md) 和 [`2026-08-14-02-folder-dialog-layering`](./iterations/2026-08-14-02-folder-dialog-layering.md)。
+最近完成并通过实机验收的计划为 [`2026-08-14-03-desktop-interaction-fixes`](./iterations/2026-08-14-03-desktop-interaction-fixes.md)；此前的 [`2026-08-14-01-imap-selective-content-and-attachments`](./iterations/2026-08-14-01-imap-selective-content-and-attachments.md) 和 [`2026-08-14-02-folder-dialog-layering`](./iterations/2026-08-14-02-folder-dialog-layering.md) 已通过 Windows 实机验收。
 
 仍未排期：
 
@@ -138,6 +138,7 @@ docs/adr/                按需查阅的长期架构决策
 - 业务窗口标题随语言变化；主窗口和通知保留 `NextMail`。
 - 系统托盘由 Rust 创建并按界面语言更新菜单；Windows/macOS 左键显示主窗口，右键提供显示、设置、退出。Linux 受 Tauri/AppIndicator 限制不产生托盘点击事件，左键显示菜单并通过“显示主界面”恢复窗口。
 - 主窗口关闭请求由 Rust 统一拦截。默认询问最小化到托盘或退出；关闭询问后由设备级偏好直接隐藏或退出。托盘不可用时不得隐藏成无法恢复的窗口，托盘菜单“退出”作为明确动作不二次询问。
+- macOS 在没有可见窗口时响应 Dock 的 reopen 事件，重新显示、还原并聚焦既有主窗口。
 - App 明确退出统一先销毁全部 WebView 窗口，再调用 Tauri `app.exit(0)`，避免 Windows Chromium/WebView2 在进程退出时残留窗口类清理错误；不得用 `std::process::exit` 绕过 Tauri 的退出事件与插件清理。
 
 ## 5. 数据、同步与协议记忆
@@ -193,6 +194,7 @@ cache/attachment-open/...
 - 关闭 Composer 只有取消、不保存、保存为草稿三个显式动作。
 - 保存后排入 Drafts APPEND；确认后只定向刷新 Drafts，失败由后续同步修复。
 - 回复/转发保持回复区、签名分隔、签名、空行、原始邮件元数据和完整原文的稳定边界。
+- 新邮件同样在签名上方保留细分隔线；Composer 接收系统文件拖入并复用文件选择器的附件导入、安全校验和账户隔离链路。
 - 原文保存在 `nextmailOriginalMessage` 原子节点的 `sourceHtml`，不进入 ProseMirror 邮件表格 schema。
 - 模板/签名支持全局和账户范围；模板可保存 To/Cc/Bcc、邮件标题和正文，所有邮件内容字段均可留空。手动选择或四场景规则自动套用时逐字段只覆盖模板中的非空值，空字段保留草稿原值；账户模板复用自身账户联系人建议，全局模板编辑时只使用最近选中的单一账户提供候选，不合并跨账户联系人。每个范围一个默认签名和自动插入开关。
 - Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
@@ -235,11 +237,15 @@ cache/attachment-open/...
 - 通用标题和正文允许超长连续内容换行；固定窗口最小尺寸使用逻辑像素，主窗口在 920px 最小宽度下必须保留侧栏、列表和至少 372px 阅读区。操作按钮组允许换行，不得用溢出或截断隐藏关键操作。
 - 所有模态与阻塞进度遮罩统一使用全局对话框层级，覆盖完整 WebView、位于 Windows 自绘标题栏之上并显式退出拖动命中区域；设置页布尔项以复选框、标题和说明组成内容包裹式圆角点击区域，提供明确 hover、focus、选中与禁用反馈。
 - Portal 化的 Select、DropdownMenu 和 ContextMenu 统一使用高于 Dialog content 的浮层层级；从 modal 菜单打开 Dialog 时必须等菜单完成关闭后再挂载 Dialog，禁止让两套 pointer-event 锁在同一事件中重叠。
+- Portal 浮层使用 Radix 的可用高度约束在当前视界内，项目过多时由其语义 viewport 原生滚动并显示细滚动条；不得用外层 `OverlayScrollArea` 破坏键盘定位。
+- WebView 原生右键菜单全局禁用；只有显式接入应用 ContextMenu 的区域响应右键，禁止在空白区暴露浏览器菜单或开发工具入口。
 - 可点击控件统一使用桌面默认指针，不显示手型 pointer；文本选择、窗格缩放和拖动等非点击交互继续保留 I-beam、resize、grab 等语义指针。
 - 不移除键盘焦点指示。普通操作与列表行仅在 `focus-visible` 时使用 1px 内描边，输入和选择等编辑表面使用克制的 2px 内反馈；鼠标点击不应产生截图中可见的粗外框。
 - 紧凑横向工具栏只直接展示高频操作，低频操作收入有明确名称的更多菜单；不得依赖横向滚动条隐藏工具栏操作。
 - 阅读区附件使用紧凑文件块，不显示“附件：”标题和行内操作按钮。单击始终执行安全打开，未下载时先按 MIME section 获取并在文件块上显示 spinner；右键菜单提供打开、打开方式、打开文件夹和另存为，“打开方式”在系统选择器实现前保持禁用。附件定位和另存为同样允许触发按需下载。
-- 任何可能产生纵向滚动的容器统一使用 `OverlayScrollArea`：滑块绝对覆盖在容器右侧，不参与内容宽度计算，不为滑块预留 `padding`、gutter 或空白，出现与消失不得改变内容和分割线坐标；滑块宽 6px，仅在容器 hover 或键盘 focus-within 时显示，并保持默认指针。业务组件只负责自身对称内容边距，禁止通过左右不对称边距给滚动条让位。
+- 除上述 Portal 语义 viewport 外，任何可能产生纵向滚动的容器统一使用 `OverlayScrollArea`：滑块绝对覆盖在容器右侧，不参与内容宽度计算，不为滑块预留 `padding`、gutter 或空白，出现与消失不得改变内容和分割线坐标；滑块宽 6px，仅在容器 hover 或键盘 focus-within 时显示，并保持默认指针。业务组件只负责自身对称内容边距，禁止通过左右不对称边距给滚动条让位。
+- 邮件与联系人列表的单选项再次单击时取消选择；联系人当前项的左侧标识条与邮件列表保持同宽、同位置。文件夹长按排序使用统一的圆点加横线标记插入边界，不用上下边框样式。
+- 通知总开关关闭时，显示方式、时长、账户和文件夹等全部从属选项保持可见但不可操作；总开关自身始终可重新开启。
 - 文件夹列表是滚动条位置的唯一布局例外：展开侧栏中的文件夹项不是全宽且带圆角，滚动容器向右延伸到侧栏外边距，等量 `content` 右内边距保持列表项宽度不变，使滑块位于圆角项外侧；仍不得给 viewport 预留空间或让滑块改变列表项几何尺寸。
 - 保留平台差异：仅 Windows 显示 WebView 自绘窗口按钮；macOS 使用原生交通灯，其他带系统装饰的平台使用原生窗口控制。
 - 邮件 HTML 与 Composer 原文不进入主 React DOM；保真优化不能越过安全边界。

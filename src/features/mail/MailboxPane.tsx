@@ -252,11 +252,9 @@ export function MailboxPane({
             const label = mailbox.role === "other" ? displayName : t(`mailboxNames.${mailbox.role}`);
             const folderCollapsed = collapsedFolderIds.has(mailbox.id);
             const structureMutable = mailbox.role !== "inbox";
-            const dropClass = dropTarget?.mailboxId === mailbox.id
-              ? dropTarget.position === "before"
-                ? "shadow-[inset_0_2px_0_var(--primary)]"
-                : "shadow-[inset_0_-2px_0_var(--primary)]"
-              : "";
+            const dropPosition = dropTarget?.mailboxId === mailbox.id
+              ? dropTarget.position
+              : null;
             const actions = (
               <ContextMenuContent>
                 <ContextMenuItem
@@ -319,11 +317,21 @@ export function MailboxPane({
                     <Inline
                       {...getGestureProps(mailbox.id)}
                       className={`${selected
-                        ? "h-9 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary shadow-[inset_2px_0_0_var(--primary)]"
-                        : "h-9 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"} ${dropClass} ${draggingId === mailbox.id ? "cursor-grabbing opacity-55" : "cursor-default"}`}
+                        ? "relative h-9 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary shadow-[inset_2px_0_0_var(--primary)]"
+                        : "relative h-9 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"} ${draggingId === mailbox.id ? "cursor-grabbing opacity-55" : "cursor-default"}`}
                       style={{ paddingInlineStart: `${4 + depth * 16}px` }}
                       aria-grabbed={draggingId === mailbox.id}
                     >
+                      {dropPosition ? (
+                        <span
+                          aria-hidden="true"
+                          data-mailbox-drop-indicator={dropPosition}
+                          className={`pointer-events-none absolute right-1 left-1 z-20 flex h-2 items-center ${dropPosition === "before" ? "top-0 -translate-y-1/2" : "bottom-0 translate-y-1/2"}`}
+                        >
+                          <span className="size-2 shrink-0 rounded-full border-2 border-primary bg-card" />
+                          <span className="h-0.5 flex-1 bg-primary" />
+                        </span>
+                      ) : null}
                       {hasChildren ? (
                         <Button
                           variant="ghost"

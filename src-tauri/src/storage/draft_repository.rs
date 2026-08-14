@@ -718,8 +718,8 @@ impl DraftRepository {
         )
         .bind(attachment_id)
         .bind(draft_id)
-        .bind(account_slot_id)
         .bind(draft_id)
+        .bind(account_slot_id)
         .execute(&self.pool)
         .await
         .map_err(|_| CommandError::new("draft.attachment_remove_failed"))?;
@@ -1241,6 +1241,18 @@ mod tests {
                 .len(),
             2
         );
+        repository
+            .drafts()
+            .remove_draft_attachment("slot-a", &draft.id, &attachment.id)
+            .await
+            .unwrap();
+        let remaining = repository
+            .drafts()
+            .draft_attachments("slot-a", &draft.id)
+            .await
+            .unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].summary.id, inline.id);
     }
 
     #[tokio::test]
