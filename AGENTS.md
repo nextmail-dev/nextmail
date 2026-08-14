@@ -117,6 +117,7 @@ git diff --check
 
 - **未经明确要求，不 commit、push、创建/移动 tag、改远端、签名或发布。**
 - 当被要求提交时，直接提交到 `main`，不创建 feature 分支。
+- 发布时必须分两次提交：先提交已验收的阶段性修改（代码、测试、迁移及相应文档），再以独立的 `release: v...` 提交版本号、CHANGELOG 和版本号派生的 lockfile 变化；tag 只指向 release commit，禁止将两类修改合并。此规则只向后适用，除非用户明确要求，不为此重写已推送历史或移动既有 tag。
 - 不用 `reset`/`checkout` 覆盖工作区，不清理无关文件；不得 reset、覆盖或顺手提交用户已有修改，出现重叠先说明。
 - 新依赖优先 MIT、Apache-2.0、BSD、ISC；其他许可先确认并按需更新 `docs/third-party-notices.md`。
 - 不提前开发当前范围外行为，不自行扩展依赖、安全策略或重大 UI 决策。
