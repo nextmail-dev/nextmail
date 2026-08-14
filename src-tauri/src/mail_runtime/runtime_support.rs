@@ -74,7 +74,8 @@ pub(super) fn eligible_new_mail_candidates(
 pub(super) struct AccountSupervisor {
     pub(super) account_id: String,
     pub(super) generation: u64,
-    pub(super) wake: Notify,
+    pub(super) sync_wake: Notify,
+    pub(super) operations_wake: Notify,
     pub(super) manual_sync_requested: AtomicBool,
     pub(super) pending_operations_requested: AtomicBool,
     pub(super) stopped: AtomicBool,
@@ -85,9 +86,10 @@ impl AccountSupervisor {
         Self {
             account_id: account_id.to_owned(),
             generation,
-            wake: Notify::new(),
+            sync_wake: Notify::new(),
+            operations_wake: Notify::new(),
             manual_sync_requested: AtomicBool::new(false),
-            pending_operations_requested: AtomicBool::new(false),
+            pending_operations_requested: AtomicBool::new(true),
             stopped: AtomicBool::new(false),
         }
     }
@@ -219,11 +221,11 @@ pub(super) async fn wait_for_supervisor(
 ) -> SupervisorWake {
     match interval.minutes() {
         Some(minutes) => tokio::select! {
-            _ = supervisor.wake.notified() => SupervisorWake::Requested,
+            _ = supervisor.sync_wake.notified() => SupervisorWake::Requested,
             _ = tokio::time::sleep(Duration::from_secs(minutes * 60)) => SupervisorWake::Periodic,
         },
         None => {
-            supervisor.wake.notified().await;
+            supervisor.sync_wake.notified().await;
             SupervisorWake::Requested
         }
     }
@@ -283,4 +285,47 @@ pub(super) struct PendingOperationChangedEvent {
     pub(super) account_id: String,
     pub(super) operation_id: String,
     pub(super) status: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::Ordering;
+
+    use tokio::time::{timeout, Duration};
+
+    use super::{wait_for_supervisor, AccountSupervisor, SupervisorWake, SyncInterval};
+
+    #[tokio::test]
+    async fn keeps_sync_and_pending_operation_wakes_independent() {
+        let supervisor = AccountSupervisor::new("account", 1);
+        assert!(supervisor
+            .pending_operations_requested
+            .swap(false, Ordering::AcqRel));
+
+        supervisor.operations_wake.notify_one();
+        timeout(
+            Duration::from_millis(30),
+            supervisor.operations_wake.notified(),
+        )
+        .await
+        .expect("pending-operation wake");
+        assert!(
+            timeout(
+                Duration::from_millis(30),
+                wait_for_supervisor(&supervisor, &SyncInterval::Manual),
+            )
+            .await
+            .is_err(),
+            "an operation request must not wake the sync loop"
+        );
+
+        supervisor.sync_wake.notify_one();
+        let wake = timeout(
+            Duration::from_millis(30),
+            wait_for_supervisor(&supervisor, &SyncInterval::Manual),
+        )
+        .await
+        .expect("sync wake");
+        assert!(wake == SupervisorWake::Requested);
+    }
 }

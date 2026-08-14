@@ -11,9 +11,7 @@ impl SendJobRepository {
         mime_hash: &str,
         envelope_recipients: &[String],
     ) -> CommandResult<SendJobSummary> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("send.queue_failed"))?;
         let timestamp = now();
@@ -67,9 +65,7 @@ impl SendJobRepository {
     }
 
     pub async fn claim_next_send_job(&self) -> CommandResult<Option<ClaimedSendJob>> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("send.claim_failed"))?;
         let row = sqlx::query(
@@ -139,9 +135,7 @@ impl SendJobRepository {
         &self,
         account_slot_id: &str,
     ) -> CommandResult<Option<ClaimedSendJob>> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("send.claim_failed"))?;
         let row = sqlx::query(
@@ -207,9 +201,7 @@ impl SendJobRepository {
         sent_mailbox_id: Option<&str>,
     ) -> CommandResult<()> {
         let timestamp = now();
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("send.status_write_failed"))?;
         sqlx::query(

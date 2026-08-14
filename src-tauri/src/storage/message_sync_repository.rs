@@ -105,9 +105,7 @@ impl MailSyncSink for SyncSinkRepository {
             None => None,
         };
         let body_available = message.plain_text.is_some() || message.safe_html.is_some();
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(map_storage_err("storage.message_write_failed"))?;
         let existing_location = sqlx::query_scalar::<_, String>(
@@ -351,9 +349,7 @@ impl MailSyncSink for SyncSinkRepository {
         highest_modseq: Option<u64>,
         states: &[RemoteMessageState],
     ) -> CommandResult<()> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(map_storage_err("storage.mailbox_reconcile_failed"))?;
         for state in states {

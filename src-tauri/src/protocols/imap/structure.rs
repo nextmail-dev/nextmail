@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use async_imap::imap_proto::types::{
     BodyContentCommon, BodyContentSinglePart, BodyParams, BodyStructure,
 };
-use mail_parser::MessageParser;
+use mail_parser::{MessageParser, MimeHeaders};
 
 use crate::core::RemoteAttachment;
 use crate::protocols::normalize_attachment_file_name;
@@ -133,7 +133,13 @@ fn push_leaf(
         return;
     }
 
-    if content_type.starts_with("image/") && content_id.is_some() {
+    // Some providers label CID-backed images as application/octet-stream.
+    // Keep declared and plausibly mislabeled images available to the HTML
+    // reference pass; byte-signature and size checks still decide what may be
+    // inlined.
+    if content_id.is_some()
+        && (content_type.starts_with("image/") || content_type == "application/octet-stream")
+    {
         structure.inline_sections.push(descriptor);
     }
     structure.attachments.push(RemoteAttachment {
@@ -161,16 +167,46 @@ fn attachment_filename(common: &BodyContentCommon<'_>) -> Option<String> {
         .as_ref()
         .and_then(|value| body_param(&value.params, "filename"))
         .or_else(|| body_param(&common.ty.params, "name"))
-        .map(str::trim)
+        .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
-        .map(str::to_owned)
 }
 
-fn body_param<'a>(params: &'a BodyParams<'a>, name: &str) -> Option<&'a str> {
-    params
-        .as_ref()?
+fn body_param(params: &BodyParams<'_>, name: &str) -> Option<String> {
+    let params = params.as_ref()?;
+    let matches = params
         .iter()
-        .find_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value.as_ref()))
+        .filter(|(key, _)| {
+            key.eq_ignore_ascii_case(name)
+                || key
+                    .get(..name.len())
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(name))
+                    && key.as_bytes().get(name.len()) == Some(&b'*')
+        })
+        .collect::<Vec<_>>();
+    if matches.is_empty() {
+        return None;
+    }
+
+    // Reuse mail-parser's RFC 2047/2231 implementation. BODYSTRUCTURE has
+    // already split the parameter pairs, so rebuild only this local MIME field
+    // and let the same parser used for full messages join and decode them.
+    let mut header = if name.eq_ignore_ascii_case("filename") {
+        "Content-Disposition: attachment".to_owned()
+    } else {
+        "Content-Type: application/octet-stream".to_owned()
+    };
+    for (key, value) in matches {
+        let escaped = value
+            .replace(['\r', '\n'], "")
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        header.push_str(&format!("; {key}=\"{escaped}\""));
+    }
+    header.push_str("\r\n\r\n");
+    MessageParser::default()
+        .parse_headers(header.as_bytes())?
+        .attachment_name()
+        .map(str::to_owned)
 }
 
 pub(super) fn canonical_section_path(section: &str) -> Option<Vec<u32>> {
@@ -284,6 +320,67 @@ mod tests {
         assert_eq!(structure.attachments[0].part_index, 0);
         assert_eq!(structure.attachments[0].imap_section.as_deref(), Some("2"));
         assert_eq!(structure.attachments[0].file_name, "report.pdf");
+    }
+
+    #[test]
+    fn keeps_mislabeled_content_id_parts_available_to_the_html_reference_pass() {
+        let mut inline_part = single();
+        inline_part.id = Some(Cow::Borrowed("<logo@example.test>"));
+        let body = BodyStructure::Multipart {
+            common: common(("MULTIPART", "RELATED"), None),
+            bodies: vec![
+                BodyStructure::Text {
+                    common: common(("TEXT", "HTML"), None),
+                    other: single(),
+                    lines: 1,
+                    extension: None,
+                },
+                BodyStructure::Basic {
+                    common: common(("APPLICATION", "OCTET-STREAM"), Some("logo.png")),
+                    other: inline_part,
+                    extension: None,
+                },
+            ],
+            extension: None,
+        };
+
+        let structure = analyze_bodystructure(&body);
+
+        assert_eq!(structure.inline_sections.len(), 1);
+        assert_eq!(structure.inline_sections[0].section, "2");
+        assert_eq!(
+            structure.inline_sections[0].content_id.as_deref(),
+            Some("logo@example.test")
+        );
+        assert_eq!(structure.attachments.len(), 1);
+    }
+
+    #[test]
+    fn decodes_rfc2231_filename_continuations_from_bodystructure() {
+        let params = Some(vec![
+            (
+                Cow::Borrowed("filename*0*"),
+                Cow::Borrowed("utf-8''%E6%B5%99%E6%B1%9F%E5%B9%BF%E7%94%B5%E6%97%A0%E7%BA%BF"),
+            ),
+            (
+                Cow::Borrowed("filename*1*"),
+                Cow::Borrowed("%E4%BF%A1%E5%8F%B7%E6%B5%8B%E8%AF%95%E8%AF%B4%E6%98%8E.docx"),
+            ),
+        ]);
+
+        assert_eq!(
+            body_param(&params, "filename").as_deref(),
+            Some("浙江广电无线信号测试说明.docx")
+        );
+
+        let encoded_word = Some(vec![(
+            Cow::Borrowed("filename"),
+            Cow::Borrowed("=?utf-8?B?5rWZ5rGf5bm/55S15peg57q/5L+h5Y+35rWL6K+V6K+05piOLmRvY3g=?="),
+        )]);
+        assert_eq!(
+            body_param(&encoded_word, "filename").as_deref(),
+            Some("浙江广电无线信号测试说明.docx")
+        );
     }
 
     #[test]

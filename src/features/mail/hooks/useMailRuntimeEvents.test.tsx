@@ -143,11 +143,42 @@ describe("useMailRuntimeEvents", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.messagesForAccount("account-two") });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: messageQueryKeys.account("account-two") });
 
+    setQueryData.mockClear();
     invalidate.mockClear();
+    act(() => {
+      for (let completed = 1; completed <= 1_000; completed += 1) {
+        handlers.get("sync-progress")?.({
+          payload: {
+            accountId: "account-two",
+            phase: "summaries",
+            completed,
+            total: 1_000,
+            currentMailboxName: "Inbox",
+            errorCode: null,
+            revision: completed,
+          } as never,
+        });
+      }
+    });
+    expect(setQueryData).toHaveBeenCalledTimes(1_000);
+    expect(client.getQueryData(mailQueryKeys.syncProgress("account-two")))
+      .toEqual(expect.objectContaining({ completed: 1_000, revision: 1_000 }));
     act(() => handlers.get("sync-progress")?.({
-      payload: { accountId: "account-two" } as never,
+      payload: {
+        accountId: "account-two",
+        phase: "summaries",
+        completed: 999,
+        total: 1_000,
+        currentMailboxName: "Inbox",
+        errorCode: null,
+        revision: 999,
+      } as never,
     }));
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.syncProgress("account-two") });
+    expect(client.getQueryData(mailQueryKeys.syncProgress("account-two")))
+      .toEqual(expect.objectContaining({ completed: 1_000, revision: 1_000 }));
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: mailQueryKeys.syncProgress("account-two"),
+    });
 
     invalidate.mockClear();
     act(() => handlers.get("account-runtime-status-changed")?.({

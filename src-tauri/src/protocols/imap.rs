@@ -33,7 +33,7 @@ use tokio::{
     sync::Mutex,
 };
 
-const FETCH_BATCH_SIZE: usize = 1;
+const FETCH_BATCH_SIZE: usize = 20;
 pub const SELECTIVE_FETCH_UNSUPPORTED: &str = "sync.message_selective_fetch_unsupported";
 struct FetchedMessageSummary {
     uid: u32,
@@ -362,14 +362,48 @@ where
 {
     let mut highest_uid = context.mailbox.last_uid;
     for batch in uids.chunks(FETCH_BATCH_SIZE) {
-        let summaries = fetch_summary_batch(session, batch, condstore).await?;
+        let query = if condstore {
+            "(UID FLAGS MODSEQ INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODYSTRUCTURE)"
+        } else {
+            "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODYSTRUCTURE)"
+        };
+        let mut summaries = session
+            .uid_fetch(format_uid_set(batch), query)
+            .await
+            .map_err(map_imap_err("sync.message_fetch_failed", true))?;
 
         // Header-only: store the summary now (subject/sender/date/flags) so the
         // list appears immediately; the body — and with it the preview — is
-        // fetched on demand when the message is opened. This keeps each summary
-        // fetch to a single header round-trip and minimizes data transferred
-        // during sync.
-        for summary in summaries {
+        // fetched on demand when the message is opened. Consume the FETCH
+        // response stream directly so every received header is committed even
+        // when the connection fails before the rest of the batch arrives.
+        while let Some(summary) = summaries
+            .try_next()
+            .await
+            .map_err(map_imap_err("sync.message_fetch_failed", true))?
+        {
+            let Some(uid) = summary.uid else {
+                continue;
+            };
+            let received_at = summary
+                .internal_date()
+                .map(|value| value.timestamp())
+                .unwrap_or_default();
+            let (unread, flagged) = message_flag_state(summary.flags());
+            let summary = FetchedMessageSummary {
+                uid,
+                received_at,
+                unread,
+                flagged,
+                header: summary.header().unwrap_or_default().to_vec(),
+                size: summary.size.unwrap_or_default() as u64,
+                modseq: summary.modseq,
+                attachments: summary
+                    .bodystructure()
+                    .map(structure::analyze_bodystructure)
+                    .map(|structure| structure.attachments)
+                    .unwrap_or_default(),
+            };
             let mut message = parse_message_in_background(MessageParseInput {
                 uid: summary.uid,
                 uid_validity: context.uid_validity,
@@ -588,53 +622,6 @@ where
     Ok(())
 }
 
-async fn fetch_summary_batch<T>(
-    session: &mut Session<T>,
-    uids: &[u32],
-    condstore: bool,
-) -> CommandResult<Vec<FetchedMessageSummary>>
-where
-    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
-{
-    let query = if condstore {
-        "(UID FLAGS MODSEQ INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODYSTRUCTURE)"
-    } else {
-        "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODYSTRUCTURE)"
-    };
-    Ok(session
-        .uid_fetch(format_uid_set(uids), query)
-        .await
-        .map_err(map_imap_err("sync.message_fetch_failed", true))?
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(map_imap_err("sync.message_fetch_failed", true))?
-        .into_iter()
-        .filter_map(|summary| {
-            let uid = summary.uid?;
-            let received_at = summary
-                .internal_date()
-                .map(|value| value.timestamp())
-                .unwrap_or_default();
-            let (unread, flagged) = message_flag_state(summary.flags());
-            let attachments = summary
-                .bodystructure()
-                .map(structure::analyze_bodystructure)
-                .map(|structure| structure.attachments)
-                .unwrap_or_default();
-            Some(FetchedMessageSummary {
-                uid,
-                received_at,
-                unread,
-                flagged,
-                header: summary.header().unwrap_or_default().to_vec(),
-                size: summary.size.unwrap_or_default() as u64,
-                modseq: summary.modseq,
-                attachments,
-            })
-        })
-        .collect())
-}
-
 async fn reconcile_flags<T>(
     session: &mut Session<T>,
     sink: &(dyn MailSyncSink + Send + Sync),
@@ -753,6 +740,17 @@ mod tests {
     fn formats_a_batch_as_one_uid_set() {
         assert_eq!(format_uid_set(&[3, 7, 9]), "3,7,9");
         assert_eq!(format_uid_set(&[]), "");
+    }
+
+    #[test]
+    fn caps_header_fetch_commands_at_twenty_uids() {
+        let uids = (1..=45).collect::<Vec<_>>();
+        assert_eq!(
+            uids.chunks(FETCH_BATCH_SIZE)
+                .map(<[u32]>::len)
+                .collect::<Vec<_>>(),
+            [20, 20, 5]
+        );
     }
 
     #[test]

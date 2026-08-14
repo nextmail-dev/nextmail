@@ -42,3 +42,7 @@
 | [2026-08-09-06](./2026-08-09-06-segmented-mime-filenames.md) | 分段 MIME 附件文件名兼容 | 已验收 |
 | [2026-08-09-07](./2026-08-09-07-app-icon-refresh.md) | 应用图标更新 | 已验收 |
 | [2026-08-09-08](./2026-08-09-08-updater-manifest-generation.md) | Updater 清单自行生成与 v0.3.0 重新发布 | 已验收 |
+| [2026-08-14-01](./2026-08-14-01-imap-selective-content-and-attachments.md) | IMAP 正文与附件选择性下载 | 已验收 |
+| [2026-08-14-02](./2026-08-14-02-folder-dialog-layering.md) | 文件夹对话框层级与关闭清理 | 已验收 |
+| [2026-08-14-03](./2026-08-14-03-desktop-interaction-fixes.md) | 桌面交互与实机问题修正 | 已验收 |
+| [2026-08-14-04](./2026-08-14-04-imap-streaming-sync-and-inline-parts.md) | IMAP 流式批取与正文引用资源 | 已验收 |

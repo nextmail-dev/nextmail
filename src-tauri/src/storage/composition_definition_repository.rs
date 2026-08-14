@@ -217,9 +217,7 @@ impl CompositionDefinitionRepository {
         let scope = definition_scope(account_id, account_slot_id)?;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("signature.create_failed"))?;
         sqlx::query(

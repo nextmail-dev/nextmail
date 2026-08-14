@@ -208,9 +208,7 @@ impl SyncSinkRepository {
         message_id: &str,
         body: &RemoteMessageBody,
     ) -> CommandResult<()> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = begin_write(&self.pool)
             .await
             .map_err(map_storage_err("storage.message_body_write_failed"))?;
         let result = sqlx::query(
@@ -953,6 +951,15 @@ async fn open_pool(data_dir: &Path, create: bool) -> CommandResult<SqlitePool> {
         .map_err(|_| CommandError::new("data_directory.database_open_failed"))
 }
 
+pub(super) async fn begin_write(
+    pool: &SqlitePool,
+) -> Result<sqlx::Transaction<'static, sqlx::Sqlite>, sqlx::Error> {
+    // BEGIN IMMEDIATE obtains SQLite's single writer slot before any reads in
+    // the transaction, so busy_timeout can wait instead of a later read-to-write
+    // upgrade failing immediately with SQLITE_BUSY.
+    pool.begin_with("BEGIN IMMEDIATE").await
+}
+
 fn message_list_item_from_row(row: sqlx::sqlite::SqliteRow) -> CommandResult<MessageListItem> {
     Ok(MessageListItem {
         id: row.try_get("id").map_err(storage_read_error)?,
@@ -1094,6 +1101,33 @@ mod tests {
         ContactAddressRole, ContactDraft, MailSyncSink, RemoteContactAddress, RemoteMailbox,
         RemoteMessage, StoredMailbox,
     };
+
+    #[tokio::test]
+    async fn write_transactions_wait_for_the_active_writer() {
+        let directory = tempfile::tempdir().unwrap();
+        let pool = open_pool(directory.path(), true).await.unwrap();
+        let first = begin_write(&pool).await.unwrap();
+        let waiting_pool = pool.clone();
+        let mut waiting = tokio::spawn(async move {
+            begin_write(&waiting_pool)
+                .await
+                .unwrap()
+                .rollback()
+                .await
+                .unwrap();
+        });
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), &mut waiting)
+                .await
+                .is_err()
+        );
+        first.rollback().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(1), waiting)
+            .await
+            .expect("waiting writer should acquire the released slot")
+            .unwrap();
+    }
 
     #[tokio::test]
     async fn stylesheet_policy_migration_invalidates_only_cached_html_bodies() {
@@ -1455,6 +1489,166 @@ mod tests {
             "23",
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn selective_cid_refresh_invalidates_only_mislabeled_image_candidates() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE messages(
+                id TEXT PRIMARY KEY,
+                body_availability TEXT NOT NULL,
+                remote_images_blocked INTEGER NOT NULL,
+                revision INTEGER NOT NULL
+             );
+             CREATE TABLE message_bodies(
+                message_id TEXT PRIMARY KEY,
+                plain_text TEXT,
+                safe_html TEXT
+             );
+             CREATE TABLE attachments(
+                message_id TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                content_id TEXT
+             );
+             CREATE TABLE schema_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO schema_metadata VALUES ('data_format_version', '27');
+             INSERT INTO messages VALUES ('mislabeled', 'available', 1, 4);
+             INSERT INTO messages VALUES ('ordinary', 'available', 1, 7);
+             INSERT INTO message_bodies VALUES ('mislabeled', NULL, '<img>');
+             INSERT INTO message_bodies VALUES ('ordinary', NULL, '<p>body</p>');
+             INSERT INTO attachments VALUES (
+                'mislabeled', 'application/octet-stream', 'logo@example.test'
+             );
+             INSERT INTO attachments VALUES (
+                'ordinary', 'application/pdf', 'report@example.test'
+             );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0028_selective_cid_body_refresh.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sqlx::query_as::<_, (String, i64, i64)>(
+                "SELECT body_availability, remote_images_blocked, revision \
+                 FROM messages WHERE id = 'mislabeled'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            ("missing".to_owned(), 0, 5)
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM message_bodies WHERE message_id = 'mislabeled'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_as::<_, (String, i64)>(
+                "SELECT body_availability, revision FROM messages WHERE id = 'ordinary'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            ("available".to_owned(), 7)
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM schema_metadata WHERE key = 'data_format_version'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "28"
+        );
+    }
+
+    #[tokio::test]
+    async fn attachment_filename_refresh_invalidates_only_encoded_name_candidates() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE messages(
+                id TEXT PRIMARY KEY,
+                body_availability TEXT NOT NULL,
+                revision INTEGER NOT NULL
+             );
+             CREATE TABLE message_bodies(message_id TEXT PRIMARY KEY, safe_html TEXT);
+             CREATE TABLE attachments(message_id TEXT NOT NULL, file_name TEXT NOT NULL);
+             CREATE TABLE schema_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO schema_metadata VALUES ('data_format_version', '28');
+             INSERT INTO messages VALUES ('encoded', 'available', 4);
+             INSERT INTO messages VALUES ('ordinary', 'available', 7);
+             INSERT INTO message_bodies VALUES ('encoded', '<p>body</p>');
+             INSERT INTO message_bodies VALUES ('ordinary', '<p>body</p>');
+             INSERT INTO attachments VALUES ('encoded', '=?utf-8?B?5rWZ5rGfLmRvY3g=?=');
+             INSERT INTO attachments VALUES ('ordinary', 'report.docx');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0029_attachment_filename_refresh.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sqlx::query_as::<_, (String, i64)>(
+                "SELECT body_availability, revision FROM messages WHERE id = 'encoded'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            ("missing".to_owned(), 5)
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM message_bodies WHERE message_id = 'encoded'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_as::<_, (String, i64)>(
+                "SELECT body_availability, revision FROM messages WHERE id = 'ordinary'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            ("available".to_owned(), 7)
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM schema_metadata WHERE key = 'data_format_version'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "29"
+        );
     }
 
     #[tokio::test]
@@ -1846,7 +2040,7 @@ mod tests {
             .fetch_one(&repository.pool)
             .await
             .unwrap(),
-            "26"
+            "29"
         );
     }
 

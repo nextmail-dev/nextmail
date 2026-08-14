@@ -124,7 +124,7 @@ impl MailRuntime {
             supervisor
                 .pending_operations_requested
                 .store(true, Ordering::Release);
-            supervisor.wake.notify_one();
+            supervisor.operations_wake.notify_one();
         }
     }
 
@@ -136,7 +136,7 @@ impl MailRuntime {
 
     fn notify_sync_schedule_changed(&self, account_id: &str) {
         if let Some(supervisor) = self.supervisor(account_id) {
-            supervisor.wake.notify_one();
+            supervisor.sync_wake.notify_one();
         }
     }
 
@@ -145,7 +145,8 @@ impl MailRuntime {
             self.handle_runtime_error(&account.id, error, Duration::from_secs(5));
             if is_authentication_error(&error.code) {
                 if let Some(supervisor) = self.supervisor(&account.id) {
-                    supervisor.wake.notify_one();
+                    supervisor.sync_wake.notify_one();
+                    supervisor.operations_wake.notify_one();
                 }
             }
         }
@@ -208,8 +209,13 @@ impl MailRuntime {
         self.update_runtime_state(account_id, AccountRuntimeState::Starting, None, None);
         self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None, None);
         let runtime = Arc::clone(self);
+        let sync_supervisor = Arc::clone(&supervisor);
         tauri::async_runtime::spawn(async move {
-            runtime.supervisor_loop(supervisor).await;
+            runtime.supervisor_loop(sync_supervisor).await;
+        });
+        let runtime = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            runtime.pending_operations_loop(supervisor).await;
         });
     }
 
@@ -221,7 +227,8 @@ impl MailRuntime {
             .and_then(|mut values| values.remove(account_id));
         if let Some(supervisor) = supervisor {
             supervisor.stopped.store(true, Ordering::Release);
-            supervisor.wake.notify_waiters();
+            supervisor.sync_wake.notify_waiters();
+            supervisor.operations_wake.notify_waiters();
         }
         self.update_runtime_state(account_id, state, None, None);
     }
@@ -309,25 +316,8 @@ impl MailRuntime {
                 break;
             }
             if self.runtime_state_is(&account_id, AccountRuntimeState::ReauthRequired) {
-                supervisor.wake.notified().await;
+                supervisor.sync_wake.notified().await;
                 continue;
-            }
-            let Ok(repository) = self.repository().await else {
-                supervisor.wake.notified().await;
-                continue;
-            };
-            if let Err(error) = self
-                .recovery
-                .get_or_try_init(|| async {
-                    repository.operations().recover_pending_operations().await
-                })
-                .await
-            {
-                tracing::warn!(
-                    %account_id,
-                    code = %error.code,
-                    "pending operation recovery failed"
-                );
             }
 
             if !startup_sync_attempted {
@@ -350,19 +340,7 @@ impl MailRuntime {
                 supervisor
                     .manual_sync_requested
                     .store(false, Ordering::Release);
-                supervisor
-                    .pending_operations_requested
-                    .store(false, Ordering::Release);
-                if let Err(error) = self
-                    .drain_pending_operations(&account_id, supervisor.generation)
-                    .await
-                {
-                    tracing::warn!(
-                        %account_id,
-                        code = %error.code,
-                        "startup pending operation drain failed"
-                    );
-                }
+                self.request_pending_operations(&account_id);
                 continue;
             }
 
@@ -370,7 +348,7 @@ impl MailRuntime {
                 Ok(interval) => interval,
                 Err(error) => {
                     self.handle_runtime_error(&account_id, &error, Duration::from_secs(0));
-                    supervisor.wake.notified().await;
+                    supervisor.sync_wake.notified().await;
                     continue;
                 }
             };
@@ -382,9 +360,6 @@ impl MailRuntime {
 
             let manual = supervisor
                 .manual_sync_requested
-                .swap(false, Ordering::AcqRel);
-            let pending_operations = supervisor
-                .pending_operations_requested
                 .swap(false, Ordering::AcqRel);
             let should_sync = manual || wake == SupervisorWake::Periodic;
             if should_sync {
@@ -404,23 +379,57 @@ impl MailRuntime {
                 {
                     break;
                 }
-            }
-
-            if pending_operations || should_sync {
-                if let Err(error) = self
-                    .drain_pending_operations(&account_id, supervisor.generation)
-                    .await
-                {
-                    tracing::warn!(
-                        %account_id,
-                        code = %error.code,
-                        "pending operation drain failed"
-                    );
-                }
+                self.request_pending_operations(&account_id);
             }
         }
         if self.is_current_supervisor(&supervisor.account_id, supervisor.generation) {
             self.stop_account(&supervisor.account_id, AccountRuntimeState::Stopped);
+        }
+    }
+
+    async fn pending_operations_loop(self: &Arc<Self>, supervisor: Arc<AccountSupervisor>) {
+        while !supervisor.stopped.load(Ordering::Acquire) {
+            let account_id = supervisor.account_id.clone();
+            if self.service.account_record(&account_id).is_err() {
+                break;
+            }
+            if self.runtime_state_is(&account_id, AccountRuntimeState::ReauthRequired) {
+                supervisor.operations_wake.notified().await;
+                continue;
+            }
+            if !supervisor
+                .pending_operations_requested
+                .swap(false, Ordering::AcqRel)
+            {
+                supervisor.operations_wake.notified().await;
+                continue;
+            }
+            let Ok(repository) = self.repository().await else {
+                continue;
+            };
+            if let Err(error) = self
+                .recovery
+                .get_or_try_init(|| async {
+                    repository.operations().recover_pending_operations().await
+                })
+                .await
+            {
+                tracing::warn!(
+                    %account_id,
+                    code = %error.code,
+                    "pending operation recovery failed"
+                );
+            }
+            if let Err(error) = self
+                .drain_pending_operations(&account_id, supervisor.generation)
+                .await
+            {
+                tracing::warn!(
+                    %account_id,
+                    code = %error.code,
+                    "pending operation drain failed"
+                );
+            }
         }
     }
 
@@ -698,7 +707,7 @@ impl MailRuntime {
             .manual_sync_requested
             .store(true, Ordering::Release);
         self.update_progress(account_id, SyncPhase::Connecting, 0, 0, None, None);
-        supervisor.wake.notify_one();
+        supervisor.sync_wake.notify_one();
         Ok(())
     }
 

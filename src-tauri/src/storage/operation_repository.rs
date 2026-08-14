@@ -113,9 +113,7 @@ impl OperationRepository {
         if message_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("operation.queue_failed"))?;
         let mut ids = Vec::with_capacity(message_ids.len());
@@ -157,9 +155,7 @@ impl OperationRepository {
         } else {
             PendingOperationKind::Move
         };
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("operation.queue_failed"))?;
         let mut ids = Vec::with_capacity(message_ids.len());
@@ -213,9 +209,7 @@ impl OperationRepository {
         mailbox_id: &str,
         message_ids: &[String],
     ) -> CommandResult<Vec<String>> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("operation.queue_failed"))?;
         let mut ids = Vec::with_capacity(message_ids.len());
@@ -266,9 +260,7 @@ impl OperationRepository {
     ) -> CommandResult<()> {
         self.ensure_mailbox(account_slot_id, drafts_mailbox_id)
             .await?;
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("operation.queue_failed"))?;
         sqlx::query(
@@ -322,9 +314,7 @@ impl OperationRepository {
         &self,
         account_slot_id: &str,
     ) -> CommandResult<Option<PendingOperationWork>> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("operation.claim_failed"))?;
         let row: Option<PendingOperationRow> = sqlx::query_as(
@@ -371,9 +361,7 @@ impl OperationRepository {
         work: &PendingOperationWork,
         cleanup_pending: bool,
     ) -> CommandResult<()> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("operation.complete_failed"))?;
         if matches!(
@@ -419,9 +407,7 @@ impl OperationRepository {
         retryable: bool,
     ) -> CommandResult<()> {
         let retry = retryable && work.attempt_count < 8;
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("operation.fail_failed"))?;
         if !retry {

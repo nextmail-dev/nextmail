@@ -7,8 +7,8 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 use crate::core::{CommandError, CommandResult};
 
-pub(super) const ACCOUNT_SESSION_LIMIT: usize = 6;
-pub(super) const SYNC_SESSION_COUNT: usize = 4;
+pub(super) const ACCOUNT_SESSION_LIMIT: usize = 3;
+pub(super) const SYNC_SESSION_COUNT: usize = 2;
 
 /// Per-account concurrency budget for active IMAP sessions.
 ///
@@ -62,10 +62,10 @@ mod tests {
 
     #[tokio::test]
     async fn keeps_interactive_slots_while_sync_workers_are_active() {
-        assert_eq!(ACCOUNT_SESSION_LIMIT, 6);
-        assert_eq!(SYNC_SESSION_COUNT, 4);
+        assert_eq!(ACCOUNT_SESSION_LIMIT, 3);
+        assert_eq!(SYNC_SESSION_COUNT, 2);
         let interactive_slots = ACCOUNT_SESSION_LIMIT - SYNC_SESSION_COUNT;
-        assert_eq!(interactive_slots, 2);
+        assert_eq!(interactive_slots, 1);
         let registry = Arc::new(SessionBudgetRegistry::default());
         let mut sync_permits = Vec::new();
         for _ in 0..SYNC_SESSION_COUNT {

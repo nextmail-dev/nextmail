@@ -6,6 +6,7 @@ import type {
   MessageListItem,
   MessageListPage,
   NotificationNavigationTarget,
+  SyncProgress,
 } from "@/app/types";
 import { reportCaughtError } from "@/app/errorReporting";
 import { mailQueryKeys, messageQueryKeys } from "../mail-query-keys";
@@ -130,7 +131,6 @@ export function useMailRuntimeEvents({
       }
       arrivedBuffer.clear();
     };
-
     void register<{ accountId: string; mailboxId: string }>("mailbox-changed", (payload) => {
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.mailboxes(payload.accountId) });
       const queryKey = mailQueryKeys.messagesForMailbox(payload.accountId, payload.mailboxId);
@@ -172,8 +172,11 @@ export function useMailRuntimeEvents({
         void queryClient.invalidateQueries({ queryKey });
       }
     });
-    void register<{ accountId: string }>("sync-progress", (payload) => {
-      void queryClient.invalidateQueries({ queryKey: mailQueryKeys.syncProgress(payload.accountId) });
+    void register<SyncProgress>("sync-progress", (payload) => {
+      queryClient.setQueryData<SyncProgress>(
+        mailQueryKeys.syncProgress(payload.accountId),
+        (current) => current && current.revision >= payload.revision ? current : payload,
+      );
     });
     void register<{ accountId: string }>("account-runtime-status-changed", () => {
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.accountRuntimes });

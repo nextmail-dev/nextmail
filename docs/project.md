@@ -52,6 +52,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 
 当前实施状态：
 
+- `0.6.5` 已完成并通过 Windows 实机验收：邮件头改为 20 UID 流式批取，单账户 IMAP 会话预算调整为两条同步加一条动态交互连接，待办使用独立循环；修复同步进度查询风暴与 OOM、SQLite 写竞争中断同步、正文引用的误标 CID 图片及 `BODYSTRUCTURE` 分段附件名解析。
 - `0.6.0` 已完成并通过实机验收：长浮层受视界约束，Composer 支持文件拖入附件和签名分隔，邮件与联系人可取消单选；补齐 macOS Dock 恢复、通知从属禁用、文件夹排序反馈与 WebView 原生右键菜单策略，并修复草稿附件无法删除的问题。
 - `0.5.0` 已完成并通过 Windows 实机验收：邮件头同步保存 `BODYSTRUCTURE`，正文、CID 资源和普通附件按 MIME section 选择性获取；附件区改为按需下载的紧凑文件块与右键菜单，并修复文件夹操作对话框的交互锁和浮层遮挡问题。
 - `0.4.1` 已完成并通过 Windows 实机验收：同步正文回填容忍服务器端已消失邮件，单账户 IMAP 会话预算扩充为 6；浅色邮件表面与身份头像视觉统一，并修复 Windows 退出时的 Chromium WebView 窗口类清理错误。
@@ -59,7 +60,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - `0.3.1` 已完成 Composer 地址栏、联系人候选键盘操作、富文本 Tab、邮件标题与按钮 hover 优化，并为回复/转发提供同一行的明确原文标题；本轮已通过自动验证和用户手动验收。
 - `0.3.0` 已完成独立安全更新窗口、全局对话框层级修正、设置选择项交互优化、分段 MIME 附件名兼容与新应用图标；四平台 Release workflow、自行生成的直连/大陆代理 updater 清单及公开发布链已经实际运行并验收通过。
 
-最近完成并通过实机验收的计划为 [`2026-08-14-03-desktop-interaction-fixes`](./iterations/2026-08-14-03-desktop-interaction-fixes.md)；此前的 [`2026-08-14-01-imap-selective-content-and-attachments`](./iterations/2026-08-14-01-imap-selective-content-and-attachments.md) 和 [`2026-08-14-02-folder-dialog-layering`](./iterations/2026-08-14-02-folder-dialog-layering.md) 已通过 Windows 实机验收。
+最近完成并通过 Windows 实机验收的计划为 [`2026-08-14-04-imap-streaming-sync-and-inline-parts`](./iterations/2026-08-14-04-imap-streaming-sync-and-inline-parts.md)；此前的 [`2026-08-14-03-desktop-interaction-fixes`](./iterations/2026-08-14-03-desktop-interaction-fixes.md)、[`2026-08-14-01-imap-selective-content-and-attachments`](./iterations/2026-08-14-01-imap-selective-content-and-attachments.md) 和 [`2026-08-14-02-folder-dialog-layering`](./iterations/2026-08-14-02-folder-dialog-layering.md) 均已验收。
 
 仍未排期：
 
@@ -87,7 +88,7 @@ src/
   styles/               语义主题与全局样式
 src-tauri/
   capabilities/         各窗口最小权限
-  migrations/           只增不改的 SQLx 迁移，当前到 0027
+  migrations/           只增不改的 SQLx 迁移，当前到 0029
   src/core/             无 Tauri/SQLx/协议库依赖的 DTO、错误与 ports
   src/application/      账户生命周期与纯业务组合用例
   src/adapters/         JSON、Keyring、发现、连接测试和系统集成
@@ -156,11 +157,11 @@ cache/attachment-open/...
 
 设备级托盘、关闭与更新偏好保存在系统应用配置区的 `config/desktop-preferences.json`，不随邮件数据目录迁移。
 
-- SQLite schema metadata 当前为版本 27，迁移到 `0027`；migration 编号是本地数据格式序号，不等于产品阶段编号。
+- SQLite schema metadata 当前为版本 29，迁移到 `0029`；migration 编号是本地数据格式序号，不等于产品阶段编号。
 - `.nextmail-data.json` 的 `format_version` 当前为独立版本 1，不是 SQLite schema 版本。
 - 已发布迁移只允许新增，不得修改。
 - 所有账户业务数据按匿名 `account_slot_id` 隔离。
-- 多表可见状态使用 SQLx 事务；网络、MIME 和慢文件 I/O 不持有 SQLite 写锁。
+- 多表可见状态使用 SQLx 事务；写事务统一用 `BEGIN IMMEDIATE` 在入口取得 SQLite 单写者槽并受 15 秒 busy timeout 约束，避免读后升级写锁时直接 `SQLITE_BUSY`；网络、MIME 和慢文件 I/O 不持有 SQLite 写锁。
 - 内部路径和内容哈希不返回 React。
 - 账户配置、本机偏好和窗口状态在系统应用配置区；密码及未来 Token 只进入服务名 `com.taurusxin.nextmail` 的系统凭据库。
 
@@ -177,15 +178,15 @@ cache/attachment-open/...
 
 完整账户同步只有四类入口：首次设定账户、应用启动、账户配置的 1/5/10 分钟周期、用户手动收取；`0` 表示仅手动。设置变化只重置计时。持久化待办、Sent/Drafts APPEND 和 Drafts 定向刷新不触发完整同步。
 
-同步遍历全部可选文件夹，以最多 100 UID 为网络批次，但每封邮件头单独原子落库并发布最小事件。当前文件夹按事件顺序重读本地视图，100ms 只合并绘制，不等待整批完成。
+同步遍历全部可选文件夹，每条邮件头 `UID FETCH` 最多包含 20 UID，并直接逐项消费 IMAP 响应流；每收到一封就解析、原子落库并发布最小事件，批次中途断线时已收到的邮件不会丢失，下次按本地已有 UID 差集续传。当前文件夹按事件顺序重读本地视图，100ms 只合并绘制，不等待整批完成；同步进度使用事件携带的完整载荷逐封直接更新查询缓存，并按 revision 拒绝迟到事件，不按邮件逐封触发 IPC 重读。
 
-默认同步邮件头和 `BODYSTRUCTURE`，在同一落库事务保存附件文件名、类型、编码大小和稳定 IMAP section，不下载附件内容。打开缺失正文时优先从本地原始 EML 重建，否则读取 `BODYSTRUCTURE` 并只获取选中的纯文本/HTML section；HTML 只补取正文实际引用的 CID 图片，其余附件保持未下载。加载期间正文区域只显示 spinner，失败后再显示错误与重试。启用“自动下载邮件正文”后，每个文件夹头部完成再按相同选择性路径补正文；正文回填不产生新邮件候选，Drafts 定向刷新跳过正文阶段。正文回填对服务器已消失的单封邮件跳过而非失败整条同步，本地 stub 由随后的 reconcile 修剪。`BODYSTRUCTURE` 缺失或结构无法可靠映射时才回退既有完整 `BODY.PEEK[]` 路径；普通网络失败不静默扩大下载范围。
+默认同步邮件头和 `BODYSTRUCTURE`，在同一落库事务保存附件文件名、类型、编码大小和稳定 IMAP section，不下载附件内容。`BODYSTRUCTURE` 的附件 `filename`/`name` 参数复用完整 MIME 解析器处理 RFC 2047 与 RFC 2231 扩展、分段形式。打开缺失正文时优先从本地原始 EML 重建，否则读取 `BODYSTRUCTURE` 并只获取选中的纯文本/HTML section；HTML 根据实际 CID 引用补取对应 Content-ID part，包括被服务器误标为 `application/octet-stream` 的候选，下载后仍须通过既有图片类型、文件魔数和大小预算才会内联并从附件列表移除，其余附件保持未下载。加载期间正文区域只显示 spinner，失败后再显示错误与重试。启用“自动下载邮件正文”后，每个文件夹头部完成再按相同选择性路径补正文；正文回填不产生新邮件候选，Drafts 定向刷新跳过正文阶段。正文回填对服务器已消失的单封邮件跳过而非失败整条同步，本地 stub 由随后的 reconcile 修剪。`BODYSTRUCTURE` 缺失或结构无法可靠映射时才回退既有完整 `BODY.PEEK[]` 路径；普通网络失败不静默扩大下载范围。
 
 未下载附件的单击打开、右键打开、打开文件夹和另存为都只获取该附件对应的 MIME section，再复用账户所有权校验、危险扩展名处理和内容寻址缓存；既有本地原始 EML 仍优先用于离线提取。section 只接受规范化数字点路径，禁止把未验证字符串拼入 IMAP FETCH 查询。
 
-所有账户共享两个高层网络许可。每账户最多六条按需建立、操作后关闭的主动 IMAP 会话；完整同步只占四条，为正文、附件、文件夹结构和待办保留两条。这是有界容量，不是长期 Session 池。
+所有账户共享两个高层网络许可。每账户最多三条按需建立、操作后关闭的主动 IMAP 会话；完整同步固定占两条，正文、附件或持久化待办会动态建立第三条交互连接，已有交互占用时后续请求等待而不停止同步。这是有界容量，不是长期 Session 池。
 
-已读、星标、移动、复制、归档和删除支持单封或同账户同文件夹批量 ID，在同一事务更新本地投影并写入 `pending_operations`。Worker 有序重放；异常退出可恢复。缺少 UIDPLUS 时不得执行宽泛 EXPUNGE。
+已读、星标、移动、复制、归档和删除支持单封或同账户同文件夹批量 ID，在同一事务更新本地投影并写入 `pending_operations`。持久化待办使用独立于完整同步的账户运行循环有序重放，同步大量邮件时仍可使用第三条会话；异常退出可恢复。缺少 UIDPLUS 时不得执行宽泛 EXPUNGE。
 
 文件夹结构变更和全部已读必须在线成功后再事务更新本地投影。结构操作使用账户级 mailbox 路径写锁，普通同步/正文/待办/APPEND 使用读锁；锁不跨 SQLite。文件夹本地排序不改变服务器路径。
 
@@ -326,9 +327,9 @@ git diff --check
 
 ## 10. 长期记忆与已知限制
 
-- SQLite schema 27 与数据目录标记格式 1 是独立概念。
+- SQLite schema 29 与数据目录标记格式 1 是独立概念。
 - 默认同步全部可选文件夹邮件头、`BODYSTRUCTURE` 和附件元数据，正文与附件内容分别按 section 获取；正文预取开关不是新调度入口，完整原始邮件仅为源码查看和复杂结构回退按需获取。
-- 每账户六条 IMAP 会话预算，完整同步只占四条。
+- 每账户三条 IMAP 会话预算，完整同步固定占两条并为交互路径保留一条。
 - 搜索只覆盖当前账户/当前文件夹，不做跨账户或会话聚合。
 - 自有通知窗口不等于系统通知中心。
 - Vite 主入口仍有大于 500 kB 的 chunk 警告；不要把全局拆包混入无关阶段。

@@ -234,9 +234,7 @@ impl DraftRepository {
         } = request;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
         sqlx::query(
@@ -396,9 +394,7 @@ impl DraftRepository {
         } = request;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(|_| CommandError::new("draft.import_failed"))?;
         sqlx::query(

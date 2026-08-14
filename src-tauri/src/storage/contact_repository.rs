@@ -266,9 +266,7 @@ impl ContactRepository {
         if contact_ids.is_empty() {
             return Ok(());
         }
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(map_storage_err("storage.contact_write_failed"))?;
         let mut found = 0_i64;
@@ -454,9 +452,7 @@ impl ContactRepository {
             prepared.push((message_id, candidates));
         }
 
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(map_storage_err("storage.contact_backfill_failed"))?;
         let mut changed = false;

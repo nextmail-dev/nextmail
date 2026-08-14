@@ -110,9 +110,7 @@ impl MailboxRepository {
         destination_remote_name: &str,
         destination_display_name: &str,
     ) -> CommandResult<()> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(map_storage_err("mailbox.local_write_failed"))?;
         let rows = sqlx::query_as::<_, MailboxPathRow>(
@@ -210,9 +208,7 @@ impl MailboxRepository {
         account_slot_id: &str,
         mailbox_id: &str,
     ) -> CommandResult<()> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(map_storage_err("mailbox.local_write_failed"))?;
         let exists = sqlx::query_scalar::<_, i64>(
@@ -253,9 +249,7 @@ impl MailboxRepository {
         account_slot_id: &str,
         ordered_mailbox_ids: &[String],
     ) -> CommandResult<()> {
-        let mut transaction = self
-            .pool
-            .begin()
+        let mut transaction = super::begin_write(&self.pool)
             .await
             .map_err(map_storage_err("mailbox.local_write_failed"))?;
         let existing =
