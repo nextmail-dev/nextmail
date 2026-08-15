@@ -48,5 +48,5 @@
 | [2026-08-14-04](./2026-08-14-04-imap-streaming-sync-and-inline-parts.md) | IMAP 流式批取与正文引用资源 | 已验收 |
 | [2026-08-15-01](./2026-08-15-01-sync-render-performance.md) | 同步期间前端渲染性能修复 | 已通过手动验收（v0.6.6 发布） |
 | [2026-08-15-02](./2026-08-15-02-migration-checksum-line-endings.md) | 迁移校验和行尾不一致修复 | 已通过手动验收（v0.6.6 发布） |
-| [2026-08-15-03](./2026-08-15-03-qq-bodystructure-nil-parse-failure.md) | QQ 退信邮件 BODYSTRUCTURE 解析失败修复 | 等待手动验收 |
-| [2026-08-15-04](./2026-08-15-04-windows-065-crlf-upgrade-repair.md) | Windows 0.6.5 存量数据库升级修复 | 等待手动验收 |
+| [2026-08-15-03](./2026-08-15-03-qq-bodystructure-nil-parse-failure.md) | QQ 退信邮件 BODYSTRUCTURE 解析失败修复 | 已通过手动验收（v0.6.7 发布） |
+| [2026-08-15-04](./2026-08-15-04-windows-065-crlf-upgrade-repair.md) | Windows 0.6.5 存量数据库升级修复 | 已通过手动验收（v0.6.7 发布） |

@@ -2,6 +2,13 @@
 
 NextMail 的版本变更记录。版本号遵循 [Semantic Versioning](https://semver.org/)。
 
+## [0.6.7] - 2026-08-15
+
+### 修复
+
+- 修复 Windows 0.6.5 及更早版本建的数据库升级后启动报 `data_directory.database_migration_failed` 的问题：启动时把历史 CRLF 基准的迁移校验和幂等改写为 LF 值后再校验。
+- 修复 QQ 邮箱退信报告邮件导致整账户同步反复失败、邮件无法入库的问题：头部与 `BODYSTRUCTURE` 拆分为两条 FETCH，结构解析失败时按批降级跳过并保留已收头部，不再中断同步。
+
 ## [0.6.6] - 2026-08-15
 
 ### 修复
