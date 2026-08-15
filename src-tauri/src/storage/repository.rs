@@ -24,7 +24,7 @@ use super::{
 
 pub const CONTENT_DATABASE_FILENAME: &str = "content.sqlite";
 
-static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+pub(crate) static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone)]
 pub struct MailRepository {
@@ -944,11 +944,14 @@ async fn open_pool(data_dir: &Path, create: bool) -> CommandResult<SqlitePool> {
         // per-message upsert cost, so this turns contention into brief waits.
         .busy_timeout(Duration::from_secs(15))
         .disable_statement_logging();
-    SqlitePoolOptions::new()
+    let pool = SqlitePoolOptions::new()
         .max_connections(4)
         .connect_with(options)
         .await
-        .map_err(|_| CommandError::new("data_directory.database_open_failed"))
+        .map_err(|_| CommandError::new("data_directory.database_open_failed"))?;
+    // Best-effort, idempotent: see migration_repair.rs.
+    super::migration_repair::repair_crlf_migration_checksums(&pool).await;
+    Ok(pool)
 }
 
 pub(super) async fn begin_write(

@@ -6,6 +6,7 @@ mod draft_repository;
 mod mailbox_repository;
 mod mailbox_role_repository;
 mod message_sync_repository;
+mod migration_repair;
 mod operation_repository;
 mod repository;
 

@@ -162,6 +162,7 @@ cache/attachment-open/...
 - `.nextmail-data.json` 的 `format_version` 当前为独立版本 1，不是 SQLite schema 版本。
 - 已发布迁移只允许新增，不得修改。
 - 迁移 SQL 行尾由根目录 `.gitattributes` 固定为 LF：sqlx 校验和按编译时文件原始字节计算，行尾漂移会使不同机构建的二进制互相打不开对方迁移过的数据库。
+- 启动时在迁移校验前把 `_sqlx_migrations` 中已知的 CRLF 校验和（v0.6.5 及更早的 Windows 构建写入）幂等改写为 LF digest，保证老 Windows 库可升级；该过渡修复可在未来大版本移除。
 - 所有账户业务数据按匿名 `account_slot_id` 隔离。
 - 多表可见状态使用 SQLx 事务；写事务统一用 `BEGIN IMMEDIATE` 在入口取得 SQLite 单写者槽并受 15 秒 busy timeout 约束，避免读后升级写锁时直接 `SQLITE_BUSY`；网络、MIME 和慢文件 I/O 不持有 SQLite 写锁。
 - 内部路径和内容哈希不返回 React。
