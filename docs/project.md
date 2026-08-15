@@ -20,7 +20,7 @@
 
 ## 2. 产品与当前状态
 
-NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.6.7`。
+NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `0.7.0`。
 
 平台边界：
 
@@ -53,6 +53,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 
 当前实施状态：
 
+- `0.7.0` 已完成并通过 Windows 实机验收：数据库基线重置为单一迁移 `0001_bootstrap.sql`，不再支持从旧版本升级（旧库校验失败，需重建数据目录）；新增开机自启开关、Windows 单实例聚焦、网易系邮箱 IMAP ID 身份标识；初次同步先建完整文件夹树再逐文件夹同步；修复复选框整行交互范围与初始化向导标题栏遮挡。
 - `0.6.7` 已完成并通过 Windows 实机验收：启动时幂等修复 v0.6.5 及更早 Windows 构建写入的 CRLF 迁移校验和，老库可正常升级；头部与 `BODYSTRUCTURE` 拆分为两条 FETCH，QQ 退信邮件的 NIL 编码结构解析失败时按批降级跳过，不再中断整账户同步。
 - `0.6.6` 已完成并通过 Windows 实机验收：同步进度与邮件到达事件 100ms 合并写入，进度订阅收敛到 memo 化侧栏，主要面板全部 memo 化并稳定回调，修复大量邮件同步时拖拽分隔条卡顿；新增 `.gitattributes` 固定迁移 SQL 为 LF，消除 CRLF 检出导致 sqlx 迁移校验和不一致、不同机构建互相打不开数据库的问题。
 - `0.6.5` 已完成并通过 Windows 实机验收：邮件头改为 20 UID 流式批取，单账户 IMAP 会话预算调整为两条同步加一条动态交互连接，待办使用独立循环；修复同步进度查询风暴与 OOM、SQLite 写竞争中断同步、正文引用的误标 CID 图片及 `BODYSTRUCTURE` 分段附件名解析。
@@ -209,7 +210,7 @@ cache/attachment-open/...
 - Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
 - SMTP 前生成不可变 MIME/Message-ID，写入 `raw/` 后创建持久化 `send_job`；重试复用相同 MIME。
 - SendWorker 账户内 FIFO、账户间轮转；全局最多两封、每账户最多一封。SMTP 成功后独立 APPEND Sent，归档失败不得再次发信。
-- 客户端头为 `X-Mailer: NextMail/0.6.7`；该值由 Cargo package version 自动生成，版本变化时同步核对各 manifest。
+- 客户端头为 `X-Mailer: NextMail/0.7.0`；该值由 Cargo package version 自动生成，版本变化时同步核对各 manifest。
 
 ## 6. 安全边界
 
