@@ -27,7 +27,7 @@ export function Checkbox({
     <label
       className={cn(
         "text-[length:var(--ui-font-control)] flex cursor-default items-start gap-2.5 leading-relaxed text-foreground",
-        description && "w-fit max-w-full gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-accent focus-within:bg-accent focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/60 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55",
+        description && "w-full max-w-full gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-accent focus-within:bg-accent focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring/60 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55",
         className,
       )}
     >

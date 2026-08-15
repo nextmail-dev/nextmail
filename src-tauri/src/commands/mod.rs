@@ -111,6 +111,29 @@ pub fn resolve_main_close(
 }
 
 #[tauri::command]
+pub fn get_autostart_enabled(app: AppHandle) -> CommandResult<bool> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|_| crate::error::CommandError::new("autostart.state_read_failed"))
+}
+
+#[tauri::command]
+pub fn set_autostart_enabled(app: AppHandle, enabled: bool) -> CommandResult<bool> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    let result = if enabled {
+        manager.enable()
+    } else {
+        manager.disable()
+    };
+    result.map_err(|_| crate::error::CommandError::new("autostart.update_failed"))?;
+    manager
+        .is_enabled()
+        .map_err(|_| crate::error::CommandError::new("autostart.state_read_failed"))
+}
+
+#[tauri::command]
 pub async fn check_for_update(
     state: State<'_, AppState>,
     app: AppHandle,

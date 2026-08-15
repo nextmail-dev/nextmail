@@ -82,18 +82,38 @@ where
         .await
         .map_err(map_imap_err("sync.imap_capability_failed", true))?;
     let condstore = capabilities.has_str("CONDSTORE");
-    let folder_total = folders.len() as u64;
 
-    for (folder_index, folder) in folders.into_iter().enumerate() {
-        let name = folder.name().to_owned();
-        let display_name = decode_modified_utf7(&name);
-        let delimiter = folder.delimiter().map(str::to_owned);
-        let progress_name =
-            mailbox_leaf_display_name(&display_name, delimiter.as_deref()).to_owned();
+    let descriptors = folders
+        .into_iter()
+        .map(|folder| {
+            let name = folder.name().to_owned();
+            let display_name = decode_modified_utf7(&name);
+            let delimiter = folder.delimiter().map(str::to_owned);
+            FolderDescriptor {
+                role: mailbox_role(&display_name, folder.attributes()),
+                selectable: !folder.attributes().contains(&NameAttribute::NoSelect),
+                progress_name: mailbox_leaf_display_name(&display_name, delimiter.as_deref())
+                    .to_owned(),
+                delimiter,
+                name,
+                display_name,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // Pre-create the whole folder tree before per-folder message sync so the
+    // sidebar shows the structure immediately instead of folders appearing
+    // one by one. ensure_mailbox only inserts missing rows, so later syncs
+    // are a no-op and stored sync metadata is never clobbered with
+    // preliminary values.
+    precreate_folder_tree(sink, &account.account_slot_id, &descriptors, observer).await?;
+
+    let folder_total = descriptors.len() as u64;
+    for (folder_index, folder) in descriptors.into_iter().enumerate() {
         observer.notify(SyncNotice::Folders {
             completed: folder_index as u64,
             total: folder_total,
-            mailbox_name: Some(progress_name.clone()),
+            mailbox_name: Some(folder.progress_name.clone()),
         });
         sync_folder(
             &mut pool,
@@ -102,14 +122,7 @@ where
             observer,
             condstore,
             account.download_full_messages,
-            FolderDescriptor {
-                role: mailbox_role(&display_name, folder.attributes()),
-                selectable: !folder.attributes().contains(&NameAttribute::NoSelect),
-                delimiter,
-                name,
-                display_name,
-                progress_name,
-            },
+            folder,
         )
         .await?;
     }
@@ -120,6 +133,37 @@ where
     });
     for mut session in pool {
         let _ = session.logout().await;
+    }
+    Ok(())
+}
+
+async fn precreate_folder_tree(
+    sink: &(dyn MailSyncSink + Send + Sync),
+    account_slot_id: &str,
+    descriptors: &[FolderDescriptor],
+    observer: &(dyn SyncObserver + Send + Sync),
+) -> CommandResult<()> {
+    for descriptor in descriptors {
+        if let Some(mailbox) = sink
+            .ensure_mailbox(
+                account_slot_id,
+                &RemoteMailbox {
+                    name: descriptor.name.clone(),
+                    display_name: descriptor.display_name.clone(),
+                    delimiter: descriptor.delimiter.clone(),
+                    role: descriptor.role.clone(),
+                    selectable: descriptor.selectable,
+                    uid_validity: 0,
+                    uid_next: 0,
+                    total_count: 0,
+                    unread_count: 0,
+                    highest_modseq: None,
+                },
+            )
+            .await?
+        {
+            notify_mailbox(observer, mailbox.id);
+        }
     }
     Ok(())
 }
@@ -1366,6 +1410,7 @@ Message-ID: <safe@example.com>\r\n\r\nbody";
             upserts: StdMutex<Vec<(u32, usize)>>,
             bodies: StdMutex<Vec<String>>,
             pending: StdMutex<Vec<StoredMessageLocation>>,
+            mailbox_events: StdMutex<Vec<String>>,
         }
 
         impl RecordingSink {
@@ -1374,7 +1419,12 @@ Message-ID: <safe@example.com>\r\n\r\nbody";
                     upserts: StdMutex::new(Vec::new()),
                     bodies: StdMutex::new(Vec::new()),
                     pending: StdMutex::new(Vec::new()),
+                    mailbox_events: StdMutex::new(Vec::new()),
                 }
+            }
+
+            fn mailbox_event_snapshot(&self) -> Vec<String> {
+                self.mailbox_events.lock().unwrap().clone()
             }
 
             fn upsert_snapshot(&self) -> Vec<(u32, usize)> {
@@ -1392,11 +1442,32 @@ Message-ID: <safe@example.com>\r\n\r\nbody";
 
         #[async_trait]
         impl MailSyncSink for RecordingSink {
+            async fn ensure_mailbox(
+                &self,
+                _account_slot_id: &str,
+                mailbox: &RemoteMailbox,
+            ) -> CommandResult<Option<StoredMailbox>> {
+                self.mailbox_events
+                    .lock()
+                    .unwrap()
+                    .push(format!("ensure:{}", mailbox.name));
+                Ok(Some(StoredMailbox {
+                    id: format!("mb-{}", mailbox.name),
+                    last_uid: 0,
+                    highest_modseq: None,
+                    notification_baseline_required: true,
+                }))
+            }
+
             async fn upsert_mailbox(
                 &self,
                 _account_slot_id: &str,
-                _mailbox: &RemoteMailbox,
+                mailbox: &RemoteMailbox,
             ) -> CommandResult<StoredMailbox> {
+                self.mailbox_events
+                    .lock()
+                    .unwrap()
+                    .push(format!("upsert:{}", mailbox.name));
                 Ok(StoredMailbox {
                     id: "mb".to_owned(),
                     last_uid: 0,
@@ -1474,10 +1545,28 @@ Message-ID: <safe@example.com>\r\n\r\nbody";
             }
         }
 
-        struct RecordingObserver;
+        struct RecordingObserver {
+            mailbox_changes: StdMutex<Vec<String>>,
+        }
+
+        impl RecordingObserver {
+            fn new() -> Self {
+                Self {
+                    mailbox_changes: StdMutex::new(Vec::new()),
+                }
+            }
+
+            fn mailbox_changes_snapshot(&self) -> Vec<String> {
+                self.mailbox_changes.lock().unwrap().clone()
+            }
+        }
 
         impl SyncObserver for RecordingObserver {
-            fn notify(&self, _notice: SyncNotice) {}
+            fn notify(&self, notice: SyncNotice) {
+                if let SyncNotice::MailboxChanged { mailbox_id, .. } = notice {
+                    self.mailbox_changes.lock().unwrap().push(mailbox_id);
+                }
+            }
         }
 
         struct WorkerHarness {
@@ -1571,7 +1660,7 @@ Message-ID: <safe@example.com>\r\n\r\nbody";
             });
 
             let sink = RecordingSink::new();
-            let observer = RecordingObserver;
+            let observer = RecordingObserver::new();
             let harness = WorkerHarness {
                 mailbox: StoredMailbox {
                     id: "mb".to_owned(),
@@ -1647,7 +1736,7 @@ Message-ID: <safe@example.com>\r\n\r\nbody";
             });
 
             let sink = RecordingSink::new();
-            let observer = RecordingObserver;
+            let observer = RecordingObserver::new();
             let harness = WorkerHarness {
                 mailbox: StoredMailbox {
                     id: "mb".to_owned(),
@@ -1690,6 +1779,42 @@ Message-ID: <safe@example.com>\r\n\r\nbody";
 
         async fn write_all(stream: &mut DuplexStream, bytes: &[u8]) {
             stream.write_all(bytes).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn folder_tree_is_precreated_and_notified_before_message_sync() {
+            let sink = RecordingSink::new();
+            let observer = RecordingObserver::new();
+            let account = test_account();
+            let descriptors = vec![
+                FolderDescriptor {
+                    name: "INBOX".to_owned(),
+                    display_name: "INBOX".to_owned(),
+                    progress_name: "INBOX".to_owned(),
+                    delimiter: None,
+                    role: MailboxRole::Inbox,
+                    selectable: true,
+                },
+                FolderDescriptor {
+                    name: "[Gmail]".to_owned(),
+                    display_name: "[Gmail]".to_owned(),
+                    progress_name: "[Gmail]".to_owned(),
+                    delimiter: Some("/".to_owned()),
+                    role: MailboxRole::Other,
+                    selectable: false,
+                },
+            ];
+            precreate_folder_tree(&sink, &account.account_slot_id, &descriptors, &observer)
+                .await
+                .unwrap();
+            assert_eq!(
+                sink.mailbox_event_snapshot(),
+                vec!["ensure:INBOX", "ensure:[Gmail]"]
+            );
+            assert_eq!(
+                observer.mailbox_changes_snapshot(),
+                vec!["mb-INBOX", "mb-[Gmail]"]
+            );
         }
 
         const FULL_MESSAGE: &str = "From: a@example.com\r\nTo: b@example.com\r\nSubject: full\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello body\r\n";
@@ -1771,7 +1896,7 @@ Message-ID: <safe@example.com>\r\n\r\nbody";
                     })
                     .collect(),
             );
-            let observer = RecordingObserver;
+            let observer = RecordingObserver::new();
             let harness = WorkerHarness {
                 mailbox: StoredMailbox {
                     id: "mb".to_owned(),

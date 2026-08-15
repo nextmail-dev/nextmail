@@ -58,6 +58,8 @@ vi.mock("@/app/api", () => ({
       askBeforeExit: true,
       autoCheckUpdates: true,
     }),
+    getAutostartEnabled: vi.fn().mockResolvedValue(false),
+    setAutostartEnabled: vi.fn().mockImplementation((enabled) => Promise.resolve(enabled)),
     setAppearancePreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
     setReadingPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
     setDesktopPreferences: vi.fn().mockImplementation((preferences) => Promise.resolve(preferences)),
@@ -206,7 +208,7 @@ describe("SettingsApp", () => {
       "When exit confirmation is disabled, this setting decides whether closing the main window hides it in the tray or exits the app.",
     );
     const row = description.closest("label");
-    expect(row).toHaveClass("w-fit", "max-w-full", "rounded-md", "cursor-default", "hover:bg-accent");
+    expect(row).toHaveClass("w-full", "max-w-full", "rounded-md", "cursor-default", "hover:bg-accent");
     expect(row?.parentElement?.className).not.toContain("[&>label]:");
     fireEvent.click(description);
 
@@ -239,6 +241,21 @@ describe("SettingsApp", () => {
         expect.anything(),
       ),
     );
+  });
+
+  it("toggles launch-at-startup from General", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SettingsApp />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    const toggle = screen.getByRole("checkbox", { name: "Launch at startup" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(api.setAutostartEnabled).toHaveBeenCalledWith(true, expect.anything()));
   });
 
   it("checks for updates from About", async () => {

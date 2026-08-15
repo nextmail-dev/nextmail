@@ -156,6 +156,7 @@ where
         .login(&config.username, password)
         .await
         .map_err(|_| CommandError::new("account.imap_authentication_failed"))?;
+    crate::protocols::send_imap_id_if_supported(&mut session).await;
     let capabilities = session
         .capabilities()
         .await

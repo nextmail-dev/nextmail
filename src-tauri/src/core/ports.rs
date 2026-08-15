@@ -186,6 +186,17 @@ pub trait MailSyncSink: Send + Sync {
         mailbox: &RemoteMailbox,
     ) -> CommandResult<StoredMailbox>;
 
+    /// Inserts the mailbox when it is missing for the account and returns the
+    /// new row; an existing row is left untouched and yields `None`. The sync
+    /// pre-lists the folder tree with this so the UI can show the structure
+    /// before per-folder message sync starts, and it must not overwrite
+    /// stored sync metadata (uid_validity, counts) with preliminary values.
+    async fn ensure_mailbox(
+        &self,
+        account_slot_id: &str,
+        mailbox: &RemoteMailbox,
+    ) -> CommandResult<Option<StoredMailbox>>;
+
     async fn upsert_message(
         &self,
         account_slot_id: &str,

@@ -49,4 +49,5 @@
 | [2026-08-15-01](./2026-08-15-01-sync-render-performance.md) | 同步期间前端渲染性能修复 | 已通过手动验收（v0.6.6 发布） |
 | [2026-08-15-02](./2026-08-15-02-migration-checksum-line-endings.md) | 迁移校验和行尾不一致修复 | 已通过手动验收（v0.6.6 发布） |
 | [2026-08-15-03](./2026-08-15-03-qq-bodystructure-nil-parse-failure.md) | QQ 退信邮件 BODYSTRUCTURE 解析失败修复 | 已通过手动验收（v0.6.7 发布） |
-| [2026-08-15-04](./2026-08-15-04-windows-065-crlf-upgrade-repair.md) | Windows 0.6.5 存量数据库升级修复 | 已通过手动验收（v0.6.7 发布） |
+| [2026-08-15-05](./2026-08-15-05-autostart-single-instance-fresh-schema.md) | 开机自启、单实例与迁移重置 | 已通过手动验收（v0.7.0 发布） |
+| [2026-08-15-06](./2026-08-15-06-netease-imap-id.md) | 网易邮箱 IMAP ID 身份标识 | 已通过手动验收（v0.7.0 发布） |

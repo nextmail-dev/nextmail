@@ -80,10 +80,12 @@ async fn login<T>(
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    client
+    let mut session = client
         .login(&account.username, &account.password)
         .await
-        .map_err(map_imap_err("sync.imap_authentication_failed", false))
+        .map_err(map_imap_err("sync.imap_authentication_failed", false))?;
+    crate::protocols::send_imap_id_if_supported(&mut session).await;
+    Ok(session)
 }
 
 async fn connect_tls(

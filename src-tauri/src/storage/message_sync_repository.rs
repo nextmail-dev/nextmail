@@ -17,6 +17,44 @@ const RECONCILE_UID_INSERT_BATCH_SIZE: usize = 500;
 
 #[async_trait]
 impl MailSyncSink for SyncSinkRepository {
+    async fn ensure_mailbox(
+        &self,
+        account_slot_id: &str,
+        mailbox: &RemoteMailbox,
+    ) -> CommandResult<Option<StoredMailbox>> {
+        let id = Uuid::new_v4().to_string();
+        let inserted = sqlx::query(
+            "INSERT INTO mailboxes(id, account_slot_id, remote_name, display_name, delimiter, role, selectable, \
+                    uid_validity, uid_next, highest_modseq, total_count, unread_count, revision) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) \
+             ON CONFLICT(account_slot_id, remote_name) DO NOTHING",
+        )
+        .bind(&id)
+        .bind(account_slot_id)
+        .bind(&mailbox.name)
+        .bind(&mailbox.display_name)
+        .bind(&mailbox.delimiter)
+        .bind(role_to_db(&mailbox.role))
+        .bind(i64::from(mailbox.selectable))
+        .bind(i64::from(mailbox.uid_validity))
+        .bind(i64::from(mailbox.uid_next))
+        .bind(mailbox.highest_modseq.map(|value| value as i64))
+        .bind(i64::from(mailbox.total_count))
+        .bind(i64::from(mailbox.unread_count))
+        .execute(&self.pool)
+        .await
+        .map_err(map_storage_err("storage.mailbox_write_failed"))?;
+        if inserted.rows_affected() == 0 {
+            return Ok(None);
+        }
+        Ok(Some(StoredMailbox {
+            id,
+            last_uid: 0,
+            highest_modseq: None,
+            notification_baseline_required: true,
+        }))
+    }
+
     async fn upsert_mailbox(
         &self,
         account_slot_id: &str,

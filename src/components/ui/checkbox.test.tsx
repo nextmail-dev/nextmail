@@ -16,7 +16,7 @@ describe("Checkbox", () => {
     );
 
     const row = screen.getByText("Automatic updates").closest("label");
-    expect(row).toHaveClass("w-fit", "max-w-full", "rounded-md", "hover:bg-accent");
+    expect(row).toHaveClass("w-full", "max-w-full", "rounded-md", "hover:bg-accent");
     fireEvent.click(screen.getByText("Check when NextMail starts."));
     expect(onCheckedChange).toHaveBeenCalledWith(true);
   });

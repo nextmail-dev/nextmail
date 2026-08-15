@@ -74,6 +74,9 @@ export const api = {
     invoke<DesktopPreferences>("get_desktop_preferences"),
   setDesktopPreferences: (preferences: DesktopPreferences) =>
     invoke<DesktopPreferences>("set_desktop_preferences", { preferences }),
+  getAutostartEnabled: () => invoke<boolean>("get_autostart_enabled"),
+  setAutostartEnabled: (enabled: boolean) =>
+    invoke<boolean>("set_autostart_enabled", { enabled }),
   resolveMainClose: (action: MainCloseAction, remember: boolean) =>
     invoke<void>("resolve_main_close", { action, remember }),
   checkForUpdate: () => invoke<UpdateCheckResult>("check_for_update"),

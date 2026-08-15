@@ -44,11 +44,13 @@ export function OnboardingLayout({
           <LanguageSwitcher preferences={preferences} onChange={onPreferencesChange} />
         </Surface>
       </Page>
-      <OverlayScrollArea className="min-h-0 bg-background">
-        <Page className="min-h-full px-[clamp(44px,7vw,104px)] pt-[clamp(42px,7vh,76px)] pb-[clamp(42px,7vh,76px)]">
-          {children}
-        </Page>
-      </OverlayScrollArea>
+      <div className="min-h-0 pt-[var(--titlebar-height)]">
+        <OverlayScrollArea className="h-full min-h-0 bg-background">
+          <Page className="min-h-full px-[clamp(44px,7vw,104px)] pt-[clamp(42px,7vh,76px)] pb-[clamp(42px,7vh,76px)]">
+            {children}
+          </Page>
+        </OverlayScrollArea>
+      </div>
     </AppShell>
   );
 }

@@ -34,6 +34,19 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // A second launch focuses the running instance instead of opening
+            // another process. The main window may be hidden in the tray.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -73,6 +86,8 @@ pub fn run() {
             commands::set_reading_preferences,
             commands::get_desktop_preferences,
             commands::set_desktop_preferences,
+            commands::get_autostart_enabled,
+            commands::set_autostart_enabled,
             commands::resolve_main_close,
             commands::check_for_update,
             commands::get_available_update,

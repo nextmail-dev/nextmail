@@ -75,6 +75,7 @@ export function SettingsApp() {
   const preferencesQuery = useAppearancePreferences();
   const readingPreferencesQuery = useQuery({ queryKey: ["reading-preferences"], queryFn: api.getReadingPreferences });
   const desktopPreferencesQuery = useQuery({ queryKey: ["desktop-preferences"], queryFn: api.getDesktopPreferences });
+  const autostartQuery = useQuery({ queryKey: ["autostart"], queryFn: api.getAutostartEnabled });
   const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.listAccountSummaries });
   const aboutQuery = useQuery({ queryKey: ["about"], queryFn: api.getAppAbout });
   const mutation = useUpdateAppearancePreferences();
@@ -85,6 +86,10 @@ export function SettingsApp() {
   const desktopMutation = useMutation({
     mutationFn: api.setDesktopPreferences,
     onSuccess: (preferences) => queryClient.setQueryData(["desktop-preferences"], preferences),
+  });
+  const autostartMutation = useMutation({
+    mutationFn: api.setAutostartEnabled,
+    onSuccess: (enabled) => queryClient.setQueryData(["autostart"], enabled),
   });
   useRevealWindowWhenReady(
     !preferencesQuery.isPending
@@ -110,6 +115,14 @@ export function SettingsApp() {
     queryClient.setQueryData(["desktop-preferences"], preferences);
     desktopMutation.mutate(preferences, {
       onError: () => queryClient.setQueryData(["desktop-preferences"], previous),
+    });
+  }
+
+  function updateAutostart(enabled: boolean) {
+    const previous = autostartQuery.data;
+    queryClient.setQueryData(["autostart"], enabled);
+    autostartMutation.mutate(enabled, {
+      onError: () => queryClient.setQueryData(["autostart"], previous),
     });
   }
 
@@ -188,9 +201,13 @@ export function SettingsApp() {
             desktopError={desktopMutation.error}
             accounts={accountsQuery.data ?? []}
             version={aboutQuery.data?.version ?? "0.2.3"}
+            autostartEnabled={autostartQuery.data}
+            autostartDisabled={autostartQuery.isPending || autostartQuery.isError}
+            autostartError={autostartMutation.error}
             onChange={updatePreferences}
             onReadingChange={updateReadingPreferences}
             onDesktopChange={updateDesktopPreferences}
+            onAutostartChange={updateAutostart}
           />
         </OverlayScrollArea>
       </Page>
@@ -207,9 +224,13 @@ function SettingsContent({
   desktopError,
   accounts,
   version,
+  autostartEnabled,
+  autostartDisabled,
+  autostartError,
   onChange,
   onReadingChange,
   onDesktopChange,
+  onAutostartChange,
 }: {
   category: SettingsCategory;
   preferences: AppearancePreferences;
@@ -219,12 +240,17 @@ function SettingsContent({
   desktopError: unknown;
   accounts: AccountSummary[];
   version: string;
+  autostartEnabled: boolean | undefined;
+  autostartDisabled: boolean;
+  autostartError: unknown;
   onChange: (preferences: AppearancePreferences) => void;
   onReadingChange: (preferences: ReadingPreferences) => void;
   onDesktopChange: (preferences: DesktopPreferences) => void;
+  onAutostartChange: (enabled: boolean) => void;
 }) {
   const { t } = useTranslation();
   if (category === "general") {
+    const error = autostartError ? normalizeCommandError(autostartError) : null;
     return (
       <SettingsSection category={category}>
         <SettingsGroup title={t("settings.group.interface")}>
@@ -238,6 +264,20 @@ function SettingsContent({
             onValueChange={(language) => onChange({ ...preferences, language: language as LanguagePreference })}
           />
         </SettingsGroup>
+        <SettingsGroup title={t("settings.group.startup")}>
+          <Checkbox
+            checked={autostartEnabled ?? false}
+            disabled={autostartDisabled}
+            label={t("settings.launchAtStartup")}
+            description={t("settings.launchAtStartupDescription")}
+            onCheckedChange={onAutostartChange}
+          />
+        </SettingsGroup>
+        {error ? (
+          <Alert tone="danger" title={t("errors.title")}>
+            {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+          </Alert>
+        ) : null}
       </SettingsSection>
     );
   }

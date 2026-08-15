@@ -363,7 +363,8 @@
       "listBehavior": "List behavior",
       "tray": "Tray icon",
       "application": "Application information",
-      "updates": "Software updates"
+      "updates": "Software updates",
+      "startup": "Startup"
     },
     "category": {
       "general": "General",
@@ -384,7 +385,9 @@
       "notifications": "Manage new-message and system notifications.",
       "advanced": "Manage list loading, storage, connection, and other runtime options.",
       "about": "View the NextMail version and product information."
-    }
+    },
+    "launchAtStartup": "Launch at startup",
+    "launchAtStartupDescription": "Start NextMail automatically when you sign in. The main window stays hidden in the tray until you open it."
   },
   "desktop": {
     "closeTitle": "Close NextMail",
@@ -739,6 +742,8 @@
     "send.smtp_rejected": "The outgoing server rejected this message.",
     "send.mime_build_failed": "A standard email message could not be generated. Check the body and attachments and try again.",
     "preferences.accent_invalid": "The theme color is invalid.",
-    "common.unexpected_error": "The operation could not be completed. Please try again."
+    "common.unexpected_error": "The operation could not be completed. Please try again.",
+    "autostart.state_read_failed": "Could not read the launch-at-startup state.",
+    "autostart.update_failed": "Could not change the launch-at-startup setting."
   }
 }

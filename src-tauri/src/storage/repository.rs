@@ -24,7 +24,7 @@ use super::{
 
 pub const CONTENT_DATABASE_FILENAME: &str = "content.sqlite";
 
-pub(crate) static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 #[derive(Clone)]
 pub struct MailRepository {
@@ -944,14 +944,11 @@ async fn open_pool(data_dir: &Path, create: bool) -> CommandResult<SqlitePool> {
         // per-message upsert cost, so this turns contention into brief waits.
         .busy_timeout(Duration::from_secs(15))
         .disable_statement_logging();
-    let pool = SqlitePoolOptions::new()
+    SqlitePoolOptions::new()
         .max_connections(4)
         .connect_with(options)
         .await
-        .map_err(|_| CommandError::new("data_directory.database_open_failed"))?;
-    // Best-effort, idempotent: see migration_repair.rs.
-    super::migration_repair::repair_crlf_migration_checksums(&pool).await;
-    Ok(pool)
+        .map_err(|_| CommandError::new("data_directory.database_open_failed"))
 }
 
 pub(super) async fn begin_write(
@@ -1162,9 +1159,23 @@ mod tests {
         .await
         .unwrap();
 
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0010_html_stylesheet_and_theme_fidelity.sql"
-        ))
+        sqlx::raw_sql(
+            r#"UPDATE messages
+SET body_availability = 'missing',
+    remote_images_blocked = 0,
+    revision = revision + 1
+WHERE id IN (
+    SELECT message_id
+    FROM message_bodies
+    WHERE safe_html IS NOT NULL
+);
+
+DELETE FROM message_bodies
+WHERE safe_html IS NOT NULL;
+
+UPDATE schema_metadata SET value = '10' WHERE key = 'data_format_version';
+"#,
+        )
         .execute(&pool)
         .await
         .unwrap();
@@ -1240,9 +1251,34 @@ mod tests {
         .await
         .unwrap();
 
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0011_controlled_mail_links.sql"
-        ))
+        sqlx::raw_sql(
+            r#"CREATE TABLE IF NOT EXISTS message_links (
+    id TEXT PRIMARY KEY NOT NULL,
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL,
+    target_url TEXT NOT NULL,
+    UNIQUE(message_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_links_message
+ON message_links(message_id, ordinal);
+
+UPDATE messages
+SET body_availability = 'missing',
+    remote_images_blocked = 0,
+    revision = revision + 1
+WHERE id IN (
+    SELECT message_id
+    FROM message_bodies
+    WHERE safe_html IS NOT NULL
+);
+
+DELETE FROM message_bodies
+WHERE safe_html IS NOT NULL;
+
+UPDATE schema_metadata SET value = '11' WHERE key = 'data_format_version';
+"#,
+        )
         .execute(&pool)
         .await
         .unwrap();
@@ -1278,9 +1314,25 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0012_direct_mail_links_and_layout_fidelity.sql"
-        ))
+        sqlx::raw_sql(
+            r#"DROP TABLE IF EXISTS message_links;
+
+UPDATE messages
+SET body_availability = 'missing',
+    remote_images_blocked = 0,
+    revision = revision + 1
+WHERE id IN (
+    SELECT message_id
+    FROM message_bodies
+    WHERE safe_html IS NOT NULL
+);
+
+DELETE FROM message_bodies
+WHERE safe_html IS NOT NULL;
+
+UPDATE schema_metadata SET value = '12' WHERE key = 'data_format_version';
+"#,
+        )
         .execute(&pool)
         .await
         .unwrap();
@@ -1342,9 +1394,23 @@ mod tests {
         .await
         .unwrap();
 
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0014_functional_selector_fidelity.sql"
-        ))
+        sqlx::raw_sql(
+            r#"UPDATE messages
+SET body_availability = 'missing',
+    remote_images_blocked = 0,
+    revision = revision + 1
+WHERE id IN (
+    SELECT message_id
+    FROM message_bodies
+    WHERE safe_html IS NOT NULL
+);
+
+DELETE FROM message_bodies
+WHERE safe_html IS NOT NULL;
+
+UPDATE schema_metadata SET value = '14' WHERE key = 'data_format_version';
+"#,
+        )
         .execute(&pool)
         .await
         .unwrap();
@@ -1467,7 +1533,21 @@ mod tests {
     #[tokio::test]
     async fn inline_image_policy_migration_invalidates_only_cached_html() {
         assert_html_cache_invalidation_migration(
-            include_str!("../../migrations/0021_inline_image_fidelity.sql"),
+            r#"UPDATE messages
+SET body_availability = 'missing',
+    remote_images_blocked = 0,
+    revision = revision + 1
+WHERE id IN (
+    SELECT message_id
+    FROM message_bodies
+    WHERE safe_html IS NOT NULL
+);
+
+DELETE FROM message_bodies
+WHERE safe_html IS NOT NULL;
+
+UPDATE schema_metadata SET value = '21' WHERE key = 'data_format_version';
+"#,
             "20",
             "21",
         )
@@ -1477,7 +1557,21 @@ mod tests {
     #[tokio::test]
     async fn octet_stream_cid_policy_migration_invalidates_only_cached_html() {
         assert_html_cache_invalidation_migration(
-            include_str!("../../migrations/0022_octet_stream_cid_fidelity.sql"),
+            r#"UPDATE messages
+SET body_availability = 'missing',
+    remote_images_blocked = 0,
+    revision = revision + 1
+WHERE id IN (
+    SELECT message_id
+    FROM message_bodies
+    WHERE safe_html IS NOT NULL
+);
+
+DELETE FROM message_bodies
+WHERE safe_html IS NOT NULL;
+
+UPDATE schema_metadata SET value = '22' WHERE key = 'data_format_version';
+"#,
             "21",
             "22",
         )
@@ -1487,7 +1581,21 @@ mod tests {
     #[tokio::test]
     async fn bmp_inline_image_policy_migration_invalidates_only_cached_html() {
         assert_html_cache_invalidation_migration(
-            include_str!("../../migrations/0023_bmp_inline_image_fidelity.sql"),
+            r#"UPDATE messages
+SET body_availability = 'missing',
+    remote_images_blocked = 0,
+    revision = revision + 1
+WHERE id IN (
+    SELECT message_id
+    FROM message_bodies
+    WHERE safe_html IS NOT NULL
+);
+
+DELETE FROM message_bodies
+WHERE safe_html IS NOT NULL;
+
+UPDATE schema_metadata SET value = '23' WHERE key = 'data_format_version';
+"#,
             "22",
             "23",
         )
@@ -1535,9 +1643,37 @@ mod tests {
         .await
         .unwrap();
 
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0028_selective_cid_body_refresh.sql"
-        ))
+        sqlx::raw_sql(
+            r#"UPDATE messages
+SET body_availability = 'missing',
+    remote_images_blocked = 0,
+    revision = revision + 1
+WHERE id IN (
+    SELECT body.message_id
+    FROM message_bodies body
+    WHERE body.safe_html IS NOT NULL
+      AND EXISTS (
+          SELECT 1
+          FROM attachments attachment
+          WHERE attachment.message_id = body.message_id
+            AND attachment.content_id IS NOT NULL
+            AND lower(attachment.content_type) = 'application/octet-stream'
+      )
+);
+
+DELETE FROM message_bodies
+WHERE safe_html IS NOT NULL
+  AND EXISTS (
+      SELECT 1
+      FROM attachments attachment
+      WHERE attachment.message_id = message_bodies.message_id
+        AND attachment.content_id IS NOT NULL
+        AND lower(attachment.content_type) = 'application/octet-stream'
+  );
+
+UPDATE schema_metadata SET value = '28' WHERE key = 'data_format_version';
+"#,
+        )
         .execute(&pool)
         .await
         .unwrap();
@@ -1609,9 +1745,26 @@ mod tests {
         .await
         .unwrap();
 
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0029_attachment_filename_refresh.sql"
-        ))
+        sqlx::raw_sql(
+            r#"UPDATE messages
+SET body_availability = 'missing',
+    revision = revision + 1
+WHERE id IN (
+    SELECT attachment.message_id
+    FROM attachments attachment
+    WHERE substr(attachment.file_name, 1, 2) = '=?'
+);
+
+DELETE FROM message_bodies
+WHERE message_id IN (
+    SELECT attachment.message_id
+    FROM attachments attachment
+    WHERE substr(attachment.file_name, 1, 2) = '=?'
+);
+
+UPDATE schema_metadata SET value = '29' WHERE key = 'data_format_version';
+"#,
+        )
         .execute(&pool)
         .await
         .unwrap();
@@ -1696,9 +1849,168 @@ mod tests {
         .await
         .unwrap();
 
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0015_local_message_search.sql"
-        ))
+        sqlx::raw_sql(
+            r#"CREATE VIRTUAL TABLE message_search USING fts5(
+    message_id UNINDEXED,
+    account_slot_id UNINDEXED,
+    subject,
+    addresses,
+    preview,
+    body,
+    attachment_names,
+    tokenize = 'trigram case_sensitive 0 remove_diacritics 1'
+);
+
+INSERT INTO message_search(
+    message_id,
+    account_slot_id,
+    subject,
+    addresses,
+    preview,
+    body,
+    attachment_names
+)
+SELECT
+    m.id,
+    m.account_slot_id,
+    m.subject,
+    m.from_json || ' ' || m.to_json || ' ' || m.cc_json,
+    m.preview,
+    COALESCE(b.plain_text, ''),
+    COALESCE((
+        SELECT group_concat(a.file_name, ' ')
+        FROM attachments a
+        WHERE a.message_id = m.id
+    ), '')
+FROM messages m
+LEFT JOIN message_bodies b ON b.message_id = m.id;
+
+CREATE TRIGGER message_search_messages_ai
+AFTER INSERT ON messages
+BEGIN
+    INSERT INTO message_search(
+        message_id,
+        account_slot_id,
+        subject,
+        addresses,
+        preview,
+        body,
+        attachment_names
+    ) VALUES (
+        NEW.id,
+        NEW.account_slot_id,
+        NEW.subject,
+        NEW.from_json || ' ' || NEW.to_json || ' ' || NEW.cc_json,
+        NEW.preview,
+        '',
+        ''
+    );
+END;
+
+CREATE TRIGGER message_search_messages_au
+AFTER UPDATE OF account_slot_id, subject, from_json, to_json, cc_json, preview ON messages
+BEGIN
+    DELETE FROM message_search WHERE message_id = OLD.id;
+    INSERT INTO message_search(
+        message_id,
+        account_slot_id,
+        subject,
+        addresses,
+        preview,
+        body,
+        attachment_names
+    )
+    SELECT
+        NEW.id,
+        NEW.account_slot_id,
+        NEW.subject,
+        NEW.from_json || ' ' || NEW.to_json || ' ' || NEW.cc_json,
+        NEW.preview,
+        COALESCE(b.plain_text, ''),
+        COALESCE((
+            SELECT group_concat(a.file_name, ' ')
+            FROM attachments a
+            WHERE a.message_id = NEW.id
+        ), '')
+    FROM (SELECT 1)
+    LEFT JOIN message_bodies b ON b.message_id = NEW.id;
+END;
+
+CREATE TRIGGER message_search_messages_ad
+AFTER DELETE ON messages
+BEGIN
+    DELETE FROM message_search WHERE message_id = OLD.id;
+END;
+
+CREATE TRIGGER message_search_bodies_ai
+AFTER INSERT ON message_bodies
+BEGIN
+    UPDATE message_search
+    SET body = COALESCE(NEW.plain_text, '')
+    WHERE message_id = NEW.message_id;
+END;
+
+CREATE TRIGGER message_search_bodies_au
+AFTER UPDATE OF message_id, plain_text ON message_bodies
+BEGIN
+    UPDATE message_search SET body = '' WHERE message_id = OLD.message_id;
+    UPDATE message_search
+    SET body = COALESCE(NEW.plain_text, '')
+    WHERE message_id = NEW.message_id;
+END;
+
+CREATE TRIGGER message_search_bodies_ad
+AFTER DELETE ON message_bodies
+BEGIN
+    UPDATE message_search SET body = '' WHERE message_id = OLD.message_id;
+END;
+
+CREATE TRIGGER message_search_attachments_ai
+AFTER INSERT ON attachments
+BEGIN
+    UPDATE message_search
+    SET attachment_names = COALESCE((
+        SELECT group_concat(a.file_name, ' ')
+        FROM attachments a
+        WHERE a.message_id = NEW.message_id
+    ), '')
+    WHERE message_id = NEW.message_id;
+END;
+
+CREATE TRIGGER message_search_attachments_au
+AFTER UPDATE OF message_id, file_name ON attachments
+BEGIN
+    UPDATE message_search
+    SET attachment_names = COALESCE((
+        SELECT group_concat(a.file_name, ' ')
+        FROM attachments a
+        WHERE a.message_id = OLD.message_id
+    ), '')
+    WHERE message_id = OLD.message_id;
+    UPDATE message_search
+    SET attachment_names = COALESCE((
+        SELECT group_concat(a.file_name, ' ')
+        FROM attachments a
+        WHERE a.message_id = NEW.message_id
+    ), '')
+    WHERE message_id = NEW.message_id;
+END;
+
+CREATE TRIGGER message_search_attachments_ad
+AFTER DELETE ON attachments
+BEGIN
+    UPDATE message_search
+    SET attachment_names = COALESCE((
+        SELECT group_concat(a.file_name, ' ')
+        FROM attachments a
+        WHERE a.message_id = OLD.message_id
+    ), '')
+    WHERE message_id = OLD.message_id;
+END;
+
+UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
+"#,
+        )
         .execute(&pool)
         .await
         .unwrap();
@@ -2695,6 +3007,72 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(size, 2);
+    }
+
+    #[tokio::test]
+    async fn ensure_mailbox_inserts_missing_rows_without_touching_existing_ones() {
+        let directory = tempfile::tempdir().unwrap();
+        initialize_content_database(directory.path()).await.unwrap();
+        create_account_slot(directory.path(), "slot", 1)
+            .await
+            .unwrap();
+        let repository = MailRepository::open(directory.path()).await.unwrap();
+        let preliminary = RemoteMailbox {
+            name: "INBOX".to_owned(),
+            display_name: "INBOX".to_owned(),
+            delimiter: None,
+            role: MailboxRole::Inbox,
+            selectable: true,
+            uid_validity: 0,
+            uid_next: 0,
+            total_count: 0,
+            unread_count: 0,
+            highest_modseq: None,
+        };
+        let created = repository
+            .sync_sink()
+            .ensure_mailbox("slot", &preliminary)
+            .await
+            .unwrap()
+            .expect("first call creates the row");
+        assert!(
+            repository
+                .sync_sink()
+                .ensure_mailbox("slot", &preliminary)
+                .await
+                .unwrap()
+                .is_none(),
+            "existing row must be left untouched"
+        );
+        let upserted = repository
+            .sync_sink()
+            .upsert_mailbox(
+                "slot",
+                &RemoteMailbox {
+                    uid_validity: 7,
+                    uid_next: 8,
+                    total_count: 3,
+                    unread_count: 2,
+                    ..preliminary.clone()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(upserted.id, created.id);
+        assert!(repository
+            .sync_sink()
+            .ensure_mailbox("slot", &preliminary)
+            .await
+            .unwrap()
+            .is_none());
+        let (validity, next, total): (i64, i64, i64) = sqlx::query_as(
+            "SELECT uid_validity, uid_next, total_count FROM mailboxes WHERE id = ?",
+        )
+        .bind(&created.id)
+        .fetch_one(&repository.pool)
+        .await
+        .unwrap();
+        assert_eq!((validity, next, total), (7, 8, 3));
     }
 
     #[tokio::test]
