@@ -20,7 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -48,7 +48,7 @@ import { activateMessageAttachment } from "./message-attachment-actions";
 import { mailQueryKeys, messageQueryKeys } from "./mail-query-keys";
 import { ContactIdentity, ContactInitial } from "@/features/contacts/ContactIdentity";
 
-export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allowOpenInNewWindow = true, onMessageRemoved, onOpenContact, onEditContact }: {
+function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOpenInNewWindow = true, onMessageRemoved, onOpenContact, onEditContact }: {
   accountId: string;
   mailboxId: string;
   messageId: string;
@@ -330,6 +330,10 @@ export function MessageViewer({ accountId, mailboxId, messageId, mailboxes, allo
     </Stack>
   );
 }
+
+// Memoized so MainShell state changes (e.g. dragging a splitter) don't
+// re-render the reader.
+export const MessageViewer = memo(MessageViewerBase);
 
 function IconAction({ label, loading, danger, onClick, children }: {
   label: string;

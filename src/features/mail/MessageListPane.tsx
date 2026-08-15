@@ -16,7 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { forwardRef, useEffect, type HTMLAttributes, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
+import { forwardRef, memo, useEffect, type HTMLAttributes, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -63,7 +63,7 @@ interface MessageListPaneProps {
   onSearchSubmit: (value: string) => void;
 }
 
-export function MessageListPane({
+function MessageListPaneBase({
   accountId,
   mailboxId,
   mailbox,
@@ -255,6 +255,10 @@ export function MessageListPane({
     </Stack>
   );
 }
+
+// Memoized so MainShell state changes (e.g. dragging a splitter) don't
+// re-render the message list.
+export const MessageListPane = memo(MessageListPaneBase);
 
 interface MessageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"> {
   message: MessageListItem;

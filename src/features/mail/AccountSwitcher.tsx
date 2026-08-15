@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { ChevronDown, Settings, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -24,7 +25,7 @@ interface AccountSwitcherProps {
   collapsed?: boolean;
 }
 
-export function AccountSwitcher({
+function AccountSwitcherBase({
   accounts,
   selectedAccountId,
   onAccountChange,
@@ -89,3 +90,7 @@ function AccountIdentity({ account, runtime, collapsed = false }: { account?: Ac
     </Inline>
   );
 }
+
+// Memoized so MainShell state changes (e.g. dragging a splitter) don't
+// re-render the account switcher.
+export const AccountSwitcher = memo(AccountSwitcherBase);

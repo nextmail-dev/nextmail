@@ -112,9 +112,10 @@ export function useMailRuntimeEvents({
     );
 
     // Coalesce rapid message-arrived events (a sync with several workers fires
-    // many per second) into a single setQueryData per ~100ms. Each setQueryData
-    // re-renders the list, so applying them one-by-one would re-render dozens
-    // of times per second; buffering keeps the UI responsive during large syncs.
+    // many per second) into one cache update per mailbox per ~100ms. The
+    // selected mailbox gets a merged first-page insert; others get a single
+    // invalidation. Each cache write re-renders its subscribers, so applying
+    // events one-by-one would re-render dozens of times per second.
     const arrivedBuffer = new Map<string, MessageListItem[]>();
     let arrivedTimer: ReturnType<typeof setTimeout> | null = null;
     const flushArrived = () => {
@@ -123,13 +124,35 @@ export function useMailRuntimeEvents({
       for (const [key, items] of arrivedBuffer) {
         const [accountId, mailboxId] = key.split("\0");
         const queryKey = mailQueryKeys.messagesForMailbox(accountId, mailboxId);
-        queryClient.setQueryData<MessageListData>(queryKey, (old) => {
-          let data = old;
-          for (const item of items) data = applyArrivedMessage(data, item);
-          return data;
-        });
+        if (accountId === selectedAccountIdRef.current
+          && mailboxId === selectedMailboxIdRef.current) {
+          queryClient.setQueryData<MessageListData>(queryKey, (old) => {
+            let data = old;
+            for (const item of items) data = applyArrivedMessage(data, item);
+            return data;
+          });
+        } else {
+          void queryClient.invalidateQueries({ queryKey });
+        }
       }
       arrivedBuffer.clear();
+    };
+    // Coalesce sync-progress the same way: keep only the latest payload per
+    // account and write it once per ~100ms. A sync commits many messages per
+    // second and every cache write re-renders the progress subscribers;
+    // intermediate revisions are safe to drop, and the revision guard below
+    // still rejects late events after the flush.
+    const progressBuffer = new Map<string, SyncProgress>();
+    let progressTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushProgress = () => {
+      progressTimer = null;
+      for (const [accountId, payload] of progressBuffer) {
+        queryClient.setQueryData<SyncProgress>(
+          mailQueryKeys.syncProgress(accountId),
+          (current) => current && current.revision >= payload.revision ? current : payload,
+        );
+      }
+      progressBuffer.clear();
     };
     void register<{ accountId: string; mailboxId: string }>("mailbox-changed", (payload) => {
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.mailboxes(payload.accountId) });
@@ -158,25 +181,19 @@ export function useMailRuntimeEvents({
       }
     });
     void register<{ accountId: string; mailboxId: string; item: MessageListItem }>("message-arrived", (payload) => {
-      if (payload.accountId === selectedAccountIdRef.current
-        && payload.mailboxId === selectedMailboxIdRef.current) {
-        const key = `${payload.accountId}\0${payload.mailboxId}`;
-        const items = arrivedBuffer.get(key) ?? [];
-        items.push(payload.item);
-        arrivedBuffer.set(key, items);
-        if (arrivedTimer === null) {
-          arrivedTimer = setTimeout(flushArrived, 100);
-        }
-      } else {
-        const queryKey = mailQueryKeys.messagesForMailbox(payload.accountId, payload.mailboxId);
-        void queryClient.invalidateQueries({ queryKey });
+      const key = `${payload.accountId}\0${payload.mailboxId}`;
+      const items = arrivedBuffer.get(key) ?? [];
+      items.push(payload.item);
+      arrivedBuffer.set(key, items);
+      if (arrivedTimer === null) {
+        arrivedTimer = setTimeout(flushArrived, 100);
       }
     });
     void register<SyncProgress>("sync-progress", (payload) => {
-      queryClient.setQueryData<SyncProgress>(
-        mailQueryKeys.syncProgress(payload.accountId),
-        (current) => current && current.revision >= payload.revision ? current : payload,
-      );
+      progressBuffer.set(payload.accountId, payload);
+      if (progressTimer === null) {
+        progressTimer = setTimeout(flushProgress, 100);
+      }
     });
     void register<{ accountId: string }>("account-runtime-status-changed", () => {
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.accountRuntimes });
@@ -207,6 +224,7 @@ export function useMailRuntimeEvents({
     return () => {
       disposed = true;
       if (arrivedTimer !== null) clearTimeout(arrivedTimer);
+      if (progressTimer !== null) clearTimeout(progressTimer);
       unlisteners.forEach((unlisten) => unlisten());
     };
   }, [queryClient]);

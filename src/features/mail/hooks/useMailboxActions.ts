@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -46,19 +47,38 @@ export function useMailboxActions({ accountId, onError }: UseMailboxActionsOptio
     onError: (error) => onError(normalizeCommandError(error).code),
   });
 
+  // mutateAsync is a stable reference, so these callbacks stay stable across
+  // renders and memoized panes receiving them are not re-rendered by unrelated
+  // MainShell state changes (e.g. dragging a splitter).
+  const { mutateAsync } = mutation;
+
   return {
     busy: mutation.isPending,
-    createMailbox: (parentMailboxId: string | null, name: string) =>
-      mutation.mutateAsync({ kind: "create", parentMailboxId, name }),
-    renameMailbox: (mailboxId: string, name: string) =>
-      mutation.mutateAsync({ kind: "rename", mailboxId, name }),
-    moveMailbox: (mailboxId: string, destinationParentMailboxId: string | null) =>
-      mutation.mutateAsync({ kind: "move", mailboxId, destinationParentMailboxId }),
-    deleteMailbox: (mailboxId: string) =>
-      mutation.mutateAsync({ kind: "delete", mailboxId }),
-    markMailboxAllRead: (mailboxId: string) =>
-      mutation.mutateAsync({ kind: "markAllRead", mailboxId }),
-    reorderMailboxes: (orderedMailboxIds: string[]) =>
-      mutation.mutateAsync({ kind: "reorder", orderedMailboxIds }),
+    createMailbox: useCallback(
+      (parentMailboxId: string | null, name: string) =>
+        mutateAsync({ kind: "create", parentMailboxId, name }),
+      [mutateAsync],
+    ),
+    renameMailbox: useCallback(
+      (mailboxId: string, name: string) => mutateAsync({ kind: "rename", mailboxId, name }),
+      [mutateAsync],
+    ),
+    moveMailbox: useCallback(
+      (mailboxId: string, destinationParentMailboxId: string | null) =>
+        mutateAsync({ kind: "move", mailboxId, destinationParentMailboxId }),
+      [mutateAsync],
+    ),
+    deleteMailbox: useCallback(
+      (mailboxId: string) => mutateAsync({ kind: "delete", mailboxId }),
+      [mutateAsync],
+    ),
+    markMailboxAllRead: useCallback(
+      (mailboxId: string) => mutateAsync({ kind: "markAllRead", mailboxId }),
+      [mutateAsync],
+    ),
+    reorderMailboxes: useCallback(
+      (orderedMailboxIds: string[]) => mutateAsync({ kind: "reorder", orderedMailboxIds }),
+      [mutateAsync],
+    ),
   };
 }

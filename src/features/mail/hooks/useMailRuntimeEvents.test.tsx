@@ -116,9 +116,11 @@ describe("useMailRuntimeEvents", () => {
     act(() => handlers.get("message-arrived")?.({
       payload: { accountId: "account-two", mailboxId: "archive", item: arrivedItem } as never,
     }));
-    expect(invalidate).toHaveBeenCalledWith({
+    // Arrivals for other mailboxes coalesce into a single invalidation per
+    // flush window instead of one invalidation per message.
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
       queryKey: mailQueryKeys.messagesForMailbox("account-two", "archive"),
-    });
+    }));
 
     invalidate.mockClear();
     act(() => handlers.get("message-content-changed")?.({
@@ -160,7 +162,9 @@ describe("useMailRuntimeEvents", () => {
         });
       }
     });
-    expect(setQueryData).toHaveBeenCalledTimes(1_000);
+    // The 1,000-event burst is coalesced into a single cache write carrying
+    // the latest payload; intermediate revisions are dropped.
+    await waitFor(() => expect(setQueryData).toHaveBeenCalledTimes(1));
     expect(client.getQueryData(mailQueryKeys.syncProgress("account-two")))
       .toEqual(expect.objectContaining({ completed: 1_000, revision: 1_000 }));
     act(() => handlers.get("sync-progress")?.({
@@ -174,6 +178,7 @@ describe("useMailRuntimeEvents", () => {
         revision: 999,
       } as never,
     }));
+    await waitFor(() => expect(setQueryData).toHaveBeenCalledTimes(2));
     expect(client.getQueryData(mailQueryKeys.syncProgress("account-two")))
       .toEqual(expect.objectContaining({ completed: 1_000, revision: 1_000 }));
     expect(invalidate).not.toHaveBeenCalledWith({

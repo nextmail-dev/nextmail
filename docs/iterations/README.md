@@ -46,3 +46,5 @@
 | [2026-08-14-02](./2026-08-14-02-folder-dialog-layering.md) | 文件夹对话框层级与关闭清理 | 已验收 |
 | [2026-08-14-03](./2026-08-14-03-desktop-interaction-fixes.md) | 桌面交互与实机问题修正 | 已验收 |
 | [2026-08-14-04](./2026-08-14-04-imap-streaming-sync-and-inline-parts.md) | IMAP 流式批取与正文引用资源 | 已验收 |
+| [2026-08-15-01](./2026-08-15-01-sync-render-performance.md) | 同步期间前端渲染性能修复 | 等待手动验收 |
+| [2026-08-15-02](./2026-08-15-02-migration-checksum-line-endings.md) | 迁移校验和行尾不一致修复 | 等待手动验收 |

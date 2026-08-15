@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleUserRound, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
 import { afterFirstPaint } from "@/app/startup";
-import type { AccountSummary } from "@/app/types";
+import type { AccountRuntimeSummary, AccountSummary, MailboxSummary } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { AppShell, Page, Stack } from "@/components/ui/layout";
@@ -29,6 +29,48 @@ interface MainShellProps {
   lastSelectedAccountId: string | null;
 }
 
+// Stable fallbacks: `data ?? []` would create a fresh array each render and
+// defeat React.memo on the panes below.
+const EMPTY_ACCOUNTS: AccountSummary[] = [];
+const EMPTY_RUNTIMES: AccountRuntimeSummary[] = [];
+const EMPTY_MAILBOXES: MailboxSummary[] = [];
+
+type SidebarPaneProps = Omit<
+  Parameters<typeof MailboxPane>[0],
+  "progress" | "receiving" | "folderActionBusy"
+> & {
+  accountId: string;
+  runtimeSyncing: boolean;
+  folderActionsBusy: boolean;
+};
+
+// Owns the sync-progress subscription so progress updates only re-render the
+// sidebar subtree. MainShell previously held this query, re-rendering the whole
+// window (message list and reader included) once per synced message.
+const SidebarPane = memo(function SidebarPane({
+  accountId,
+  runtimeSyncing,
+  folderActionsBusy,
+  ...paneProps
+}: SidebarPaneProps) {
+  const progressQuery = useQuery({
+    queryKey: mailQueryKeys.syncProgress(accountId),
+    queryFn: () => api.getSyncProgress(accountId),
+    enabled: Boolean(accountId),
+    refetchInterval: (query) => ["complete", "failed"].includes(query.state.data?.phase ?? "idle") ? false : 1_500,
+  });
+  const receiving = runtimeSyncing
+    || !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
+  return (
+    <MailboxPane
+      {...paneProps}
+      progress={progressQuery.data}
+      receiving={receiving}
+      folderActionBusy={folderActionsBusy || receiving}
+    />
+  );
+});
+
 export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: MainShellProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -42,7 +84,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     queryFn: api.listAccountRuntimeSummaries,
     refetchInterval: 10_000,
   });
-  const accounts = accountsQuery.data ?? [];
+  const accounts = accountsQuery.data ?? EMPTY_ACCOUNTS;
   const [composeError, setComposeError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<"mail" | "contacts">("mail");
   const [requestedContactId, setRequestedContactId] = useState("");
@@ -104,12 +146,6 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     onSent: setSentNotice,
     onNavigate: navigateToMessage,
   });
-  const progressQuery = useQuery({
-    queryKey: mailQueryKeys.syncProgress(selectedAccountId),
-    queryFn: () => api.getSyncProgress(selectedAccountId),
-    enabled: Boolean(selectedAccountId),
-    refetchInterval: (query) => ["complete", "failed"].includes(query.state.data?.phase ?? "idle") ? false : 1_500,
-  });
   const pendingOperationsQuery = useQuery({
     queryKey: mailQueryKeys.pendingOperations(selectedAccountId),
     queryFn: () => api.listPendingOperationStatus(selectedAccountId),
@@ -119,9 +155,8 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   const pendingIssue = pendingOperationsQuery.data?.find((operation) =>
     operation.cleanupPending || operation.status === "failed" || operation.status === "needs_reconcile");
   const selectedMailbox = mailboxesQuery.data?.find((mailbox) => mailbox.id === selectedMailboxId);
-  const selectedRuntime = runtimeQuery.data?.find((runtime) => runtime.accountId === selectedAccountId);
-  const receiving = selectedRuntime?.state === "syncing"
-    || !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
+  const runtimeSyncing = runtimeQuery.data?.some((runtime) =>
+    runtime.accountId === selectedAccountId && runtime.state === "syncing") ?? false;
   const mailboxActions = useMailboxActions({
     accountId: selectedAccountId,
     onError: setComposeError,
@@ -154,19 +189,43 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     return () => window.clearTimeout(timeout);
   }, [sentNotice]);
 
-  function receive() {
+  // Handlers below are wrapped in useCallback (or come from stable setters) so
+  // the memoized panes are not re-rendered by unrelated MainShell state
+  // changes such as dragging a splitter.
+  const receive = useCallback(() => {
     if (!selectedAccountId) return;
     setComposeError(null);
     void api.syncNow(selectedAccountId)
       .then(() => queryClient.invalidateQueries({ queryKey: mailQueryKeys.syncProgress(selectedAccountId) }))
       .catch((error) => setComposeError(normalizeCommandError(error).code));
-  }
+  }, [queryClient, selectedAccountId]);
 
-  function openAccountManagement() {
+  const openAccountManagement = useCallback(() => {
     setComposeError(null);
     void api.openAccountManagementWindow()
       .catch((error) => setComposeError(normalizeCommandError(error).code));
-  }
+  }, []);
+
+  const handleSelectMailbox = useCallback((mailboxId: string) => {
+    setWorkspace("mail");
+    selectMailbox(mailboxId);
+  }, [selectMailbox]);
+
+  const handleCompose = useCallback(() => {
+    if (!selectedAccountId) return;
+    setComposeError(null);
+    void api.openComposer(selectedAccountId)
+      .catch((error) => setComposeError(normalizeCommandError(error).code));
+  }, [selectedAccountId]);
+
+  const handleSelectContacts = useCallback(() => {
+    setRequestedContactId("");
+    setWorkspace("contacts");
+  }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    void api.openSettingsWindow().catch((error) => setComposeError(normalizeCommandError(error).code));
+  }, []);
 
   if (!accounts.length) {
     return (
@@ -189,42 +248,31 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
       <Page className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] bg-sidebar">
         <AccountSwitcher
           accounts={accounts}
-          runtimeSummaries={runtimeQuery.data ?? []}
+          runtimeSummaries={runtimeQuery.data ?? EMPTY_RUNTIMES}
           selectedAccountId={selectedAccountId}
           onAccountChange={selectAccount}
           onManageAccounts={openAccountManagement}
           collapsed={folderPaneCollapsed}
         />
-        <MailboxPane
-          mailboxes={mailboxesQuery.data ?? []}
+        <SidebarPane
+          accountId={selectedAccountId}
+          runtimeSyncing={runtimeSyncing}
+          folderActionsBusy={mailboxActions.busy}
+          mailboxes={mailboxesQuery.data ?? EMPTY_MAILBOXES}
           selectedMailboxId={workspace === "mail" ? selectedMailboxId : ""}
-          onSelect={(mailboxId) => {
-            setWorkspace("mail");
-            selectMailbox(mailboxId);
-          }}
-          progress={progressQuery.data}
+          onSelect={handleSelectMailbox}
           error={mailboxesQuery.error}
-          onCompose={() => {
-            if (!selectedAccountId) return;
-            setComposeError(null);
-            void api.openComposer(selectedAccountId)
-              .catch((error) => setComposeError(normalizeCommandError(error).code));
-          }}
+          onCompose={handleCompose}
           contactsSelected={workspace === "contacts"}
-          onSelectContacts={() => {
-            setRequestedContactId("");
-            setWorkspace("contacts");
-          }}
+          onSelectContacts={handleSelectContacts}
           onReceive={receive}
-          receiving={receiving}
-          folderActionBusy={mailboxActions.busy || receiving}
           onCreateFolder={mailboxActions.createMailbox}
           onRenameFolder={mailboxActions.renameMailbox}
           onMoveFolder={mailboxActions.moveMailbox}
           onDeleteFolder={mailboxActions.deleteMailbox}
           onMarkFolderAllRead={mailboxActions.markMailboxAllRead}
           onReorderFolders={mailboxActions.reorderMailboxes}
-          onOpenSettings={() => void api.openSettingsWindow().catch((error) => setComposeError(normalizeCommandError(error).code))}
+          onOpenSettings={handleOpenSettings}
           collapsed={folderPaneCollapsed}
         />
       </Page>
@@ -256,7 +304,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
               accountId={selectedAccountId}
               mailboxId={selectedMailboxId}
               mailbox={selectedMailbox}
-              mailboxes={mailboxesQuery.data ?? []}
+              mailboxes={mailboxesQuery.data ?? EMPTY_MAILBOXES}
               selectedMessageId={selectedMessageId}
               onSelect={setSelectedMessageId}
               onVisibleMessageIdsChange={handleVisibleMessageIdsChange}
@@ -275,7 +323,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
               accountId={selectedAccountId}
               mailboxId={selectedMailboxId}
               messageId={selectedMessageId}
-              mailboxes={mailboxesQuery.data ?? []}
+              mailboxes={mailboxesQuery.data ?? EMPTY_MAILBOXES}
               onMessageRemoved={selectAfterRemoval}
               onOpenContact={openContact}
               onEditContact={editContact}

@@ -1,0 +1,6 @@
+# sqlx embeds migration SQL at compile time and content-hashes the raw bytes
+# (including line endings) into _sqlx_migrations. Windows checkouts with
+# core.autocrlf=true would otherwise produce CRLF files and different
+# checksums from CI/Linux builds, making databases opened by one build
+# unusable by the other (data_directory.database_migration_failed).
+src-tauri/migrations/*.sql text eol=lf

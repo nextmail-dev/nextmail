@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement, type UIEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactElement, type UIEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock3, Copy, Mail, Pencil, Plus, Search, Send, Trash2, UserRound, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -40,7 +40,7 @@ interface ContactsWorkspaceProps {
 
 type EditorState = { mode: "create" } | { mode: "edit"; contact: ContactSummary } | null;
 
-export function ContactsWorkspace({
+function ContactsWorkspaceBase({
   accountId,
   listPaneWidth,
   listPaneMax,
@@ -359,6 +359,10 @@ export function ContactsWorkspace({
     </Page>
   );
 }
+
+// Memoized so MainShell state changes (e.g. dragging a splitter) don't
+// re-render the contacts workspace.
+export const ContactsWorkspace = memo(ContactsWorkspaceBase);
 
 function ContactActionsContextMenu({
   contact,
