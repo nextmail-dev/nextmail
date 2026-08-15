@@ -8,7 +8,7 @@ mod session_budget;
 mod structure;
 mod timeout;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub use encoding::decode_modified_utf7;
@@ -43,7 +43,6 @@ struct FetchedMessageSummary {
     header: Vec<u8>,
     size: u64,
     modseq: Option<u64>,
-    attachments: Vec<RemoteAttachment>,
 }
 
 struct FolderSyncContext<'a> {
@@ -302,32 +301,54 @@ where
     }))
     .await;
     let mut highest_uid = context.mailbox.last_uid;
+    let mut sessions_usable = Vec::with_capacity(results.len());
     for result in results {
-        highest_uid = highest_uid.max(result?);
+        let (worker_highest, usable) = result?;
+        highest_uid = highest_uid.max(worker_highest);
+        sessions_usable.push(usable);
     }
 
     if download_full_messages {
-        fetch_missing_bodies(
-            sessions,
-            account,
-            sink,
-            observer,
-            &context,
-            &write_lock,
-            &remote_uids,
-        )
-        .await?;
+        let mut live_sessions = sessions
+            .iter_mut()
+            .zip(&sessions_usable)
+            .filter_map(|(session, &usable)| usable.then_some(session))
+            .collect::<Vec<_>>();
+        if live_sessions.is_empty() {
+            tracing::warn!(
+                mailbox_name = %context.mailbox_name,
+                "no usable session left for body prefetch; it will resume next sync"
+            );
+        } else {
+            fetch_missing_bodies(
+                &mut live_sessions,
+                account,
+                sink,
+                observer,
+                &context,
+                &write_lock,
+                &remote_uids,
+            )
+            .await?;
+        }
     }
 
-    reconcile_flags(
-        &mut sessions[0],
-        sink,
-        condstore,
-        uid_validity,
-        highest_modseq,
-        &mailbox,
-    )
-    .await?;
+    if sessions_usable[0] {
+        reconcile_flags(
+            &mut sessions[0],
+            sink,
+            condstore,
+            uid_validity,
+            highest_modseq,
+            &mailbox,
+        )
+        .await?;
+    } else {
+        tracing::warn!(
+            mailbox_name = %context.mailbox_name,
+            "primary sync session became unusable; skipping flag reconciliation this round"
+        );
+    }
     sink.complete_mailbox(&mailbox.id, highest_uid).await?;
     notify_mailbox(observer, mailbox.id);
     Ok(())
@@ -356,16 +377,17 @@ async fn fetch_summaries_worker<T>(
     completed: &AtomicU64,
     total: u64,
     write_lock: &Mutex<()>,
-) -> CommandResult<u32>
+) -> CommandResult<(u32, bool)>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
     let mut highest_uid = context.mailbox.last_uid;
+    let mut session_usable = true;
     for batch in uids.chunks(FETCH_BATCH_SIZE) {
         let query = if condstore {
-            "(UID FLAGS MODSEQ INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODYSTRUCTURE)"
+            "(UID FLAGS MODSEQ INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
         } else {
-            "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODYSTRUCTURE)"
+            "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
         };
         let mut summaries = session
             .uid_fetch(format_uid_set(batch), query)
@@ -377,6 +399,7 @@ where
         // fetched on demand when the message is opened. Consume the FETCH
         // response stream directly so every received header is committed even
         // when the connection fails before the rest of the batch arrives.
+        let mut batch_messages: Vec<(u32, RemoteMessage)> = Vec::with_capacity(batch.len());
         while let Some(summary) = summaries
             .try_next()
             .await
@@ -398,11 +421,6 @@ where
                 header: summary.header().unwrap_or_default().to_vec(),
                 size: summary.size.unwrap_or_default() as u64,
                 modseq: summary.modseq,
-                attachments: summary
-                    .bodystructure()
-                    .map(structure::analyze_bodystructure)
-                    .map(|structure| structure.attachments)
-                    .unwrap_or_default(),
             };
             let mut message = parse_message_in_background(MessageParseInput {
                 uid: summary.uid,
@@ -416,7 +434,6 @@ where
             })
             .await?;
             message.modseq = summary.modseq;
-            message.attachments = summary.attachments;
             // Serialize the DB write across workers (see sync_folder). The guard
             // is held only for the upsert; parsing and observer notifies stay
             // outside the lock so a slow write never blocks another worker's
@@ -458,13 +475,79 @@ where
                 total,
                 mailbox_name: context.mailbox_name.to_owned(),
             });
+            batch_messages.push((uid, message));
+        }
+        drop(summaries);
+
+        // BODYSTRUCTURE rides a separate FETCH so a server grammar quirk in it
+        // can't fail the header batch. Some servers (e.g. QQ Mail delivery
+        // status reports) send NIL for body-fld-enc; imap-proto 0.16 rejects
+        // that and poisons the whole response stream, which previously aborted
+        // the folder sync forever on the same UID. A failed BODYSTRUCTURE
+        // fetch breaks the session, so this worker stops after the current
+        // batch; committed headers keep the diff short and the next sync round
+        // picks up the rest. The error is not logged in full because it embeds
+        // the raw server response.
+        match fetch_bodystructure_attachments(session, batch).await {
+            Ok(by_uid) => {
+                for (uid, message) in &mut batch_messages {
+                    let Some(attachments) = by_uid.get(uid) else {
+                        continue;
+                    };
+                    if attachments.is_empty() {
+                        continue;
+                    }
+                    message.attachments = attachments.clone();
+                    let _write_guard = write_lock.lock().await;
+                    sink.upsert_message(&account.account_slot_id, &context.mailbox.id, message)
+                        .await?;
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    code = %error.code,
+                    mailbox_name = %context.mailbox_name,
+                    batch = ?batch,
+                    "bodystructure fetch failed; continuing without attachment metadata for this batch"
+                );
+                session_usable = false;
+                break;
+            }
         }
     }
-    Ok(highest_uid)
+    Ok((highest_uid, session_usable))
+}
+
+async fn fetch_bodystructure_attachments<T>(
+    session: &mut Session<T>,
+    batch: &[u32],
+) -> CommandResult<HashMap<u32, Vec<RemoteAttachment>>>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let responses = session
+        .uid_fetch(format_uid_set(batch), "(UID BODYSTRUCTURE)")
+        .await
+        .map_err(|_| CommandError::retryable("sync.message_bodystructure_failed"))?
+        .try_collect::<Vec<_>>()
+        .await
+        .map_err(|_| CommandError::retryable("sync.message_bodystructure_failed"))?;
+    Ok(responses
+        .iter()
+        .filter_map(|fetched| {
+            let uid = fetched.uid?;
+            let attachments = fetched
+                .bodystructure()
+                .map(structure::analyze_bodystructure)
+                .map(|structure| structure.attachments)
+                .unwrap_or_default();
+            Some((uid, attachments))
+        })
+        .collect())
 }
 
 async fn fetch_missing_bodies<T>(
-    sessions: &mut [Session<T>],
+    sessions: &mut [&mut Session<T>],
     account: &ImapAccountConfig,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
@@ -509,24 +592,55 @@ where
         .iter()
         .map(|location| location.uid)
         .collect::<Vec<_>>();
-    let chunks = split_uids(&uids, sessions.len());
-    let results = join_all(sessions.iter_mut().enumerate().map(|(index, session)| {
-        fetch_bodies_worker(
-            session,
-            &chunks[index],
-            account,
-            sink,
-            observer,
-            context,
-            &message_ids,
-            &completed,
-            total,
-            write_lock,
-        )
-    }))
-    .await;
-    for result in results {
-        result?;
+    // A worker whose session dies mid-chunk (e.g. a BODYSTRUCTURE response the
+    // parser rejects poisons the connection) hands its unprocessed UIDs back;
+    // re-dispatch them to the sessions that survived so one stubborn message
+    // can't starve the rest of the prefetch queue. The offending message
+    // itself stays pending and is retried next round.
+    let mut queue = uids;
+    let mut usable = sessions.iter_mut().collect::<Vec<_>>();
+    while !queue.is_empty() && !usable.is_empty() {
+        let chunks = split_uids(&queue, usable.len());
+        let results = join_all(usable.iter_mut().enumerate().map(|(index, session)| {
+            fetch_bodies_worker(
+                session,
+                &chunks[index],
+                account,
+                sink,
+                observer,
+                context,
+                &message_ids,
+                &completed,
+                total,
+                write_lock,
+            )
+        }))
+        .await;
+        let mut remaining = Vec::new();
+        let mut surviving = Vec::new();
+        for (index, result) in results.into_iter().enumerate() {
+            let (session_usable, unprocessed) = result?;
+            remaining.extend(unprocessed);
+            if session_usable {
+                surviving.push(index);
+            }
+        }
+        if remaining.is_empty() {
+            break;
+        }
+        queue = remaining;
+        let mut next_usable = Vec::with_capacity(surviving.len());
+        for index in surviving.into_iter().rev() {
+            next_usable.push(usable.swap_remove(index));
+        }
+        usable = next_usable;
+    }
+    if !queue.is_empty() {
+        tracing::warn!(
+            remaining = queue.len(),
+            mailbox_name = %context.mailbox_name,
+            "no usable session left for body prefetch; remaining messages stay pending for the next sync"
+        );
     }
     Ok(())
 }
@@ -552,11 +666,11 @@ async fn fetch_bodies_worker<T>(
     completed: &AtomicU64,
     total: u64,
     write_lock: &Mutex<()>,
-) -> CommandResult<()>
+) -> CommandResult<(bool, Vec<u32>)>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    for uid in uids {
+    for (index, uid) in uids.iter().enumerate() {
         match session::fetch_remote_message_body(session, *uid).await {
             Ok(body) => {
                 let message_id = message_ids
@@ -575,28 +689,47 @@ where
                 });
             }
             Err(error) if error.code == SELECTIVE_FETCH_UNSUPPORTED => {
-                let messages = session::fetch_remote_messages(
+                match session::fetch_remote_messages(
                     session,
                     std::slice::from_ref(uid),
                     context.uid_validity,
                 )
-                .await?;
-                for message in messages {
-                    {
-                        let _write_guard = write_lock.lock().await;
-                        sink.upsert_message(
-                            &account.account_slot_id,
-                            &context.mailbox.id,
-                            &message,
-                        )
-                        .await?;
+                .await
+                {
+                    Ok(messages) => {
+                        for message in messages {
+                            {
+                                let _write_guard = write_lock.lock().await;
+                                sink.upsert_message(
+                                    &account.account_slot_id,
+                                    &context.mailbox.id,
+                                    &message,
+                                )
+                                .await?;
+                            }
+                            let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                            observer.notify(SyncNotice::Bodies {
+                                completed: done,
+                                total,
+                                mailbox_name: context.mailbox_name.to_owned(),
+                            });
+                        }
                     }
-                    let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
-                    observer.notify(SyncNotice::Bodies {
-                        completed: done,
-                        total,
-                        mailbox_name: context.mailbox_name.to_owned(),
-                    });
+                    Err(fallback_error) => {
+                        // The structure fetch can kill the session outright
+                        // (a BODYSTRUCTURE the parser rejects poisons the
+                        // stream), so the full-message fallback on this
+                        // session has no chance. Leave this message pending
+                        // for the next sync and hand the rest of the chunk
+                        // back to the caller for re-dispatch.
+                        tracing::warn!(
+                            uid,
+                            mailbox_name = %context.mailbox_name,
+                            code = %fallback_error.code,
+                            "full-message fallback failed; leaving body pending for the next sync"
+                        );
+                        return Ok((false, uids[index + 1..].to_vec()));
+                    }
                 }
             }
             Err(error) if is_message_unavailable_error(&error.code) => {
@@ -619,7 +752,7 @@ where
             Err(error) => return Err(error),
         }
     }
-    Ok(())
+    Ok((true, Vec::new()))
 }
 
 async fn reconcile_flags<T>(
@@ -1215,5 +1348,472 @@ Message-ID: <safe@example.com>\r\n\r\nbody";
         assert!(message.subject.starts_with("prefix "));
         assert!(message.subject.ends_with(" suffix"));
         assert_eq!(message.message_id.as_deref(), Some("safe@example.com"));
+    }
+
+    mod worker_tests {
+        use super::*;
+        use crate::core::{
+            ConnectionSecurity, MessageUpsertOutcome, RemoteMessageBody, SyncObserver,
+        };
+        use async_trait::async_trait;
+        use std::sync::Mutex as StdMutex;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
+
+        const TEST_HEADER: &str =
+            "From: Alice <alice@example.com>\r\nTo: Bob <bob@example.com>\r\nSubject: test\r\nMessage-ID: <m@example.com>\r\n";
+
+        struct RecordingSink {
+            upserts: StdMutex<Vec<(u32, usize)>>,
+            bodies: StdMutex<Vec<String>>,
+            pending: StdMutex<Vec<StoredMessageLocation>>,
+        }
+
+        impl RecordingSink {
+            fn new() -> Self {
+                Self {
+                    upserts: StdMutex::new(Vec::new()),
+                    bodies: StdMutex::new(Vec::new()),
+                    pending: StdMutex::new(Vec::new()),
+                }
+            }
+
+            fn upsert_snapshot(&self) -> Vec<(u32, usize)> {
+                self.upserts.lock().unwrap().clone()
+            }
+
+            fn body_snapshot(&self) -> Vec<String> {
+                self.bodies.lock().unwrap().clone()
+            }
+
+            fn set_pending(&self, locations: Vec<StoredMessageLocation>) {
+                *self.pending.lock().unwrap() = locations;
+            }
+        }
+
+        #[async_trait]
+        impl MailSyncSink for RecordingSink {
+            async fn upsert_mailbox(
+                &self,
+                _account_slot_id: &str,
+                _mailbox: &RemoteMailbox,
+            ) -> CommandResult<StoredMailbox> {
+                Ok(StoredMailbox {
+                    id: "mb".to_owned(),
+                    last_uid: 0,
+                    highest_modseq: None,
+                    notification_baseline_required: true,
+                })
+            }
+
+            async fn upsert_message(
+                &self,
+                _account_slot_id: &str,
+                _mailbox_id: &str,
+                message: &RemoteMessage,
+            ) -> CommandResult<MessageUpsertOutcome> {
+                self.upserts
+                    .lock()
+                    .unwrap()
+                    .push((message.uid, message.attachments.len()));
+                Ok(MessageUpsertOutcome {
+                    message_id: format!("id-{}", message.uid),
+                    is_new_location: true,
+                    contacts_changed: false,
+                })
+            }
+
+            async fn complete_notification_baseline(
+                &self,
+                _account_slot_id: &str,
+            ) -> CommandResult<()> {
+                Ok(())
+            }
+
+            async fn complete_mailbox(
+                &self,
+                _mailbox_id: &str,
+                _last_uid: u32,
+            ) -> CommandResult<()> {
+                Ok(())
+            }
+
+            async fn stored_uids(
+                &self,
+                _mailbox_id: &str,
+                _uid_validity: u32,
+            ) -> CommandResult<Vec<u32>> {
+                Ok(Vec::new())
+            }
+
+            async fn pending_body_locations(
+                &self,
+                _mailbox_id: &str,
+                _received_after: Option<i64>,
+            ) -> CommandResult<Vec<StoredMessageLocation>> {
+                Ok(self.pending.lock().unwrap().clone())
+            }
+
+            async fn replace_message_body(
+                &self,
+                _account_slot_id: &str,
+                message_id: &str,
+                _body: &RemoteMessageBody,
+            ) -> CommandResult<()> {
+                self.bodies.lock().unwrap().push(message_id.to_owned());
+                Ok(())
+            }
+
+            async fn reconcile_mailbox(
+                &self,
+                _mailbox_id: &str,
+                _uid_validity: u32,
+                _highest_modseq: Option<u64>,
+                _states: &[RemoteMessageState],
+            ) -> CommandResult<()> {
+                Ok(())
+            }
+        }
+
+        struct RecordingObserver;
+
+        impl SyncObserver for RecordingObserver {
+            fn notify(&self, _notice: SyncNotice) {}
+        }
+
+        struct WorkerHarness {
+            mailbox: StoredMailbox,
+        }
+
+        impl WorkerHarness {
+            fn context(&self) -> FolderSyncContext<'_> {
+                FolderSyncContext {
+                    uid_validity: 7,
+                    mailbox: &self.mailbox,
+                    mailbox_name: "Inbox",
+                    default_notification_enabled: false,
+                }
+            }
+        }
+
+        fn test_account() -> ImapAccountConfig {
+            ImapAccountConfig {
+                account_id: "acc".to_owned(),
+                account_slot_id: "slot".to_owned(),
+                download_full_messages: false,
+                host: "imap.example.com".to_owned(),
+                port: 993,
+                security: ConnectionSecurity::Tls,
+                username: "user".to_owned(),
+                password: "pass".to_owned(),
+            }
+        }
+
+        fn header_response(uid: u32) -> String {
+            format!(
+                "* {uid} FETCH (UID {uid} FLAGS (\\Seen) INTERNALDATE \"15-Aug-2026 14:01:04 +0800\" RFC822.SIZE 100 BODY[HEADER] {{{}}}\r\n{TEST_HEADER})\r\n",
+                TEST_HEADER.len()
+            )
+        }
+
+        fn tagged_ok(tag: &str) -> String {
+            format!("{tag} OK UID FETCH Completed\r\n")
+        }
+
+        fn attachment_bodystructure(uid: u32) -> String {
+            format!("* {uid} FETCH (UID {uid} BODYSTRUCTURE (\"APPLICATION\" \"OCTET-STREAM\" (\"name\" \"mail.eml\" \"charset\" \"utf-8\") NIL NIL \"BASE64\" 2536 NIL (\"attachment\" (\"filename\" \"mail.eml\")) NIL))\r\n")
+        }
+
+        fn plain_bodystructure(uid: u32) -> String {
+            format!("* {uid} FETCH (UID {uid} BODYSTRUCTURE (\"TEXT\" \"PLAIN\" (\"charset\" \"utf-8\") NIL NIL \"7BIT\" 5 1 NIL NIL NIL))\r\n")
+        }
+
+        // Delivery-status report shape observed from QQ Mail: the HTML part's
+        // body-fld-enc is NIL, which the strict RFC 3501 grammar in imap-proto
+        // rejects and poisons the whole response stream.
+        fn qq_poison_bodystructure(uid: u32) -> String {
+            format!("* {uid} FETCH (UID {uid} BODYSTRUCTURE ((\"TEXT\" \"HTML\" (\"charset\" \"utf-8\") NIL NIL NIL 2715 34 NIL NIL NIL)(\"APPLICATION\" \"OCTET-STREAM\" (\"name\" \"mail.eml\" \"charset\" \"utf-8\") NIL NIL \"BASE64\" 2536 NIL (\"attachment\" (\"filename\" \"mail.eml\")) NIL) \"REPORT\" (\"BOUNDARY\" \"QQ_MAIL_RETURN\") NIL NIL))\r\n")
+        }
+
+        #[tokio::test]
+        async fn bodystructure_parse_failure_commits_headers_and_degrades_gracefully() {
+            let (client_stream, server) = tokio::io::duplex(1 << 16);
+            let server_task = tokio::spawn(async move {
+                let mut lines = BufReader::new(server);
+                let mut line = String::new();
+                // LOGIN
+                lines.read_line(&mut line).await.unwrap();
+                let tag = line.split_whitespace().next().unwrap().to_owned();
+                write_all(
+                    lines.get_mut(),
+                    format!("{tag} OK LOGIN completed\r\n").as_bytes(),
+                )
+                .await;
+                // header batch
+                line.clear();
+                lines.read_line(&mut line).await.unwrap();
+                let tag = line.split_whitespace().next().unwrap().to_owned();
+                let mut out = String::new();
+                for uid in 1..=3u32 {
+                    out.push_str(&header_response(uid));
+                }
+                out.push_str(&tagged_ok(&tag));
+                write_all(lines.get_mut(), out.as_bytes()).await;
+                // bodystructure batch, UID 2 poisoned with the QQ shape
+                line.clear();
+                lines.read_line(&mut line).await.unwrap();
+                let tag = line.split_whitespace().next().unwrap().to_owned();
+                let mut out = String::new();
+                out.push_str(&plain_bodystructure(1));
+                out.push_str(&qq_poison_bodystructure(2));
+                out.push_str(&plain_bodystructure(3));
+                out.push_str(&tagged_ok(&tag));
+                write_all(lines.get_mut(), out.as_bytes()).await;
+            });
+
+            let sink = RecordingSink::new();
+            let observer = RecordingObserver;
+            let harness = WorkerHarness {
+                mailbox: StoredMailbox {
+                    id: "mb".to_owned(),
+                    last_uid: 0,
+                    highest_modseq: None,
+                    notification_baseline_required: true,
+                },
+            };
+            let account = test_account();
+            let context = harness.context();
+            let completed = AtomicU64::new(0);
+            let write_lock = Mutex::new(());
+            let mut session = async_imap::Client::new(client_stream)
+                .login("user", "pass")
+                .await
+                .unwrap();
+            let result = fetch_summaries_worker(
+                &mut session,
+                &[1, 2, 3],
+                &account,
+                &sink,
+                &observer,
+                &context,
+                false,
+                &completed,
+                3,
+                &write_lock,
+            )
+            .await;
+
+            server_task.await.unwrap();
+            let (highest_uid, session_usable) = result.unwrap();
+            assert_eq!(highest_uid, 3);
+            assert!(!session_usable);
+            let upserts = sink.upsert_snapshot();
+            assert_eq!(upserts, vec![(1, 0), (2, 0), (3, 0)]);
+        }
+
+        #[tokio::test]
+        async fn bodystructure_attachments_merge_into_committed_headers() {
+            let (client_stream, server) = tokio::io::duplex(1 << 16);
+            let server_task = tokio::spawn(async move {
+                let mut lines = BufReader::new(server);
+                let mut line = String::new();
+                // LOGIN
+                lines.read_line(&mut line).await.unwrap();
+                let tag = line.split_whitespace().next().unwrap().to_owned();
+                write_all(
+                    lines.get_mut(),
+                    format!("{tag} OK LOGIN completed\r\n").as_bytes(),
+                )
+                .await;
+                // header batch
+                line.clear();
+                lines.read_line(&mut line).await.unwrap();
+                let tag = line.split_whitespace().next().unwrap().to_owned();
+                let mut out = String::new();
+                for uid in 1..=3u32 {
+                    out.push_str(&header_response(uid));
+                }
+                out.push_str(&tagged_ok(&tag));
+                write_all(lines.get_mut(), out.as_bytes()).await;
+                // bodystructure batch, UID 2 carries one attachment
+                line.clear();
+                lines.read_line(&mut line).await.unwrap();
+                let tag = line.split_whitespace().next().unwrap().to_owned();
+                let mut out = String::new();
+                out.push_str(&plain_bodystructure(1));
+                out.push_str(&attachment_bodystructure(2));
+                out.push_str(&plain_bodystructure(3));
+                out.push_str(&tagged_ok(&tag));
+                write_all(lines.get_mut(), out.as_bytes()).await;
+            });
+
+            let sink = RecordingSink::new();
+            let observer = RecordingObserver;
+            let harness = WorkerHarness {
+                mailbox: StoredMailbox {
+                    id: "mb".to_owned(),
+                    last_uid: 0,
+                    highest_modseq: None,
+                    notification_baseline_required: true,
+                },
+            };
+            let account = test_account();
+            let context = harness.context();
+            let completed = AtomicU64::new(0);
+            let write_lock = Mutex::new(());
+            let mut session = async_imap::Client::new(client_stream)
+                .login("user", "pass")
+                .await
+                .unwrap();
+            let result = fetch_summaries_worker(
+                &mut session,
+                &[1, 2, 3],
+                &account,
+                &sink,
+                &observer,
+                &context,
+                false,
+                &completed,
+                3,
+                &write_lock,
+            )
+            .await;
+
+            server_task.await.unwrap();
+            let (highest_uid, session_usable) = result.unwrap();
+            assert_eq!(highest_uid, 3);
+            assert!(session_usable);
+            let upserts = sink.upsert_snapshot();
+            assert_eq!(upserts.len(), 4);
+            assert_eq!(&upserts[..3], &[(1, 0), (2, 0), (3, 0)]);
+            assert_eq!(upserts[3], (2, 1));
+        }
+
+        async fn write_all(stream: &mut DuplexStream, bytes: &[u8]) {
+            stream.write_all(bytes).await.unwrap();
+        }
+
+        const FULL_MESSAGE: &str = "From: a@example.com\r\nTo: b@example.com\r\nSubject: full\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nhello body\r\n";
+
+        fn no_structure_response(tag: &str, uid: u32) -> String {
+            format!("* {uid} FETCH (UID {uid})\r\n{tag} OK UID FETCH Completed\r\n")
+        }
+
+        fn full_message_response(tag: &str, uid: u32) -> String {
+            format!(
+                "* {uid} FETCH (UID {uid} FLAGS (\\Seen) INTERNALDATE \"15-Aug-2026 14:01:04 +0800\" RFC822.SIZE {} BODY[] {{{}}}\r\n{FULL_MESSAGE})\r\n{tag} OK UID FETCH Completed\r\n",
+                FULL_MESSAGE.len(),
+                FULL_MESSAGE.len(),
+            )
+        }
+
+        #[tokio::test]
+        async fn prefetch_requeues_tail_when_bodystructure_kills_a_session() {
+            // Session A serves UID 1 with a poison BODYSTRUCTURE (kills the
+            // session), session B serves everyone else. UIDs 2-3 must be
+            // re-dispatched to session B in the same run; UID 1 stays pending.
+            let (client_a, server_a) = tokio::io::duplex(1 << 16);
+            let (client_b, server_b) = tokio::io::duplex(1 << 16);
+            let server_task_a = tokio::spawn(async move {
+                let mut lines = BufReader::new(server_a);
+                let mut line = String::new();
+                lines.read_line(&mut line).await.unwrap();
+                let tag = line.split_whitespace().next().unwrap().to_owned();
+                write_all(
+                    lines.get_mut(),
+                    format!("{tag} OK LOGIN completed\r\n").as_bytes(),
+                )
+                .await;
+                line.clear();
+                lines.read_line(&mut line).await.unwrap();
+                let tag = line.split_whitespace().next().unwrap().to_owned();
+                let mut out = qq_poison_bodystructure(1);
+                out.push_str(&tagged_ok(&tag));
+                write_all(lines.get_mut(), out.as_bytes()).await;
+                // The full-message fallback on the poisoned session is doomed;
+                // read the command and then close the connection.
+                line.clear();
+                let _ = lines.read_line(&mut line).await;
+            });
+            let server_task_b = tokio::spawn(async move {
+                let mut lines = BufReader::new(server_b);
+                let mut line = String::new();
+                lines.read_line(&mut line).await.unwrap();
+                let tag = line.split_whitespace().next().unwrap().to_owned();
+                write_all(
+                    lines.get_mut(),
+                    format!("{tag} OK LOGIN completed\r\n").as_bytes(),
+                )
+                .await;
+                loop {
+                    line.clear();
+                    let read = lines.read_line(&mut line).await.unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    let tokens = line.split_whitespace().collect::<Vec<_>>();
+                    let (tag, uid) = (tokens[0].to_owned(), tokens[3].to_owned());
+                    let response = if line.contains("BODYSTRUCTURE") {
+                        no_structure_response(&tag, uid.parse().unwrap())
+                    } else {
+                        full_message_response(&tag, uid.parse().unwrap())
+                    };
+                    write_all(lines.get_mut(), response.as_bytes()).await;
+                }
+            });
+
+            let sink = RecordingSink::new();
+            sink.set_pending(
+                (1..=5u32)
+                    .map(|uid| StoredMessageLocation {
+                        message_id: format!("m{uid}"),
+                        uid,
+                        uid_validity: 7,
+                    })
+                    .collect(),
+            );
+            let observer = RecordingObserver;
+            let harness = WorkerHarness {
+                mailbox: StoredMailbox {
+                    id: "mb".to_owned(),
+                    last_uid: 0,
+                    highest_modseq: None,
+                    notification_baseline_required: true,
+                },
+            };
+            let account = test_account();
+            let context = harness.context();
+            let write_lock = Mutex::new(());
+            let remote_uids = (1..=5u32).collect::<HashSet<_>>();
+            let mut session_a = async_imap::Client::new(client_a)
+                .login("user", "pass")
+                .await
+                .unwrap();
+            let mut session_b = async_imap::Client::new(client_b)
+                .login("user", "pass")
+                .await
+                .unwrap();
+            let mut sessions = vec![&mut session_a, &mut session_b];
+            fetch_missing_bodies(
+                &mut sessions,
+                &account,
+                &sink,
+                &observer,
+                &context,
+                &write_lock,
+                &remote_uids,
+            )
+            .await
+            .unwrap();
+
+            server_task_a.await.unwrap();
+            drop(sessions);
+            drop(session_a);
+            drop(session_b);
+            server_task_b.await.unwrap();
+            let mut upserts = sink.upsert_snapshot();
+            upserts.sort_unstable();
+            assert_eq!(upserts, vec![(2, 0), (3, 0), (4, 0), (5, 0)]);
+            assert!(sink.body_snapshot().is_empty());
+        }
     }
 }

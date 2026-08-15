@@ -566,13 +566,19 @@ async fn fetch_message_structure<T>(
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
+    // Any failure here routes callers to the full-message fallback instead of
+    // failing the request: a BODYSTRUCTURE response the parser rejects (e.g.
+    // QQ Mail sending NIL for body-fld-enc) also poisons the connection, so
+    // retrying on this session is pointless and the caller's fallback path
+    // reconnects. The error is not logged in full because stream parse errors
+    // embed the raw server response.
     let responses = session
         .uid_fetch(uid.to_string(), "(UID BODYSTRUCTURE)")
         .await
-        .map_err(map_operation_err("sync.message_body_fetch_failed"))?
+        .map_err(|_| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?
         .try_collect::<Vec<_>>()
         .await
-        .map_err(map_operation_err("sync.message_body_fetch_failed"))?;
+        .map_err(|_| CommandError::new(SELECTIVE_FETCH_UNSUPPORTED))?;
     let fetched = responses
         .iter()
         .find(|response| response.uid == Some(uid))
