@@ -1,7 +1,6 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import i18n from "@/app/i18n";
 import { OnboardingLayout } from "./OnboardingLayout";
 
 afterEach(cleanup);
