@@ -197,6 +197,7 @@ pub fn assemble_composition_content(
     }
     content.push(serde_json::json!({ "type": "paragraph" }));
     if let Some(signature) = signature {
+        content.push(serde_json::json!({ "type": "nextmailSignatureDivider" }));
         content.push(definition_node(
             "nextmailSignature",
             &signature.id,
@@ -223,6 +224,9 @@ pub fn assemble_composition_content(
     }
     html.push_str("<p></p>");
     if let Some(signature) = signature {
+        html.push_str(
+            "<hr data-nextmail-signature-divider=\"\" style=\"border:0;border-top:1px solid #d9dee7;margin:20px 0\">",
+        );
         html.push_str(&format!(
             "<div data-nextmail-signature-id=\"{}\">{}</div>",
             signature.id, signature.content.html
@@ -234,6 +238,7 @@ pub fn assemble_composition_content(
 
     let plain_text = [
         template.map(|value| value.content.plain_text.as_str()),
+        signature.map(|_| "----------------"),
         signature.map(|value| value.content.plain_text.as_str()),
         (!is_empty_content(base)).then_some(base.plain_text.as_str()),
     ]
@@ -696,10 +701,12 @@ mod tests {
         };
         let assembled = assemble_composition_content(&content(), None, Some(&rendered))
             .expect("assembled signature");
+        assert!(assembled.editor_json.contains("nextmailSignatureDivider"));
         assert!(assembled.editor_json.contains("nextmailSignature"));
         assert!(assembled.editor_json.contains("signature-one"));
+        assert!(assembled.html.contains("data-nextmail-signature-divider"));
         assert!(assembled.html.contains("data-nextmail-signature-id"));
-        assert_eq!(assembled.plain_text, "Alice");
+        assert_eq!(assembled.plain_text, "----------------\n\nAlice");
     }
 
     #[test]

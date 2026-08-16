@@ -10,7 +10,10 @@ use crate::{
 use tauri::Emitter;
 use tauri_plugin_dialog::DialogExt;
 
-use super::{MailRuntime, MessageBodyProgressEvent, MessageContentChangedEvent};
+use super::{
+    AttachmentDownloadStartedEvent, MailRuntime, MessageBodyProgressEvent,
+    MessageContentChangedEvent,
+};
 
 impl MailRuntime {
     pub async fn request_raw_message(
@@ -183,6 +186,22 @@ impl MailRuntime {
         if current.availability == crate::core::ContentAvailability::Available {
             return Ok(current);
         }
+        // Let the UI distinguish "content is actually being fetched" from
+        // dialogs or other pre-download waits (e.g. save-as target selection).
+        if let Err(error) = self.app.emit(
+            "attachment-download-started",
+            AttachmentDownloadStartedEvent {
+                account_id: account_id.to_owned(),
+                attachment_id: attachment_id.to_owned(),
+            },
+        ) {
+            tracing::warn!(
+                %account_id,
+                %attachment_id,
+                ?error,
+                "attachment download started event failed"
+            );
+        }
         self.ensure_account_writable(account_id)?;
         let (message_id, part_index, imap_section) = repository
             .read()
@@ -279,14 +298,20 @@ impl MailRuntime {
         account_id: &str,
         attachment_id: &str,
     ) -> CommandResult<bool> {
-        let prepared = self
-            .prepare_message_attachment(account_id, attachment_id)
+        // Ask for the destination before fetching anything so a cancelled dialog
+        // never downloads attachment content.
+        let account = self.service.account_record(account_id)?;
+        let repository = self.repository().await?;
+        let summary = repository
+            .read()
+            .attachment_summary(&account.data_slot_id, attachment_id)
             .await?;
+        let suggested_name = crate::storage::sanitize_attachment_file_name(&summary.file_name);
         let (sender, receiver) = tokio::sync::oneshot::channel();
         self.app
             .dialog()
             .file()
-            .set_file_name(&prepared.file_name)
+            .set_file_name(&suggested_name)
             .save_file(move |path| {
                 let _ = sender.send(path);
             });
@@ -299,6 +324,9 @@ impl MailRuntime {
         let target = selected
             .into_path()
             .map_err(|_| CommandError::new("attachment.save_path_invalid"))?;
+        let prepared = self
+            .prepare_message_attachment(account_id, attachment_id)
+            .await?;
         if target == prepared.path {
             return Ok(true);
         }

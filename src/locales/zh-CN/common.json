@@ -189,6 +189,7 @@
     "attachmentReady": "已保存到 NextMail 数据目录",
     "downloadAttachment": "下载 {{name}}",
     "openAttachment": "打开 {{name}}",
+    "attachmentNotDownloaded": "尚未下载",
     "attachmentPrimaryAction": "打开或下载 {{name}}",
     "saveAttachmentAs": "将 {{name}} 另存为",
     "open": "打开",

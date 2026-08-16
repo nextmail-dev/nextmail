@@ -1,4 +1,5 @@
 import {
+  Cloud,
   ExternalLink,
   File,
   FileArchive,
@@ -26,11 +27,12 @@ import {
 } from "@/components/ui/context-menu";
 import { Inline, Stack } from "@/components/ui/layout";
 import { Spinner } from "@/components/ui/spinner";
-import { InlineText, Text } from "@/components/ui/typography";
+import { InlineText } from "@/components/ui/typography";
 import { cn } from "@/lib/utils";
 
 export function MessageAttachment({
   attachment,
+  downloading,
   opening,
   saving,
   revealing,
@@ -39,6 +41,7 @@ export function MessageAttachment({
   onReveal,
 }: {
   attachment: AttachmentSummary;
+  downloading: boolean;
   opening: boolean;
   saving: boolean;
   revealing: boolean;
@@ -48,7 +51,10 @@ export function MessageAttachment({
 }) {
   const { t } = useTranslation();
   const available = attachment.availability === "available";
-  const busy = opening || saving || revealing;
+  const busy = downloading || opening || saving || revealing;
+  // The spinner marks actual content transfer: a pending save-as alone is just
+  // the target dialog, which downloads nothing until a path is confirmed.
+  const spinning = downloading || ((opening || revealing) && !available);
   const fileVisual = attachmentFileVisual(attachment);
   const FileIcon = fileVisual.icon;
   return (
@@ -64,11 +70,20 @@ export function MessageAttachment({
         >
           <Inline className="min-w-0 gap-2.5">
             <span className={cn("grid size-8 shrink-0 place-items-center rounded-sm", fileVisual.className)}>
-              {busy && !available ? <Spinner size={16} /> : <FileIcon size={17} aria-hidden="true" />}
+              {spinning ? <Spinner size={16} /> : <FileIcon size={17} aria-hidden="true" />}
             </span>
             <Stack className="min-w-0 gap-0">
               <InlineText className="block min-w-0 truncate text-[13px] font-medium text-inherit">{attachment.fileName}</InlineText>
-              <Text className="text-[11px] leading-4">{formatBytes(attachment.size)}</Text>
+              <Inline className="min-w-0 gap-1">
+                <InlineText className="text-[11px] leading-4">{formatBytes(attachment.size)}</InlineText>
+                {!available && (
+                  <Cloud
+                    size={12}
+                    className="shrink-0 text-muted-foreground"
+                    aria-label={t("mail.attachmentNotDownloaded")}
+                  />
+                )}
+              </Inline>
             </Stack>
           </Inline>
         </button>

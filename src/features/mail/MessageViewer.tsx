@@ -20,7 +20,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -72,6 +73,35 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
     queryFn: () => api.getMessageDetail(accountId, messageId, mailboxId),
     enabled: Boolean(accountId && mailboxId && messageId),
   });
+  // Attachment downloads actually fetching content announce themselves so the
+  // spinner reflects the network transfer, not pre-download waits such as the
+  // save-as target dialog.
+  const [downloadingAttachmentIds, setDownloadingAttachmentIds] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    let disposed = false;
+    const unlisten = listen<{ accountId: string; attachmentId: string }>("attachment-download-started", (event) => {
+      if (event.payload.accountId !== accountId) return;
+      setDownloadingAttachmentIds((current) => {
+        const next = new Set(current);
+        next.add(event.payload.attachmentId);
+        return next;
+      });
+    });
+    return () => {
+      disposed = true;
+      void unlisten.then((dispose) => {
+        if (disposed) dispose();
+      });
+    };
+  }, [accountId]);
+  const clearDownloadingAttachment = useCallback((attachmentId: string) => {
+    setDownloadingAttachmentIds((current) => {
+      if (!current.has(attachmentId)) return current;
+      const next = new Set(current);
+      next.delete(attachmentId);
+      return next;
+    });
+  }, []);
   const attachmentMutation = useMutation({
     mutationFn: async (attachment: AttachmentSummary) => {
       await activateMessageAttachment(attachment, {
@@ -79,11 +109,17 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
         open: (attachmentId) => api.openMessageAttachment(accountId, attachmentId),
       });
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId) }),
+    onSettled: (_result, _error, attachment) => {
+      clearDownloadingAttachment(attachment.id);
+      queryClient.invalidateQueries({ queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId) });
+    },
   });
   const saveAttachmentMutation = useMutation({
     mutationFn: (attachment: AttachmentSummary) => api.saveMessageAttachmentAs(accountId, attachment.id),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId) }),
+    onSettled: (_result, _error, attachment) => {
+      clearDownloadingAttachment(attachment.id);
+      queryClient.invalidateQueries({ queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId) });
+    },
   });
   const bodyMutation = useMutation({
     mutationFn: () => api.requestMessageBody(accountId, messageId, mailboxId),
@@ -104,7 +140,10 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
   });
   const revealAttachmentMutation = useMutation({
     mutationFn: (attachment: AttachmentSummary) => api.revealMessageAttachment(accountId, attachment.id),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId) }),
+    onSettled: (_result, _error, attachment) => {
+      clearDownloadingAttachment(attachment.id);
+      queryClient.invalidateQueries({ queryKey: messageQueryKeys.detail(accountId, mailboxId, messageId) });
+    },
   });
   const previewWindowMutation = useMutation({
     mutationFn: () => api.openMessagePreviewWindow(accountId, mailboxId, messageId),
@@ -315,6 +354,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
                 <MessageAttachment
                   key={attachment.id}
                   attachment={attachment}
+                  downloading={downloadingAttachmentIds.has(attachment.id)}
                   opening={attachmentMutation.isPending && attachmentMutation.variables?.id === attachment.id}
                   saving={saveAttachmentMutation.isPending && saveAttachmentMutation.variables?.id === attachment.id}
                   revealing={revealAttachmentMutation.isPending && revealAttachmentMutation.variables?.id === attachment.id}

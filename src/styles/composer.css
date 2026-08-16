@@ -4,7 +4,7 @@
   color: var(--foreground);
   background: var(--card);
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.2;
   outline: none;
   overflow-wrap: anywhere;
 }
@@ -37,14 +37,7 @@
   color: #202124;
 }
 
-.nextmail-editor-content .nextmail-composition-template {
-  margin: 0 0 0.8em;
-  padding: 0.55rem 0.75rem;
-  border-left: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
-  border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--muted) 55%, transparent);
-}
-
+.nextmail-editor-content .nextmail-composition-template,
 .nextmail-editor-content .nextmail-composition-signature {
   margin: 0;
   padding: 0;
@@ -53,7 +46,6 @@
   background: transparent;
 }
 
-.nextmail-editor-content .nextmail-composition-template > :last-child,
 .nextmail-editor-content .nextmail-composition-signature > :last-child {
   margin-bottom: 0;
 }

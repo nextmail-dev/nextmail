@@ -189,6 +189,7 @@
     "attachmentReady": "Saved in the NextMail data folder",
     "downloadAttachment": "Download {{name}}",
     "openAttachment": "Open {{name}}",
+    "attachmentNotDownloaded": "Not downloaded yet",
     "attachmentPrimaryAction": "Open or download {{name}}",
     "saveAttachmentAs": "Save {{name}} as",
     "open": "Open",

@@ -281,6 +281,13 @@ pub(super) struct MessageBodyProgressEvent {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(super) struct AttachmentDownloadStartedEvent {
+    pub(super) account_id: String,
+    pub(super) attachment_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct PendingOperationChangedEvent {
     pub(super) account_id: String,
     pub(super) operation_id: String,
