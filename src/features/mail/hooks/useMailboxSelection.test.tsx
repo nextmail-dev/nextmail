@@ -12,6 +12,7 @@ vi.mock("@/app/api", () => ({
   api: {
     listMailboxes: vi.fn(),
     setLastSelectedAccount: vi.fn(),
+    setLastSelectedMailbox: vi.fn(),
   },
   normalizeCommandError: vi.fn(() => ({
     code: "common.unexpected_error",
@@ -60,6 +61,7 @@ beforeEach(() => {
       }]
   ));
   vi.mocked(api.setLastSelectedAccount).mockImplementation(async (accountId) => accountId);
+  vi.mocked(api.setLastSelectedMailbox).mockImplementation(async (_accountId, mailboxId) => mailboxId);
 });
 
 describe("useMailboxSelection", () => {
@@ -72,7 +74,7 @@ describe("useMailboxSelection", () => {
     }), { wrapper: createWrapper() });
 
     expect(result.current.selectedAccountId).toBe("account-two");
-    await waitFor(() => expect(result.current.selectedMailboxId).toBe(UNREAD_MAILBOX_ID));
+    await waitFor(() => expect(result.current.selectedMailboxId).toBe("archive-two"));
     act(() => {
       result.current.setSelectedMessageId("message-two");
       result.current.setSearchQuery("quarterly");
@@ -82,7 +84,7 @@ describe("useMailboxSelection", () => {
 
     await waitFor(() => {
       expect(result.current.selectedAccountId).toBe("account-one");
-      expect(result.current.selectedMailboxId).toBe(UNREAD_MAILBOX_ID);
+      expect(result.current.selectedMailboxId).toBe("inbox-one");
       expect(result.current.selectedMessageId).toBe("");
       expect(result.current.searchQuery).toBe("");
       expect(result.current.submittedSearchQuery).toBe("");
@@ -97,7 +99,7 @@ describe("useMailboxSelection", () => {
       lastSelectedAccountId: "account-one",
       onError: vi.fn(),
     }), { wrapper: createWrapper() });
-    await waitFor(() => expect(result.current.selectedMailboxId).toBe(UNREAD_MAILBOX_ID));
+    await waitFor(() => expect(result.current.selectedMailboxId).toBe("inbox-one"));
 
     act(() => result.current.navigateToMailLocation({
       accountId: "account-two",
@@ -127,7 +129,7 @@ describe("useMailboxSelection", () => {
       lastSelectedAccountId: "account-one",
       onError: vi.fn(),
     }), { wrapper: createWrapper() });
-    await waitFor(() => expect(result.current.selectedMailboxId).toBe(UNREAD_MAILBOX_ID));
+    await waitFor(() => expect(result.current.selectedMailboxId).toBe("inbox-one"));
 
     act(() => result.current.selectMailbox("inbox-one"));
     act(() => {
@@ -145,5 +147,55 @@ describe("useMailboxSelection", () => {
     expect(result.current.selectedMessageId).toBe("");
     expect(result.current.searchQuery).toBe("");
     expect(result.current.submittedSearchQuery).toBe("");
+    expect(api.setLastSelectedMailbox).toHaveBeenLastCalledWith("account-one", UNREAD_MAILBOX_ID);
+  });
+
+  it("restores a persisted mailbox and falls back to the inbox when it disappeared", async () => {
+    const rememberedAccounts: AccountSummary[] = [
+      { ...accounts[0], lastSelectedMailboxId: "missing-mailbox" },
+    ];
+    const { result } = renderHook(() => useMailboxSelection({
+      accounts: rememberedAccounts,
+      lastSelectedAccountId: "account-one",
+      onError: vi.fn(),
+    }), { wrapper: createWrapper() });
+
+    await waitFor(() => expect(result.current.selectedMailboxId).toBe("inbox-one"));
+    expect(api.setLastSelectedMailbox).toHaveBeenCalledWith("account-one", "inbox-one");
+  });
+
+  it("restores a persisted selectable mailbox", async () => {
+    vi.mocked(api.listMailboxes).mockResolvedValue([
+      {
+        id: "inbox-one",
+        accountId: "account-one",
+        name: "INBOX",
+        role: "inbox",
+        selectable: true,
+        totalCount: 2,
+        unreadCount: 1,
+        delimiter: "/",
+        revision: 1,
+      },
+      {
+        id: "archive-one",
+        accountId: "account-one",
+        name: "Archive",
+        role: "archive",
+        selectable: true,
+        totalCount: 1,
+        unreadCount: 0,
+        delimiter: "/",
+        revision: 1,
+      },
+    ]);
+    const { result } = renderHook(() => useMailboxSelection({
+      accounts: [{ ...accounts[0], lastSelectedMailboxId: "archive-one" }],
+      lastSelectedAccountId: "account-one",
+      onError: vi.fn(),
+    }), { wrapper: createWrapper() });
+
+    await waitFor(() => expect(result.current.selectedMailboxId).toBe("archive-one"));
+    expect(api.setLastSelectedMailbox).not.toHaveBeenCalled();
   });
 });

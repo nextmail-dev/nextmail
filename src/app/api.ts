@@ -125,6 +125,8 @@ export const api = {
     invoke<string | null>("get_last_selected_account"),
   setLastSelectedAccount: (accountId: string) =>
     invoke<string>("set_last_selected_account", { accountId }),
+  setLastSelectedMailbox: (accountId: string, mailboxId: string) =>
+    invoke<string>("set_last_selected_mailbox", { accountId, mailboxId }),
   getAppAbout: () => invoke<AppAbout>("get_app_about"),
   quitApp: () => invoke<void>("quit_app"),
   openSettingsWindow: () => invoke<void>("open_settings_window"),

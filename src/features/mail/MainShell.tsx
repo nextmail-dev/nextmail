@@ -355,6 +355,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
         <Page className="grid min-h-0 bg-card" style={{ gridTemplateColumns: `${messagePaneWidth}px 0 minmax(360px,1fr)` }}>
           <Page className="flex min-h-0 flex-col bg-card">
             <MessageListPane
+              key={`${selectedAccountId}:${selectedMailboxId}`}
               accountId={selectedAccountId}
               mailboxId={selectedMailboxId}
               mailbox={selectedMailbox}

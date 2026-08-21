@@ -12,6 +12,7 @@ export interface AccountSummary {
   id: string;
   email: string;
   displayName: string;
+  lastSelectedMailboxId?: string | null;
 }
 
 export type AccountRuntimeState =

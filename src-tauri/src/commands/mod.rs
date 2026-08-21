@@ -497,6 +497,18 @@ pub async fn set_last_selected_account(
 }
 
 #[tauri::command]
+pub async fn set_last_selected_mailbox(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+) -> CommandResult<String> {
+    state
+        .service
+        .set_last_selected_mailbox(&account_id, &mailbox_id)
+        .await
+}
+
+#[tauri::command]
 pub fn get_app_about() -> AppAbout {
     AppAbout {
         name: "NextMail".to_owned(),

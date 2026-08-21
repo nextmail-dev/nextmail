@@ -112,6 +112,7 @@ pub fn run() {
             commands::list_account_runtime_summaries,
             commands::get_last_selected_account,
             commands::set_last_selected_account,
+            commands::set_last_selected_mailbox,
             commands::get_app_about,
             commands::quit_app,
             commands::log_frontend_event,

@@ -258,6 +258,7 @@ pub struct AccountSummary {
     pub id: String,
     pub email: String,
     pub display_name: String,
+    pub last_selected_mailbox_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -322,6 +323,8 @@ pub struct AccountRecord {
     pub outgoing: ServerConfig,
     pub credential_ref: String,
     pub created_at: i64,
+    #[serde(default)]
+    pub last_selected_mailbox_id: Option<String>,
 }
 
 impl From<&AccountRecord> for AccountSummary {
@@ -330,6 +333,7 @@ impl From<&AccountRecord> for AccountSummary {
             id: record.id.clone(),
             email: record.email.clone(),
             display_name: record.display_name.clone(),
+            last_selected_mailbox_id: record.last_selected_mailbox_id.clone(),
         }
     }
 }

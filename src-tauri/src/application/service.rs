@@ -302,6 +302,7 @@ impl AppService {
             outgoing: draft.outgoing,
             credential_ref: credential_ref.clone(),
             created_at: now,
+            last_selected_mailbox_id: None,
         };
         let summary = AccountSummary::from(&record);
         accounts_file.accounts.push(record);
@@ -394,6 +395,7 @@ impl AppService {
                 .clone()
                 .unwrap_or_else(|| current.credential_ref.clone()),
             created_at: current.created_at,
+            last_selected_mailbox_id: current.last_selected_mailbox_id.clone(),
         };
         let Some(index) = accounts_file
             .accounts
@@ -529,6 +531,25 @@ impl AppService {
             self.accounts.save(&accounts_file)?;
         }
         Ok(account_id.to_owned())
+    }
+
+    pub async fn set_last_selected_mailbox(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+    ) -> CommandResult<String> {
+        let _guard = self.account_mutation.lock().await;
+        let mut accounts_file = self.accounts.load()?;
+        let account = accounts_file
+            .accounts
+            .iter_mut()
+            .find(|account| account.id == account_id)
+            .ok_or_else(|| CommandError::new("account.not_found"))?;
+        if account.last_selected_mailbox_id.as_deref() != Some(mailbox_id) {
+            account.last_selected_mailbox_id = Some(mailbox_id.to_owned());
+            self.accounts.save(&accounts_file)?;
+        }
+        Ok(mailbox_id.to_owned())
     }
 
     pub fn complete_onboarding(&self) -> CommandResult<BootstrapStatus> {
@@ -946,6 +967,31 @@ mod tests {
             .expect_err("same identity must be rejected");
         assert_eq!(duplicate.code, "account.duplicate");
         assert_eq!(service.list_account_summaries().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn persists_the_last_selected_mailbox_per_account() {
+        let (_directory, _credentials, service) = initialized_service().await;
+        let account = service
+            .add_password_account(account_draft("user@example.com", "imap.example.com"))
+            .await
+            .expect("add account");
+
+        service
+            .set_last_selected_mailbox(&account.id, "mailbox-one")
+            .await
+            .expect("persist selected mailbox");
+
+        let summary = service
+            .list_account_summaries()
+            .expect("list accounts")
+            .into_iter()
+            .find(|candidate| candidate.id == account.id)
+            .expect("saved account");
+        assert_eq!(
+            summary.last_selected_mailbox_id.as_deref(),
+            Some("mailbox-one")
+        );
     }
 
     #[tokio::test]

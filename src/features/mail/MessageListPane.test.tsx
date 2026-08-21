@@ -252,35 +252,42 @@ describe("MessageListPane", () => {
 
   it("lists account-wide unread messages and keeps their real mailbox location", async () => {
     const unread = { ...serverResult, mailboxId: "archive", unread: true };
-    vi.mocked(api.listUnreadMessages).mockResolvedValue({ items: [unread], nextCursor: null });
+    vi.mocked(api.listUnreadMessages)
+      .mockResolvedValueOnce({ items: [unread], nextCursor: null })
+      .mockResolvedValue({ items: [], nextCursor: null });
     const onSelect = vi.fn();
+    const onMessagesRemoved = vi.fn();
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
-    render(
+    const props = {
+      accountId: "account-one",
+      mailboxes: [{
+        id: "archive",
+        accountId: "account-one",
+        name: "Archive",
+        delimiter: "/",
+        role: "archive" as const,
+        selectable: true,
+        totalCount: 2,
+        unreadCount: 1,
+        revision: 1,
+      }],
+      selectedMessageId: "",
+      onSelect,
+      onVisibleMessageIdsChange: vi.fn(),
+      onMessagesRemoved,
+      searchQuery: "",
+      submittedSearchQuery: "",
+      onSearchChange: vi.fn(),
+      onSearchSubmit: vi.fn(),
+    };
+    const { rerender } = render(
       <QueryClientProvider client={queryClient}>
         <MessageListPane
-          accountId="account-one"
+          key={UNREAD_MAILBOX_ID}
+          {...props}
           mailboxId={UNREAD_MAILBOX_ID}
-          mailboxes={[{
-            id: "archive",
-            accountId: "account-one",
-            name: "Archive",
-            delimiter: "/",
-            role: "archive",
-            selectable: true,
-            totalCount: 2,
-            unreadCount: 1,
-            revision: 1,
-          }]}
-          selectedMessageId=""
-          onSelect={onSelect}
-          onVisibleMessageIdsChange={vi.fn()}
-          onMessagesRemoved={vi.fn()}
-          searchQuery=""
-          submittedSearchQuery=""
-          onSearchChange={vi.fn()}
-          onSearchSubmit={vi.fn()}
         />
       </QueryClientProvider>,
     );
@@ -289,6 +296,25 @@ describe("MessageListPane", () => {
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: /Alice.*Server-side result/i }));
     expect(onSelect).toHaveBeenCalledWith("message-one", "archive");
+    await waitFor(() => expect(api.setMessageRead).toHaveBeenCalledWith(
+      "account-one", "archive", ["message-one"], true,
+    ));
+    await waitFor(() => expect(api.listUnreadMessages).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Server-side result")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark as unread" })).toBeInTheDocument();
+    expect(onMessagesRemoved).not.toHaveBeenCalled();
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane key="archive" {...props} mailboxId="archive" />
+      </QueryClientProvider>,
+    );
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane key={UNREAD_MAILBOX_ID} {...props} mailboxId={UNREAD_MAILBOX_ID} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.queryByText("Server-side result")).not.toBeInTheDocument());
   });
 
   it("lists account-wide starred messages without folder search", async () => {

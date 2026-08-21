@@ -16,7 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { forwardRef, memo, useEffect, type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
+import { forwardRef, memo, useEffect, useState, type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -83,6 +83,10 @@ function MessageListPaneBase({
   const unreadView = mailboxId === UNREAD_MAILBOX_ID;
   const starredView = mailboxId === STARRED_MAILBOX_ID;
   const activeSearch = submittedSearchQuery.trim();
+  const [retainedUnreadItems, setRetainedUnreadItems] = useState<Array<{
+    index: number;
+    message: MessageListItem;
+  }>>([]);
   const readingPreferences = useQuery({
     queryKey: ["reading-preferences"],
     queryFn: api.getReadingPreferences,
@@ -107,7 +111,17 @@ function MessageListPaneBase({
     enabled: Boolean(accountId && mailboxId),
   });
   const allItems = query.data?.pages.flatMap((page) => page.items) ?? [];
-  const items = allItems;
+  const items = unreadView
+    ? retainedUnreadItems.reduce((current, retained) => {
+      const existingIndex = current.findIndex((message) =>
+        message.id === retained.message.id && message.mailboxId === retained.message.mailboxId,
+      );
+      const next = [...current];
+      if (existingIndex >= 0) next[existingIndex] = retained.message;
+      else next.splice(Math.max(0, Math.min(retained.index, next.length)), 0, retained.message);
+      return next;
+    }, allItems)
+    : allItems;
   const visibleMessageIds = items.map((message) => message.id);
   const visibleMessageKey = visibleMessageIds.join("\0");
   useEffect(() => {
@@ -142,12 +156,23 @@ function MessageListPaneBase({
       }));
       return input;
     },
-    onSuccess: ({ kind, messages }) => {
+    onSuccess: ({ kind, messages, reference }) => {
+      if (unreadView && kind === "read") {
+        setRetainedUnreadItems((current) => {
+          const operated = new Set(messages.map((message) => `${message.mailboxId}\0${message.id}`));
+          return [
+            ...current.filter(({ message }) => !operated.has(`${message.mailboxId}\0${message.id}`)),
+            ...messages.map((message) => ({
+              index: items.findIndex((item) => item.id === message.id && item.mailboxId === message.mailboxId),
+              message: { ...message, unread: !reference.unread },
+            })),
+          ].sort((left, right) => left.index - right.index);
+        });
+      }
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.mailboxes(accountId) });
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(accountId) });
       void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(accountId) });
       if (["move", "archive", "delete"].includes(kind)
-        || unreadView && kind === "read"
         || starredView && kind === "flag") {
         selection.clear();
         onMessagesRemoved(messages.map((message) => message.id));
