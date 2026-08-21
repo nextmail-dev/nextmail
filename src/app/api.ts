@@ -157,10 +157,16 @@ export const api = {
     invoke<void>("delete_mailbox", { accountId, mailboxId }),
   markMailboxAllRead: (accountId: string, mailboxId: string) =>
     invoke<void>("mark_mailbox_all_read", { accountId, mailboxId }),
+  setMailboxFavorite: (accountId: string, mailboxId: string, favorite: boolean) =>
+    invoke<void>("set_mailbox_favorite", { accountId, mailboxId, favorite }),
   reorderMailboxes: (accountId: string, orderedMailboxIds: string[]) =>
     invoke<void>("reorder_mailboxes", { accountId, orderedMailboxIds }),
   listMessages: (accountId: string, mailboxId: string, cursor: string | null, limit = 50) =>
     invoke<MessageListPage>("list_messages", { accountId, mailboxId, cursor, limit }),
+  listUnreadMessages: (accountId: string, cursor: string | null, limit = 50) =>
+    invoke<MessageListPage>("list_unread_messages", { accountId, cursor, limit }),
+  listStarredMessages: (accountId: string, cursor: string | null, limit = 50) =>
+    invoke<MessageListPage>("list_starred_messages", { accountId, cursor, limit }),
   searchMessages: (
     accountId: string,
     mailboxId: string,

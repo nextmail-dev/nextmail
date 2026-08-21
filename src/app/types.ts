@@ -194,6 +194,7 @@ export interface MailboxSummary {
   selectable: boolean;
   totalCount: number;
   unreadCount: number;
+  isFavorite?: boolean;
   revision: number;
 }
 

@@ -264,6 +264,22 @@ impl MailRuntime {
         Ok(())
     }
 
+    pub async fn set_mailbox_favorite(
+        &self,
+        account_id: &str,
+        mailbox_id: &str,
+        favorite: bool,
+    ) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .mailboxes()
+            .set_favorite(&account.data_slot_id, mailbox_id, favorite)
+            .await?;
+        self.emit_mailbox_change(account_id, mailbox_id, 0);
+        Ok(())
+    }
+
     async fn apply_mailbox_rename(
         &self,
         account_id: &str,

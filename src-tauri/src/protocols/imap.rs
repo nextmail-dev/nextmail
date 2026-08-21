@@ -992,7 +992,7 @@ mod tests {
 
     #[test]
     fn parses_and_sanitizes_html_message() {
-        let raw = b"From: Alice <alice@example.com>\r\nTo: Bob <bob@example.com>\r\nSubject: Hello\r\nMessage-ID: <1@example.com>\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p onclick=\"bad()\">Hello<script>bad()</script></p>";
+        let raw = b"From: Alice <alice@example.com>\r\nTo: Bob <bob@example.com>\r\nSubject: Hello\r\nMessage-ID: <1@example.com>\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<!doctype html><html><head><title>Hidden title</title></head><body><p onclick=\"bad()\">Hello<script>bad()</script></p></body></html>";
         let message = parse_message(
             1,
             1,
@@ -1005,7 +1005,11 @@ mod tests {
         .unwrap();
         assert_eq!(message.subject, "Hello");
         assert!(!message.unread);
-        assert!(!message.safe_html.unwrap().contains("<script"));
+        assert_eq!(message.plain_text.as_deref(), Some("Hello\n"));
+        assert_eq!(message.preview, "Hello\n");
+        let safe_html = message.safe_html.unwrap();
+        assert!(!safe_html.contains("<script"));
+        assert!(!safe_html.contains("Hidden title"));
     }
 
     #[test]

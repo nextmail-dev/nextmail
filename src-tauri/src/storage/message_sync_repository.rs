@@ -3,8 +3,8 @@ use sqlx::{QueryBuilder, Row, Sqlite};
 use uuid::Uuid;
 
 use crate::core::{
-    CommandError, CommandResult, MailSyncSink, MessageUpsertOutcome, RemoteMailbox, RemoteMessage,
-    RemoteMessageBody, RemoteMessageState, StoredMailbox, StoredMessageLocation,
+    CommandError, CommandResult, MailSyncSink, MailboxRole, MessageUpsertOutcome, RemoteMailbox,
+    RemoteMessage, RemoteMessageBody, RemoteMessageState, StoredMailbox, StoredMessageLocation,
 };
 
 use super::repository::{
@@ -15,6 +15,10 @@ use super::upsert_remote_message_contacts;
 const ATTACHMENT_INSERT_BATCH_SIZE: usize = 100;
 const RECONCILE_UID_INSERT_BATCH_SIZE: usize = 500;
 
+fn is_default_favorite_role(role: &MailboxRole) -> bool {
+    matches!(role, MailboxRole::Inbox)
+}
+
 #[async_trait]
 impl MailSyncSink for SyncSinkRepository {
     async fn ensure_mailbox(
@@ -23,10 +27,11 @@ impl MailSyncSink for SyncSinkRepository {
         mailbox: &RemoteMailbox,
     ) -> CommandResult<Option<StoredMailbox>> {
         let id = Uuid::new_v4().to_string();
+        let is_favorite = is_default_favorite_role(&mailbox.role);
         let inserted = sqlx::query(
             "INSERT INTO mailboxes(id, account_slot_id, remote_name, display_name, delimiter, role, selectable, \
-                    uid_validity, uid_next, highest_modseq, total_count, unread_count, revision) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) \
+                    uid_validity, uid_next, highest_modseq, total_count, unread_count, is_favorite, revision) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) \
              ON CONFLICT(account_slot_id, remote_name) DO NOTHING",
         )
         .bind(&id)
@@ -41,6 +46,7 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(mailbox.highest_modseq.map(|value| value as i64))
         .bind(i64::from(mailbox.total_count))
         .bind(i64::from(mailbox.unread_count))
+        .bind(i64::from(is_favorite))
         .execute(&self.pool)
         .await
         .map_err(map_storage_err("storage.mailbox_write_failed"))?;
@@ -87,6 +93,8 @@ impl MailSyncSink for SyncSinkRepository {
             (Uuid::new_v4().to_string(), 0, false, true)
         };
 
+        let is_favorite = is_default_favorite_role(&mailbox.role);
+
         if reset_locations {
             sqlx::query("DELETE FROM message_locations WHERE mailbox_id = ?")
                 .bind(&id)
@@ -96,8 +104,8 @@ impl MailSyncSink for SyncSinkRepository {
         }
         sqlx::query(
             "INSERT INTO mailboxes(id, account_slot_id, remote_name, display_name, delimiter, role, selectable, \
-                    uid_validity, uid_next, highest_modseq, total_count, unread_count, revision) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) \
+                    uid_validity, uid_next, highest_modseq, total_count, unread_count, is_favorite, revision) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) \
              ON CONFLICT(account_slot_id, remote_name) DO UPDATE SET \
              display_name = excluded.display_name, delimiter = excluded.delimiter, \
              role = excluded.role, selectable = excluded.selectable, \
@@ -117,6 +125,7 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(mailbox.highest_modseq.map(|value| value as i64))
         .bind(i64::from(mailbox.total_count))
         .bind(i64::from(mailbox.unread_count))
+        .bind(i64::from(is_favorite))
         .execute(&self.pool)
         .await
         .map_err(map_storage_err("storage.mailbox_write_failed"))?;

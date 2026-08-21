@@ -313,7 +313,7 @@ impl MailReadRepository {
             "SELECT b.id, b.display_name, b.delimiter, CASE WHEN o.role IS NOT NULL THEN o.role \
                       WHEN EXISTS(SELECT 1 FROM mailbox_role_overrides x WHERE x.account_slot_id = b.account_slot_id AND x.role = b.role) \
                       THEN 'other' ELSE b.role END AS role, b.selectable, \
-                    b.total_count, b.unread_count, b.revision \
+                    b.total_count, b.unread_count, b.is_favorite, b.revision \
              FROM mailboxes b LEFT JOIN mailbox_role_overrides o ON o.mailbox_id = b.id \
                AND o.account_slot_id = b.account_slot_id WHERE b.account_slot_id = ? ORDER BY \
              CASE WHEN b.local_sort_order IS NULL THEN 1 ELSE 0 END, b.local_sort_order, \
@@ -347,6 +347,10 @@ impl MailReadRepository {
                     unread_count: row
                         .try_get::<i64, _>("unread_count")
                         .map_err(storage_read_error)? as u32,
+                    is_favorite: row
+                        .try_get::<i64, _>("is_favorite")
+                        .map_err(storage_read_error)?
+                        != 0,
                     revision: row
                         .try_get::<i64, _>("revision")
                         .map_err(storage_read_error)? as u64,
@@ -405,6 +409,77 @@ impl MailReadRepository {
             items: std::mem::take(&mut items),
             next_cursor,
         })
+    }
+
+    pub async fn list_unread_messages(
+        &self,
+        account_slot_id: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> CommandResult<MessageListPage> {
+        self.list_marked_messages(account_slot_id, cursor, limit, false)
+            .await
+    }
+
+    pub async fn list_starred_messages(
+        &self,
+        account_slot_id: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> CommandResult<MessageListPage> {
+        self.list_marked_messages(account_slot_id, cursor, limit, true)
+            .await
+    }
+
+    async fn list_marked_messages(
+        &self,
+        account_slot_id: &str,
+        cursor: Option<&str>,
+        limit: u32,
+        starred: bool,
+    ) -> CommandResult<MessageListPage> {
+        let limit = limit.clamp(1, 100);
+        let (cursor_date, cursor_id) = cursor.and_then(parse_cursor).unzip();
+        let rows = sqlx::query(
+            "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, \
+                    l.unread, l.flagged, m.has_attachments, m.body_availability, \
+                    EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
+                      AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
+             FROM message_locations l JOIN messages m ON m.id = l.message_id \
+             JOIN mailboxes b ON b.id = l.mailbox_id \
+             WHERE b.account_slot_id = ? AND m.account_slot_id = ? \
+               AND l.local_hidden = 0 AND CASE WHEN ? THEN l.flagged ELSE l.unread END = 1 AND \
+               (? IS NULL OR l.internal_date < ? OR (l.internal_date = ? AND m.id < ?)) \
+             ORDER BY l.internal_date DESC, m.id DESC LIMIT ?",
+        )
+        .bind(account_slot_id)
+        .bind(account_slot_id)
+        .bind(starred)
+        .bind(cursor_date)
+        .bind(cursor_date)
+        .bind(cursor_date)
+        .bind(cursor_id.as_deref())
+        .bind(i64::from(limit) + 1)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_storage_err("storage.messages_read_failed"))?;
+
+        let has_more = rows.len() > limit as usize;
+        let mut items = rows
+            .into_iter()
+            .take(limit as usize)
+            .map(message_list_item_from_row)
+            .collect::<CommandResult<Vec<_>>>()?;
+        let next_cursor = has_more
+            .then(|| {
+                items
+                    .last()
+                    .map(|item| format!("{}:{}", item.received_at, item.id))
+            })
+            .flatten();
+        self.resolve_message_items(account_slot_id, &mut items)
+            .await?;
+        Ok(MessageListPage { items, next_cursor })
     }
 
     pub async fn search_messages(
@@ -2115,6 +2190,95 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
     }
 
     #[tokio::test]
+    async fn virtual_views_filter_messages_across_account_mailboxes() {
+        let (_directory, repository, inbox) = repository_with_mailbox(7).await;
+        let archive = repository
+            .sync_sink()
+            .upsert_mailbox(
+                "slot",
+                &RemoteMailbox {
+                    name: "Archive".to_owned(),
+                    display_name: "Archive".to_owned(),
+                    delimiter: Some("/".to_owned()),
+                    role: MailboxRole::Archive,
+                    selectable: true,
+                    uid_validity: 8,
+                    uid_next: 3,
+                    total_count: 2,
+                    unread_count: 1,
+                    highest_modseq: None,
+                },
+            )
+            .await
+            .unwrap();
+        let mailboxes = repository
+            .read()
+            .list_mailboxes("account", "slot")
+            .await
+            .unwrap();
+        assert!(
+            mailboxes
+                .iter()
+                .find(|mailbox| mailbox.id == inbox.id)
+                .unwrap()
+                .is_favorite
+        );
+        assert!(
+            !mailboxes
+                .iter()
+                .find(|mailbox| mailbox.id == archive.id)
+                .unwrap()
+                .is_favorite
+        );
+        let mut inbox_unread = remote_message(1, 7, "Inbox unread");
+        inbox_unread.received_at = 100;
+        repository
+            .sync_sink()
+            .upsert_message("slot", &inbox.id, &inbox_unread)
+            .await
+            .unwrap();
+        let mut archive_unread = remote_message(1, 8, "Archive unread");
+        archive_unread.received_at = 200;
+        repository
+            .sync_sink()
+            .upsert_message("slot", &archive.id, &archive_unread)
+            .await
+            .unwrap();
+        let mut archive_read = remote_message(2, 8, "Archive read");
+        archive_read.received_at = 300;
+        archive_read.unread = false;
+        archive_read.flagged = true;
+        repository
+            .sync_sink()
+            .upsert_message("slot", &archive.id, &archive_read)
+            .await
+            .unwrap();
+
+        let first = repository
+            .read()
+            .list_unread_messages("slot", None, 1)
+            .await
+            .unwrap();
+        assert_eq!(first.items[0].subject, "Archive unread");
+        let second = repository
+            .read()
+            .list_unread_messages("slot", first.next_cursor.as_deref(), 10)
+            .await
+            .unwrap();
+        assert_eq!(second.items[0].subject, "Inbox unread");
+        assert!(second.items.iter().all(|message| message.unread));
+
+        let starred = repository
+            .read()
+            .list_starred_messages("slot", None, 10)
+            .await
+            .unwrap();
+        assert_eq!(starred.items.len(), 1);
+        assert_eq!(starred.items[0].subject, "Archive read");
+        assert!(starred.items[0].flagged);
+    }
+
+    #[tokio::test]
     async fn local_search_indexes_message_content_with_mailbox_and_account_isolation() {
         let (directory, repository, inbox) = repository_with_mailbox(7).await;
         create_account_slot(directory.path(), "slot-b", 2)
@@ -2355,7 +2519,7 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
             .fetch_one(&repository.pool)
             .await
             .unwrap(),
-            "29"
+            "30"
         );
     }
 

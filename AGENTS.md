@@ -9,7 +9,8 @@ NextMail 是基于 Tauri 2、React 19 / TypeScript 5.8 和 Rust 的本地优先�
 - `src/` — 前端（React / TS / Vite / TanStack Query / Tailwind 4 / Radix / Tiptap / CodeMirror）。
 - `src-tauri/` — 桌面与 Rust 后端，是仓库内**唯一**的 Rust package。
 - `docs/project.md` — 长期技术文档（事实来源）。
-- `docs/iterations/` — 每次开发计划的范围、变更摘要、验证与验收；既有阶段编号仅作为历史保留。
+- `docs/iterations/` — 截止 `2026-08-21-02` 的历史开发计划，只读保留。
+- `docs/iterations.md` — 按日期追加的简短开发记录；每项使用 Markdown 待办格式，未验收为 `- [ ]`，用户明确验收后改为 `- [x]`。
 - `docs/adr/` — 长期架构/安全决策，按需查阅；当前单一 Tauri Rust package 边界以 ADR 0006 为准。
 - `testdata/mail-rendering/` — 邮件保真与恶意内容回归语料，长期保留。
 
@@ -76,7 +77,7 @@ git diff --check
 
 ## 数据与迁移
 
-- SQLx 迁移在 `src-tauri/migrations/`，**只增不改**：已发布迁移不得修改，只能新增。当前到 `0029`。
+- SQLx 迁移在 `src-tauri/migrations/`，**只增不改**：已发布迁移不得修改，只能新增。当前到 `0030`。
 - 所有账户业务数据按匿名 `account_slot_id` 隔离。
 - 多表可见状态用 SQLx 事务；网络、MIME、慢文件 I/O 不持有 SQLite 写锁。
 - 内部路径和内容哈希不返回 React。
@@ -106,8 +107,9 @@ git diff --check
 - 可点击控件统一使用桌面默认指针，不显示手型 pointer；文本选择、窗格缩放和拖动继续保留对应的语义指针。
 - 不移除键盘焦点指示：普通操作和列表行使用仅 `focus-visible` 可见的 1px 内描边，编辑表面使用克制的 2px 内反馈；鼠标点击不得显示粗焦点框。
 - 紧凑横向工具栏直接保留高频操作，低频操作收入有名称的更多菜单，不用横向滚动条隐藏操作。
-- 任何可能产生纵向滚动的容器统一用 `OverlayScrollArea`：6px 滑块绝对覆盖在右侧，仅在容器 hover 或键盘 focus-within 时显示并使用默认指针；不得为滚动条预留 `padding`、gutter 或空白，滑块出现与消失不得改变内容或分割线坐标。
+- 任何可能产生纵向滚动的容器统一用 `OverlayScrollArea`：6px 滑块绝对覆盖在右侧，仅在容器 hover 时显示并使用默认指针；键盘焦点不得让指针移出后的滑块持续显示。不得为滚动条预留 `padding`、gutter 或空白，滑块出现与消失不得改变内容或分割线坐标。
 - 文件夹列表是唯一位置例外：展开侧栏的滚动容器可向右延伸并用等量 `content` 右内边距维持圆角列表项宽度，让滑块位于列表项外侧；不得改用 viewport padding。
+- 文件夹与邮件列表获得键盘焦点后，`ArrowUp` / `ArrowDown` 切换相邻项目的选中和焦点，不执行列表原生滚动。
 - 邮件 HTML 与 Composer 原文不进入主 React DOM；保真优化不能越过安全边界。
 - 邮件主题适配只处理 Rust 权威清洗后的字符串：在惰性 DOM 中按清洗器允许的 CSS 子集静态计算 cascade、转换颜色并写回 inline style，再交给原有无 scripts / same-origin 的 sandbox iframe；清洗器须保留常见安全表现属性 `bgcolor`、`font[color]`、`hr[color]` 与表格 `bordercolor`。深色下，高亮等带色背景须先通过继续压暗背景来保留作者文字色，再对仍不达标的文字做最小明度校正，边框相对有效背景至少保持 3:1；浅色下只把不透明纯白作者背景映射为 App 阅读面板表面，其他颜色保持原样。不得为读取计算样式放宽 iframe 或把邮件节点挂入主 DOM；作者已声明原生深色适配时跳过深色转换，图片与视频保持原样。
 - 联系人、邮件发件人与账户入口共用主题渐变身份头像；文本裁切容器不得同时裁切头像阴影。
@@ -127,14 +129,14 @@ git diff --check
 ## 文档维护
 
 - `docs/project.md` 是新会话唯一必读的长期技术文档。当前能力、技术栈、目录、数据格式、运行语义、限制或开发约定变化时更新本文。
-- 每次收到新的开发计划，先在 `docs/iterations/` 建立或更新一份按 `YYYY-MM-DD-NN-主题.md` 命名的计划文档，`NN` 从 `01` 起表示当天实施顺序；写清状态、范围、非目标和验证门禁，不再分配全局阶段编号。既有编号 iteration 作为历史保留，实施结果与验收写回当前计划文档。状态用“规划中 / 实施中 / 等待手动验收 / 已验收 / 未排期”。
+- 不再创建开发计划文档；`docs/iterations/` 最后一份计划固定为 `2026-08-21-02-unread-view-and-sync-feedback.md`。完成开发后，在 `docs/iterations.md` 的当天日期下追加未勾选的简短待办项，只有用户明确验收后才标记为 `[x]`。
 - 重大架构/安全取舍新增 ADR；已有决定变化时更新状态和修订说明。
-- 不创建会话式交接文档、独立 change 流水账或重复的总体计划——Git 历史承担逐提交细节。
+- 不创建会话式交接文档、独立 change 流水账或总体计划；`docs/iterations.md` 只保留按日概括，Git 历史承担逐提交细节。
 
 ## 工作流
 
 1. 阅读 `docs/project.md`。
 2. 执行 `git status --short` 与 `git log -3 --oneline --decorate`，确认 HEAD、远端关系和未提交修改。
 3. 阅读任务涉及的源码、配置、迁移和测试；需要历史范围或设计理由时再查 iteration/ADR。
-4. 只实施用户明确给出的当前计划，不从“后续设想”自行选择功能。
+4. 只实施用户明确给出的当前范围，不从“后续设想”自行选择功能。
 5. 按风险完成验证（`cargo fmt --check` / `cargo test` / `cargo clippy` / `pnpm test` / `pnpm build` / `git diff --check`），交付结果和必要的实机验收步骤。

@@ -457,6 +457,34 @@ impl MailRuntime {
             .await
     }
 
+    pub async fn list_unread_messages(
+        &self,
+        account_id: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> CommandResult<MessageListPage> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .read()
+            .list_unread_messages(&account.data_slot_id, cursor, limit)
+            .await
+    }
+
+    pub async fn list_starred_messages(
+        &self,
+        account_id: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> CommandResult<MessageListPage> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .read()
+            .list_starred_messages(&account.data_slot_id, cursor, limit)
+            .await
+    }
+
     pub async fn search_messages(
         &self,
         account_id: &str,

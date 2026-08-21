@@ -1,11 +1,11 @@
-use std::borrow::Cow;
-
 use async_imap::imap_proto::types::{
-    BodyContentCommon, BodyContentSinglePart, BodyParams, BodyStructure,
+    BodyContentCommon, BodyContentSinglePart, BodyParams, BodyStructure, ContentEncoding,
 };
+use mail_parser::parsers::preview::preview_text;
 use mail_parser::{MessageParser, MimeHeaders};
 
 use crate::core::RemoteAttachment;
+use crate::protocols::html_body_text;
 use crate::protocols::normalize_attachment_file_name;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +34,7 @@ pub(super) struct MessageStructure {
 #[derive(Debug)]
 pub(super) struct ParsedTextSection {
     pub text: String,
+    pub plain_text: String,
     pub preview: String,
 }
 
@@ -147,10 +148,19 @@ fn push_leaf(
         imap_section: Some(section),
         file_name: normalize_attachment_file_name(filename.as_deref(), "attachment"),
         content_type,
-        size: u64::from(other.octets),
+        size: estimated_attachment_size(other),
         content_id,
     });
     *attachment_index += 1;
+}
+
+fn estimated_attachment_size(part: &BodyContentSinglePart<'_>) -> u64 {
+    let encoded_size = u64::from(part.octets);
+    if matches!(&part.transfer_encoding, ContentEncoding::Base64) {
+        (encoded_size * 19 + 13) / 26
+    } else {
+        encoded_size
+    }
 }
 
 fn is_attachment(common: &BodyContentCommon<'_>) -> bool {
@@ -237,12 +247,14 @@ pub(super) fn parse_text_section(
         TextSectionKind::Plain => message.body_text(0)?.into_owned(),
         TextSectionKind::Html => message.body_html(0)?.into_owned(),
     };
+    let plain_text = match kind {
+        TextSectionKind::Plain => text.clone(),
+        TextSectionKind::Html => html_body_text(&text),
+    };
     Some(ParsedTextSection {
-        preview: message
-            .body_preview(180)
-            .map(Cow::into_owned)
-            .unwrap_or_default(),
+        preview: preview_text(plain_text.as_str().into(), 180).into_owned(),
         text,
+        plain_text,
     })
 }
 
@@ -269,6 +281,7 @@ fn standalone_part(mime: &[u8], body: &[u8]) -> Vec<u8> {
 mod tests {
     use super::*;
     use async_imap::imap_proto::types::{ContentEncoding, ContentType};
+    use std::borrow::Cow;
 
     fn common(content_type: (&str, &str), name: Option<&str>) -> BodyContentCommon<'static> {
         BodyContentCommon {
@@ -320,6 +333,22 @@ mod tests {
         assert_eq!(structure.attachments[0].part_index, 0);
         assert_eq!(structure.attachments[0].imap_section.as_deref(), Some("2"));
         assert_eq!(structure.attachments[0].file_name, "report.pdf");
+    }
+
+    #[test]
+    fn estimates_base64_attachment_size_from_mime_octets() {
+        let mut attachment = single();
+        attachment.transfer_encoding = ContentEncoding::Base64;
+        attachment.octets = 13_684;
+        let body = BodyStructure::Basic {
+            common: common(("APPLICATION", "PDF"), Some("report.pdf")),
+            other: attachment,
+            extension: None,
+        };
+
+        let structure = analyze_bodystructure(&body);
+
+        assert_eq!(structure.attachments[0].size, 10_000);
     }
 
     #[test]
@@ -425,5 +454,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed, b"hello");
+    }
+
+    #[test]
+    fn extracts_html_only_text_and_preview_from_body() {
+        let parsed = parse_text_section(
+            TextSectionKind::Html,
+            b"Content-Type: text/html; charset=utf-8\r\n\r\n",
+            b"<!doctype html><html><head><title>Hidden title</title></head><body><p>Visible body</p></body></html>",
+        )
+        .unwrap();
+
+        assert_eq!(parsed.plain_text, "Visible body\n");
+        assert_eq!(parsed.preview, "Visible body\n");
     }
 }

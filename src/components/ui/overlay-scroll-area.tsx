@@ -152,14 +152,14 @@ export function OverlayScrollArea({
           aria-hidden="true"
           className={cn(
             "pointer-events-none absolute inset-y-1 right-1 z-10 w-2.5 transition-opacity",
-            "opacity-0 group-hover/scroll-area:opacity-100 group-focus-within/scroll-area:opacity-100",
+            "opacity-0 group-hover/scroll-area:opacity-100",
             trackClassName,
           )}
         >
           <div
             className={cn(
               "group/thumb absolute right-0 flex w-full cursor-default touch-none justify-end",
-              "pointer-events-none group-hover/scroll-area:pointer-events-auto group-focus-within/scroll-area:pointer-events-auto",
+              "pointer-events-none group-hover/scroll-area:pointer-events-auto",
             )}
             style={{
               height: `${scrollbar.thumbHeight}px`,

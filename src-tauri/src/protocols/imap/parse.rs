@@ -6,8 +6,9 @@ use crate::{
         CommandError, CommandResult, ContactAddressRole, MessageAddress, RemoteAttachment,
         RemoteContactAddress, RemoteMessage,
     },
-    protocols::{attachment_file_name, sanitize_mail_html_with_cid_images},
+    protocols::{attachment_file_name, message_body_text, sanitize_mail_html_with_cid_images},
 };
+use mail_parser::parsers::preview::preview_text;
 
 pub(super) struct MessageParseInput {
     pub(super) uid: u32,
@@ -72,8 +73,7 @@ fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMes
     let message = parsed.as_ref().or(parsed_headers.as_ref());
     let plain_text = parsed
         .as_ref()
-        .and_then(|message| message.body_text(0))
-        .map(|value| value.into_owned());
+        .and_then(|message| message_body_text(message));
     let sanitized = parsed.as_ref().and_then(|message| {
         message
             .body_html(0)
@@ -91,10 +91,9 @@ fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMes
             )
         })
         .unwrap_or_default();
-    let preview = parsed
-        .as_ref()
-        .and_then(|message| message.body_preview(180))
-        .map(|value| value.into_owned())
+    let preview = plain_text
+        .as_deref()
+        .map(|value| preview_text(value.into(), 180).into_owned())
         .unwrap_or_default();
     Ok(RemoteMessage {
         uid: input.uid,

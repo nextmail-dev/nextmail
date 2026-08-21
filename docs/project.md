@@ -1,8 +1,8 @@
 # NextMail 项目开发手册
 
-更新时间：2026-08-14
+更新时间：2026-08-21
 
-本文是 NextMail 新会话唯一必读的长期技术文档，集中保存当前实现事实、开发细则、工程约定和项目记忆。历史范围与验收记录保留在 `iterations/`；重大架构或安全取舍保留在 `adr/`，都只在任务相关时按需查阅。
+本文是 NextMail 新会话唯一必读的长期技术文档，集中保存当前实现事实、开发细则、工程约定和项目记忆。截止 `2026-08-21-02` 的历史计划保留在 `iterations/`，之后的简短开发记录统一追加到 [`iterations.md`](./iterations.md)；重大架构或安全取舍保留在 `adr/`，都只在任务相关时按需查阅。
 
 代码、配置、迁移和测试是最终事实来源。若本文与当前检出内容不一致，先核对实现，再在同一批修改中修正文档。本文不记录某次会话的分支、HEAD、未提交文件或复制粘贴式交接快照。
 
@@ -12,9 +12,9 @@
 
 1. 完整阅读本文。
 2. 执行 `git status --short` 和 `git log -3 --oneline --decorate`，确认当前 HEAD、远端关系和用户未提交修改。
-3. 阅读本次任务涉及的源码、配置、迁移和测试；需要历史范围或设计理由时，再查相应 iteration/ADR。
-4. 只实施用户明确给出的当前计划，不从“后续设想”中自行选择功能。
-5. 每次新的开发计划先在 `docs/iterations/` 建立或更新按 `YYYY-MM-DD-NN-主题.md` 命名的计划文档，`NN` 从 `01` 起表示当天实施顺序；写清状态、范围、非目标和验证门禁，不再分配全局阶段编号。实施结果、验证与验收继续写回同一文件。
+3. 阅读本次任务涉及的源码、配置、迁移和测试；需要历史范围或设计理由时，再查相应历史 iteration/ADR。
+4. 只实施用户明确给出的当前范围，不从“后续设想”中自行选择功能。
+5. 不再创建开发计划；完成开发后，在 [`iterations.md`](./iterations.md) 的当天日期下追加简短的 `- [ ]` 待办项，只有用户明确验收后才改为 `- [x]`。
 6. 不得 reset、覆盖、清理或顺手提交用户已有修改；出现重叠时先说明。
 7. 按风险完成验证，交付结果和必要的实机验收步骤。
 
@@ -65,7 +65,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - `0.3.1` 已完成 Composer 地址栏、联系人候选键盘操作、富文本 Tab、邮件标题与按钮 hover 优化，并为回复/转发提供同一行的明确原文标题；本轮已通过自动验证和用户手动验收。
 - `0.3.0` 已完成独立安全更新窗口、全局对话框层级修正、设置选择项交互优化、分段 MIME 附件名兼容与新应用图标；四平台 Release workflow、自行生成的直连/大陆代理 updater 清单及公开发布链已经实际运行并验收通过。
 
-最近完成并通过 Windows 实机验收的计划为 [`2026-08-16-01-composer-signature-divider-and-plain-template`](./iterations/2026-08-16-01-composer-signature-divider-and-plain-template.md) 与 [`2026-08-16-02-attachment-cloud-badge`](./iterations/2026-08-16-02-attachment-cloud-badge.md)；此前的 [`2026-08-14-04-imap-streaming-sync-and-inline-parts`](./iterations/2026-08-14-04-imap-streaming-sync-and-inline-parts.md)、[`2026-08-14-03-desktop-interaction-fixes`](./iterations/2026-08-14-03-desktop-interaction-fixes.md)、[`2026-08-14-01-imap-selective-content-and-attachments`](./iterations/2026-08-14-01-imap-selective-content-and-attachments.md) 和 [`2026-08-14-02-folder-dialog-layering`](./iterations/2026-08-14-02-folder-dialog-layering.md) 均已验收。
+最近完成并通过 Windows 实机验收的计划为 [`2026-08-16-01-composer-signature-divider-and-plain-template`](./iterations/2026-08-16-01-composer-signature-divider-and-plain-template.md) 与 [`2026-08-16-02-attachment-cloud-badge`](./iterations/2026-08-16-02-attachment-cloud-badge.md)；此前的 [`2026-08-14-04-imap-streaming-sync-and-inline-parts`](./iterations/2026-08-14-04-imap-streaming-sync-and-inline-parts.md)、[`2026-08-14-03-desktop-interaction-fixes`](./iterations/2026-08-14-03-desktop-interaction-fixes.md)、[`2026-08-14-01-imap-selective-content-and-attachments`](./iterations/2026-08-14-01-imap-selective-content-and-attachments.md) 和 [`2026-08-14-02-folder-dialog-layering`](./iterations/2026-08-14-02-folder-dialog-layering.md) 均已验收。开发计划文档最终停留在 [`2026-08-21-02-unread-view-and-sync-feedback`](./iterations/2026-08-21-02-unread-view-and-sync-feedback.md)，后续只维护按日开发记录。
 
 仍未排期：
 
@@ -93,7 +93,7 @@ src/
   styles/               语义主题与全局样式
 src-tauri/
   capabilities/         各窗口最小权限
-  migrations/           只增不改的 SQLx 迁移，当前到 0029
+  migrations/           只增不改的 SQLx 迁移，当前到 0030
   src/core/             无 Tauri/SQLx/协议库依赖的 DTO、错误与 ports
   src/application/      账户生命周期与纯业务组合用例
   src/adapters/         JSON、Keyring、发现、连接测试和系统集成
@@ -107,7 +107,8 @@ src-tauri/
 app-icon.png                README 展示与 Tauri 各平台图标的唯一源图
 testdata/mail-rendering/ 正式邮件保真与恶意内容回归语料
 docs/project.md          本文
-docs/iterations/         每次迭代范围、变更摘要、验证与验收
+docs/iterations/         截止 2026-08-21-02 的历史开发计划
+docs/iterations.md       按日期追加的简短开发记录
 docs/adr/                按需查阅的长期架构决策
 ```
 
@@ -163,7 +164,7 @@ cache/attachment-open/...
 
 设备级托盘、关闭与更新偏好保存在系统应用配置区的 `config/desktop-preferences.json`，不随邮件数据目录迁移。
 
-- SQLite schema metadata 当前为版本 1：自 2026-08-15 起迁移重置为单一基线 `0001_bootstrap.sql`（完整重建既有 schema，schema 内容未变），不再支持从 0.6.x 及更早版本数据库升级，旧库打开按 `data_directory.database_migration_failed` 失败，需重建数据目录；migration 编号是本地数据格式序号，不等于产品阶段编号。
+- SQLite schema metadata 当前为版本 30：自 2026-08-15 起以 `0001_bootstrap.sql` 作为数据格式 29 的完整基线，不再支持从 0.6.x 及更早版本数据库升级，旧库打开按 `data_directory.database_migration_failed` 失败，需重建数据目录；后续迁移继续只增不改，`0030_mailbox_favorites.sql` 增加账号隔离的真实文件夹收藏状态。migration 编号是本地数据格式序号，不等于产品阶段编号。
 - `.nextmail-data.json` 的 `format_version` 当前为独立版本 1，不是 SQLite schema 版本。
 - 已发布迁移只允许新增，不得修改。
 - 迁移 SQL 行尾由根目录 `.gitattributes` 固定为 LF：sqlx 校验和按编译时文件原始字节计算，行尾漂移会使不同机构建的二进制互相打不开对方迁移过的数据库。
@@ -185,9 +186,11 @@ cache/attachment-open/...
 
 完整账户同步只有四类入口：首次设定账户、应用启动、账户配置的 1/5/10 分钟周期、用户手动收取；`0` 表示仅手动。设置变化只重置计时。持久化待办、Sent/Drafts APPEND 和 Drafts 定向刷新不触发完整同步。
 
-同步遍历全部可选文件夹，每条邮件头 `UID FETCH` 最多包含 20 UID，并直接逐项消费 IMAP 响应流；每收到一封就解析、原子落库并发布最小事件，批次中途断线时已收到的邮件不会丢失，下次按本地已有 UID 差集续传。同步开始后先把 `LIST` 返回的全部文件夹用 `ensure_mailbox`（只插入缺失行，不覆盖既有同步元数据）一次性建齐并发布变更事件，侧栏立即显示完整目录结构，再逐个文件夹同步邮件。`BODYSTRUCTURE` 与头部拆分为同批两条命令：头部先落库，随后单独获取的 `BODYSTRUCTURE` 用于合并附件元数据；该命令失败（如服务器在 transfer encoding 字段返回 NIL 导致解析失败）时按批降级跳过，不中断同步，缺失的附件元数据走打开邮件时的完整正文回退路径，剩余批次由下轮差集续传。当前文件夹按事件顺序重读本地视图，100ms 只合并绘制，不等待整批完成；到达事件对所有邮箱按 100ms 合并——当前文件夹合并插入列表首页缓存，其余邮箱合并失效。同步进度使用事件携带的完整载荷按账户约 100ms 合并写入查询缓存，并按 revision 拒绝迟到事件，不按邮件逐封触发 IPC 重读；进度订阅只位于侧栏子树，同步期间不重渲染邮件列表与阅读区。主窗口各窗格组件 memo 化且回调稳定，拖拽分隔条只重渲染布局壳层。
+同步遍历全部可选文件夹，每条邮件头 `UID FETCH` 最多包含 20 UID，并直接逐项消费 IMAP 响应流；每收到一封就解析、原子落库并发布最小事件，批次中途断线时已收到的邮件不会丢失，下次按本地已有 UID 差集续传。同步开始后先把 `LIST` 返回的全部文件夹用 `ensure_mailbox`（只插入缺失行，不覆盖既有同步元数据）一次性建齐并发布变更事件，侧栏立即显示完整目录结构，再逐个文件夹同步邮件。`BODYSTRUCTURE` 与头部拆分为同批两条命令：头部先落库，随后单独获取的 `BODYSTRUCTURE` 用于合并附件元数据；该命令失败（如服务器在 transfer encoding 字段返回 NIL 导致解析失败）时按批降级跳过，不中断同步，缺失的附件元数据走打开邮件时的完整正文回退路径，剩余批次由下轮差集续传。当前文件夹按事件顺序重读本地视图，100ms 只合并绘制，不等待整批完成；到达事件对所有邮箱按 100ms 合并——当前文件夹合并插入列表首页缓存，其余邮箱合并失效。同步进度使用事件携带的完整载荷按账户约 100ms 合并写入查询缓存，并按 revision 拒绝迟到事件，不按邮件逐封触发 IPC 重读；进度订阅只位于侧栏子树，同步期间不重渲染邮件列表与阅读区，侧栏只对用户点击“收取”发起的手动同步展示可见进度，启动与定时同步保持后台运行。主窗口各窗格组件 memo 化且回调稳定，拖拽分隔条只重渲染布局壳层。
 
-默认同步邮件头和 `BODYSTRUCTURE`，在同一落库事务保存附件文件名、类型、编码大小和稳定 IMAP section，不下载附件内容。`BODYSTRUCTURE` 的附件 `filename`/`name` 参数复用完整 MIME 解析器处理 RFC 2047 与 RFC 2231 扩展、分段形式。打开缺失正文时优先从本地原始 EML 重建，否则读取 `BODYSTRUCTURE` 并只获取选中的纯文本/HTML section；HTML 根据实际 CID 引用补取对应 Content-ID part，包括被服务器误标为 `application/octet-stream` 的候选，下载后仍须通过既有图片类型、文件魔数和大小预算才会内联并从附件列表移除，其余附件保持未下载。加载期间正文区域只显示 spinner，失败后再显示错误与重试。启用“自动下载邮件正文”后，每个文件夹头部完成再按相同选择性路径补正文；正文回填不产生新邮件候选，Drafts 定向刷新跳过正文阶段。正文回填对服务器已消失的单封邮件跳过而非失败整条同步，本地 stub 由随后的 reconcile 修剪。`BODYSTRUCTURE` 缺失或结构无法可靠映射时才回退既有完整 `BODY.PEEK[]` 路径；普通网络失败不静默扩大下载范围。
+默认同步邮件头和 `BODYSTRUCTURE`，在同一落库事务保存附件文件名、类型、大小和稳定 IMAP section，不下载附件内容。`BODYSTRUCTURE` 对 `BASE64` part 报告 MIME 编码正文大小，首次落库按 `encoded × 19 / 26`（约 `× 0.730769`，整数四舍五入）估算原附件大小；非 BASE64 编码保持服务器大小。附件实际获取后由内容字节数覆盖为真实大小，历史未下载附件不迁移。`BODYSTRUCTURE` 的附件 `filename`/`name` 参数复用完整 MIME 解析器处理 RFC 2047 与 RFC 2231 扩展、分段形式。打开缺失正文时优先从本地原始 EML 重建，否则读取 `BODYSTRUCTURE` 并只获取选中的纯文本/HTML section；HTML 根据实际 CID 引用补取对应 Content-ID part，包括被服务器误标为 `application/octet-stream` 的候选，下载后仍须通过既有图片类型、文件魔数和大小预算才会内联并从附件列表移除，其余附件保持未下载。加载期间正文区域只显示 spinner，失败后再显示错误与重试。启用“自动下载邮件正文”后，每个文件夹头部完成再按相同选择性路径补正文；正文回填不产生新邮件候选，Drafts 定向刷新跳过正文阶段。正文回填对服务器已消失的单封邮件跳过而非失败整条同步，本地 stub 由随后的 reconcile 修剪。`BODYSTRUCTURE` 缺失或结构无法可靠映射时才回退既有完整 `BODY.PEEK[]` 路径；普通网络失败不静默扩大下载范围。
+
+HTML-only 邮件的派生纯文本与列表预览只从 `<body>` 内容提取，不包含完整 HTML 文档 `<head>` 中的 `<title>`；完整原始邮件与按 MIME section 获取正文使用同一规则。真实 `text/plain` 部分仍保持优先。
 
 未下载附件的单击打开、右键打开、打开文件夹和另存为都只获取该附件对应的 MIME section，再复用账户所有权校验、危险扩展名处理和内容寻址缓存；既有本地原始 EML 仍优先用于离线提取。section 只接受规范化数字点路径，禁止把未验证字符串拼入 IMAP FETCH 查询。
 
@@ -254,8 +257,11 @@ cache/attachment-open/...
 - 不移除键盘焦点指示。普通操作与列表行仅在 `focus-visible` 时使用 1px 内描边，输入和选择等编辑表面使用克制的 2px 内反馈；鼠标点击不应产生截图中可见的粗外框。
 - 紧凑横向工具栏只直接展示高频操作，低频操作收入有明确名称的更多菜单；不得依赖横向滚动条隐藏工具栏操作。
 - 阅读区附件使用紧凑文件块，不显示“附件：”标题和行内操作按钮。单击始终执行安全打开，未下载时先按 MIME section 获取并在文件块上显示 spinner；右键菜单提供打开、打开方式、打开文件夹和另存为，“打开方式”在系统选择器实现前保持禁用。附件定位和另存为同样允许触发按需下载。
-- 除上述 Portal 语义 viewport 外，任何可能产生纵向滚动的容器统一使用 `OverlayScrollArea`：滑块绝对覆盖在容器右侧，不参与内容宽度计算，不为滑块预留 `padding`、gutter 或空白，出现与消失不得改变内容和分割线坐标；滑块宽 6px，仅在容器 hover 或键盘 focus-within 时显示，并保持默认指针。业务组件只负责自身对称内容边距，禁止通过左右不对称边距给滚动条让位。
+- 除上述 Portal 语义 viewport 外，任何可能产生纵向滚动的容器统一使用 `OverlayScrollArea`：滑块绝对覆盖在容器右侧，不参与内容宽度计算，不为滑块预留 `padding`、gutter 或空白，出现与消失不得改变内容和分割线坐标；滑块宽 6px，仅在容器 hover 时显示，键盘焦点不得让指针移出后的滑块持续可见，并保持默认指针。业务组件只负责自身对称内容边距，禁止通过左右不对称边距给滚动条让位。
 - 邮件与联系人列表的单选项再次单击时取消选择；联系人当前项的左侧标识条与邮件列表保持同宽、同位置。文件夹长按排序使用统一的圆点加横线标记插入边界，不用上下边框样式。
+- 展开侧栏在“邮箱文件夹”上方显示同一滚动区内的“收藏夹”。收件箱在首次发现时默认收藏，其他真实文件夹可从右键菜单添加或移除收藏，状态按 `account_slot_id` 持久化；真实收藏文件夹排在两个虚拟收藏之前且仍保留在原文件夹树中，同一文件夹只高亮实际点击的收藏入口或文件夹树入口。“星标邮件”和“未读邮件”是不可移除的账号级虚拟收藏，不映射服务器文件夹，分别跨真实文件夹按时间倒序列出星标或未读邮件；“未读邮件”仍是默认入口，右键菜单只提供把所有含未读邮件的可选真实文件夹依次全部标为已读。展开侧栏中的文件夹整行均可点击选择，无子文件夹时为展开控件保留的左侧空白也属于点击区域；展开槽保持紧凑，分区标题、虚拟收藏和根级文件夹图标左侧对齐。邮件列表左侧已读状态是独立可访问操作：未读为实心主题色圆点，已读为低强调度空心圆环，点击在已读/未读间切换；hover 只在 8px 标记外增加 2px 淡色环，不铺满 20px 点击区域。
+- 文件夹与邮件列表中的 `ArrowUp` / `ArrowDown` 选择并聚焦相邻项目，同时阻止浏览器默认滚动；到达列表边界后保持当前项目。
+- 再次点击当前已选文件夹只保持其选中状态，不清空邮件选择、阅读区或当前搜索；仅在文件夹 ID 真正变化时重置这些文件夹内状态。
 - 通知总开关关闭时，显示方式、时长、账户和文件夹等全部从属选项保持可见但不可操作；总开关自身始终可重新开启。
 - 文件夹列表是滚动条位置的唯一布局例外：展开侧栏中的文件夹项不是全宽且带圆角，滚动容器向右延伸到侧栏外边距，等量 `content` 右内边距保持列表项宽度不变，使滑块位于圆角项外侧；仍不得给 viewport 预留空间或让滑块改变列表项几何尺寸。
 - 保留平台差异：仅 Windows 显示 WebView 自绘窗口按钮；macOS 使用原生交通灯，其他带系统装饰的平台使用原生窗口控制。
@@ -275,9 +281,9 @@ cache/attachment-open/...
 - 不用 reset/checkout 覆盖工作区，不清理无关文件。
 - 正式测试和测试语料长期保留；临时探针、凭据、日志、截图、coverage 和临时数据在验证后清理。
 - `dist/` 和 `src-tauri/target/` 是正常增量缓存，默认保留。
-- Git 历史承担逐提交细节；iteration 保留每次开发计划的范围、变更摘要、验证和验收。
+- Git 历史承担逐提交细节；`docs/iterations.md` 只按日期保留简短开发摘要。
 - 发布新版本时保持两个顺序提交：先提交已经验收的功能、测试与实现文档，再单独提交版本号、`CHANGELOG.md` 和发布记录；不得把整轮功能变更与发布准备压进同一个 commit。
-- 既有编号 iteration 作为历史保留；2026-08-09 起的新计划按 `YYYY-MM-DD-NN-主题.md` 命名，`NN` 只表示当天实施顺序，不是全局阶段编号。状态使用“规划中”“实施中”“等待手动验收”“已验收”或明确的“未排期”。
+- 既有 iteration 作为历史保留，最后一份为 `2026-08-21-02-unread-view-and-sync-feedback.md`；此后不再新增计划文件。
 - 不重新建立会话 handoff、独立 changes 流水账或重复的 architecture/technical-reference/master-plan。
 
 ## 9. 开发、验证与发布
@@ -348,14 +354,14 @@ git diff --check
 - Windows 正式代码签名与 Apple Developer 签名/公证仍未实现；updater 产物签名只用于应用内更新完整性，不能替代操作系统代码签名与公证。
 - Linux 托盘的底层 AppIndicator 不提供图标点击事件，无法像 Windows/macOS 一样用单击直接恢复主窗口；左键打开菜单后选择“显示主界面”。
 
-## 11. iteration、ADR 与文档维护
+## 11. 开发记录、ADR 与文档维护
 
-- `iterations/` 是历史入口：每份文件记录一次开发计划的范围、实施变更摘要、验证与验收。早期计划可能被后续计划取代，判断当前行为始终以本文和代码为准。
-- 每次新的开发计划建立一份按 `YYYY-MM-DD-NN-主题.md` 命名的 iteration；后续实现批次直接追加到同一文件，不再分配全局阶段编号或创建独立 change 文档。
+- `iterations/` 只读保留截止 `2026-08-21-02` 的历史开发计划；判断当前行为始终以本文和代码为准。
+- 此后不再编写开发计划。实际完成的开发统一追加到 [`iterations.md`](./iterations.md)，每个自然日一个二级标题，每项用 `- [ ]` 和几句话概括变更及关键实现方法；只有用户明确验收后才改为 `- [x]`。
 - ADR 只解释长期架构/安全理由，不是默认必读清单；索引见 [`adr/README.md`](./adr/README.md)。ADR 0001 作为已被取代的历史决策保留，当前单一 Tauri Rust package 边界以 ADR 0006 为准。
 - 当前能力、技术栈、目录、数据格式、运行语义、限制或开发约定变化时更新本文。
 - 重大架构/安全取舍新增 ADR；已有决定变化时更新状态和修订说明。
 - 第三方资源或许可变化时更新 [`third-party-notices.md`](./third-party-notices.md)。
 - 根 README 面向用户和贡献者，精确技术事实链接本文。
 - 不再创建会话式交接文档、独立 change 流水账、重复技术参考或总体计划。
-- 某次计划的详细实现由对应 iteration 与 Git 历史承担；只有跨计划继续有效的事实进入本文或 ADR。
+- 每日记录与 Git 历史承担变更追踪；只有跨迭代继续有效的事实进入本文或 ADR。

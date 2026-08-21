@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
 import { afterFirstPaint } from "@/app/startup";
-import type { AccountRuntimeSummary, AccountSummary, MailboxSummary } from "@/app/types";
+import type { AccountRuntimeSummary, AccountSummary, MailboxSummary, SyncProgress } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { AppShell, Page, Stack } from "@/components/ui/layout";
@@ -22,7 +22,7 @@ import { useMailboxSelection } from "./hooks/useMailboxSelection";
 import { useMailRuntimeEvents } from "./hooks/useMailRuntimeEvents";
 import { useMailboxActions } from "./hooks/useMailboxActions";
 import { usePaneLayout } from "./hooks/usePaneLayout";
-import { mailQueryKeys } from "./mail-query-keys";
+import { mailQueryKeys, UNREAD_MAILBOX_ID } from "./mail-query-keys";
 
 interface MainShellProps {
   accounts: AccountSummary[];
@@ -42,6 +42,8 @@ type SidebarPaneProps = Omit<
   accountId: string;
   runtimeSyncing: boolean;
   folderActionsBusy: boolean;
+  showProgress: boolean;
+  onProgressFinished: (accountId: string) => void;
 };
 
 // Owns the sync-progress subscription so progress updates only re-render the
@@ -51,6 +53,8 @@ const SidebarPane = memo(function SidebarPane({
   accountId,
   runtimeSyncing,
   folderActionsBusy,
+  showProgress,
+  onProgressFinished,
   ...paneProps
 }: SidebarPaneProps) {
   const progressQuery = useQuery({
@@ -61,10 +65,23 @@ const SidebarPane = memo(function SidebarPane({
   });
   const receiving = runtimeSyncing
     || !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
+  const activeProgress = !["idle", "complete", "failed"].includes(progressQuery.data?.phase ?? "idle");
+  const progressWasActive = useRef(false);
+  useEffect(() => {
+    if (!showProgress) {
+      progressWasActive.current = false;
+    } else if (activeProgress) {
+      progressWasActive.current = true;
+    } else if (progressWasActive.current) {
+      progressWasActive.current = false;
+      onProgressFinished(accountId);
+    }
+  }, [accountId, activeProgress, onProgressFinished, showProgress]);
   return (
     <MailboxPane
       {...paneProps}
       progress={progressQuery.data}
+      showProgress={showProgress}
       receiving={receiving}
       folderActionBusy={folderActionsBusy || receiving}
     />
@@ -86,6 +103,8 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   });
   const accounts = accountsQuery.data ?? EMPTY_ACCOUNTS;
   const [composeError, setComposeError] = useState<string | null>(null);
+  const [manualSyncAccountId, setManualSyncAccountId] = useState<string | null>(null);
+  const [selectedMessageMailboxId, setSelectedMessageMailboxId] = useState("");
   const [workspace, setWorkspace] = useState<"mail" | "contacts">("mail");
   const [requestedContactId, setRequestedContactId] = useState("");
   const [requestedContactEdit, setRequestedContactEdit] = useState<{ contactId: string; requestId: number } | null>(null);
@@ -161,18 +180,40 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     accountId: selectedAccountId,
     onError: setComposeError,
   });
+  const finishManualSyncProgress = useCallback((accountId: string) => {
+    setManualSyncAccountId((current) => current === accountId ? null : current);
+  }, []);
+  const markAllUnreadRead = useCallback(() => mailboxActions.markAllUnreadRead(
+    (mailboxesQuery.data ?? EMPTY_MAILBOXES)
+      .filter((mailbox) => mailbox.selectable && mailbox.unreadCount > 0)
+      .map((mailbox) => mailbox.id),
+  ), [mailboxActions.markAllUnreadRead, mailboxesQuery.data]);
   const selectAfterRemoval = useCallback((removedMessageId: string) => {
+    if (selectedMailboxId === UNREAD_MAILBOX_ID) {
+      setSelectedMessageId((current) => current === removedMessageId ? "" : current);
+      return;
+    }
     setSelectedMessageId((current) => current === removedMessageId
       ? nextMessageIdAfterRemoval(visibleMessageIdsRef.current, removedMessageId)
       : current);
-  }, [setSelectedMessageId]);
+  }, [selectedMailboxId, setSelectedMessageId]);
   const selectAfterRemovals = useCallback((removedMessageIds: string[]) => {
+    if (selectedMailboxId === UNREAD_MAILBOX_ID) {
+      setSelectedMessageId("");
+      return;
+    }
     setSelectedMessageId((current) => nextMessageIdAfterRemovals(
       visibleMessageIdsRef.current,
       removedMessageIds,
       current,
     ));
+  }, [selectedMailboxId, setSelectedMessageId]);
+  const selectMessage = useCallback((messageId: string, sourceMailboxId: string) => {
+    setSelectedMessageId(messageId);
+    setSelectedMessageMailboxId(messageId ? sourceMailboxId : "");
   }, [setSelectedMessageId]);
+
+  useEffect(() => setSelectedMessageMailboxId(""), [selectedMailboxId]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -196,9 +237,18 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     if (!selectedAccountId) return;
     setComposeError(null);
     void api.syncNow(selectedAccountId)
-      .then(() => queryClient.invalidateQueries({ queryKey: mailQueryKeys.syncProgress(selectedAccountId) }))
-      .catch((error) => setComposeError(normalizeCommandError(error).code));
-  }, [queryClient, selectedAccountId]);
+      .then(async () => {
+        await queryClient.invalidateQueries({ queryKey: mailQueryKeys.syncProgress(selectedAccountId) });
+        const progress = queryClient.getQueryData<SyncProgress>(mailQueryKeys.syncProgress(selectedAccountId));
+        if (progress && !["idle", "complete", "failed"].includes(progress.phase)) {
+          setManualSyncAccountId(selectedAccountId);
+        }
+      })
+      .catch((error) => {
+        finishManualSyncProgress(selectedAccountId);
+        setComposeError(normalizeCommandError(error).code);
+      });
+  }, [finishManualSyncProgress, queryClient, selectedAccountId]);
 
   const openAccountManagement = useCallback(() => {
     setComposeError(null);
@@ -258,6 +308,8 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           accountId={selectedAccountId}
           runtimeSyncing={runtimeSyncing}
           folderActionsBusy={mailboxActions.busy}
+          showProgress={manualSyncAccountId === selectedAccountId}
+          onProgressFinished={finishManualSyncProgress}
           mailboxes={mailboxesQuery.data ?? EMPTY_MAILBOXES}
           selectedMailboxId={workspace === "mail" ? selectedMailboxId : ""}
           onSelect={handleSelectMailbox}
@@ -271,6 +323,8 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           onMoveFolder={mailboxActions.moveMailbox}
           onDeleteFolder={mailboxActions.deleteMailbox}
           onMarkFolderAllRead={mailboxActions.markMailboxAllRead}
+          onSetFavorite={mailboxActions.setMailboxFavorite}
+          onMarkAllUnreadRead={markAllUnreadRead}
           onReorderFolders={mailboxActions.reorderMailboxes}
           onOpenSettings={handleOpenSettings}
           collapsed={folderPaneCollapsed}
@@ -306,7 +360,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
               mailbox={selectedMailbox}
               mailboxes={mailboxesQuery.data ?? EMPTY_MAILBOXES}
               selectedMessageId={selectedMessageId}
-              onSelect={setSelectedMessageId}
+              onSelect={selectMessage}
               onVisibleMessageIdsChange={handleVisibleMessageIdsChange}
               onMessagesRemoved={selectAfterRemovals}
               onOpenContact={openContact}
@@ -321,7 +375,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           <Page className="flex min-h-0 flex-col bg-card">
             <MessageViewer
               accountId={selectedAccountId}
-              mailboxId={selectedMailboxId}
+              mailboxId={selectedMessageMailboxId || selectedMailboxId}
               messageId={selectedMessageId}
               mailboxes={mailboxesQuery.data ?? EMPTY_MAILBOXES}
               onMessageRemoved={selectAfterRemoval}

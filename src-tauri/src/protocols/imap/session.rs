@@ -473,7 +473,12 @@ where
         }
         match kind {
             TextSectionKind::Plain => plain_text = Some(parsed.text),
-            TextSectionKind::Html => html = Some(parsed.text),
+            TextSectionKind::Html => {
+                if plain_text.is_none() {
+                    plain_text = Some(parsed.plain_text);
+                }
+                html = Some(parsed.text);
+            }
         }
     }
 

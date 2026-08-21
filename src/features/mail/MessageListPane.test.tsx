@@ -7,10 +7,13 @@ import { api } from "@/app/api";
 import type { MessageListItem } from "@/app/types";
 import i18n from "@/app/i18n";
 import { MessageListPane } from "./MessageListPane";
+import { STARRED_MAILBOX_ID, UNREAD_MAILBOX_ID } from "./mail-query-keys";
 
 vi.mock("@/app/api", () => ({
   api: {
     listMessages: vi.fn(),
+    listUnreadMessages: vi.fn(),
+    listStarredMessages: vi.fn(),
     searchMessages: vi.fn(),
     getReadingPreferences: vi.fn(),
     setMessageRead: vi.fn(),
@@ -51,6 +54,8 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.listMessages).mockResolvedValue({ items: [], nextCursor: null });
+  vi.mocked(api.listUnreadMessages).mockResolvedValue({ items: [], nextCursor: null });
+  vi.mocked(api.listStarredMessages).mockResolvedValue({ items: [], nextCursor: null });
   vi.mocked(api.getReadingPreferences).mockResolvedValue({
     autoLoadRemoteImages: false,
     autoLoadMoreMessages: true,
@@ -153,14 +158,168 @@ describe("MessageListPane", () => {
       "after:h-px",
       "after:bg-border/80",
     );
-    expect(rowButton).toHaveClass("px-5", "py-2.5");
+    expect(rowButton).toHaveClass("py-2.5", "pr-12", "pl-10");
     expect(row).not.toHaveClass("after:hidden");
     expect(lastRow).toHaveClass("after:hidden", "bg-primary/[0.035]");
     expect(screen.getByText("Second message")).toHaveClass("font-semibold");
 
     fireEvent.click(rowButton);
-    expect(onSelect).toHaveBeenCalledWith("");
+    expect(onSelect).toHaveBeenCalledWith("", "");
     expect(rowButton).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("moves message selection with arrow keys instead of scrolling", async () => {
+    vi.mocked(api.listMessages).mockResolvedValue({
+      items: [serverResult, { ...serverResult, id: "message-two", subject: "Second message" }],
+      nextCursor: null,
+    });
+    const onSelect = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane
+          accountId="account-one"
+          mailboxId="inbox"
+          mailboxes={[]}
+          selectedMessageId="message-one"
+          onSelect={onSelect}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessagesRemoved={vi.fn()}
+          searchQuery=""
+          submittedSearchQuery=""
+          onSearchChange={vi.fn()}
+          onSearchSubmit={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    const first = await screen.findByRole("button", { name: /Alice.*Server-side result/i });
+    const second = screen.getByRole("button", { name: /Alice.*Second message/i });
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenCalledWith("message-two", "inbox");
+    expect(second).toHaveFocus();
+  });
+
+  it("toggles read state from a solid dot or faint hollow ring without selecting the row", async () => {
+    vi.mocked(api.listMessages).mockResolvedValue({
+      items: [serverResult, { ...serverResult, id: "message-two", subject: "Unread message", unread: true }],
+      nextCursor: null,
+    });
+    const onSelect = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane
+          accountId="account-one"
+          mailboxId="inbox"
+          mailboxes={[]}
+          selectedMessageId=""
+          onSelect={onSelect}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessagesRemoved={vi.fn()}
+          searchQuery=""
+          submittedSearchQuery=""
+          onSearchChange={vi.fn()}
+          onSearchSubmit={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    const markUnread = await screen.findByRole("button", { name: "Mark as unread" });
+    expect(markUnread).toHaveClass("hover:bg-transparent");
+    expect(markUnread.querySelector("span")).toHaveClass(
+      "border-foreground/15",
+      "group-hover/read-state:ring-2",
+      "group-hover/read-state:ring-foreground/10",
+    );
+    fireEvent.click(markUnread);
+    await waitFor(() => expect(api.setMessageRead).toHaveBeenCalledWith(
+      "account-one", "inbox", ["message-one"], false,
+    ));
+    expect(onSelect).not.toHaveBeenCalled();
+
+    const markRead = screen.getByRole("button", { name: "Mark as read" });
+    expect(markRead.querySelector("span")).toHaveClass("bg-primary");
+    fireEvent.click(markRead);
+    await waitFor(() => expect(api.setMessageRead).toHaveBeenCalledWith(
+      "account-one", "inbox", ["message-two"], true,
+    ));
+  });
+
+  it("lists account-wide unread messages and keeps their real mailbox location", async () => {
+    const unread = { ...serverResult, mailboxId: "archive", unread: true };
+    vi.mocked(api.listUnreadMessages).mockResolvedValue({ items: [unread], nextCursor: null });
+    const onSelect = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane
+          accountId="account-one"
+          mailboxId={UNREAD_MAILBOX_ID}
+          mailboxes={[{
+            id: "archive",
+            accountId: "account-one",
+            name: "Archive",
+            delimiter: "/",
+            role: "archive",
+            selectable: true,
+            totalCount: 2,
+            unreadCount: 1,
+            revision: 1,
+          }]}
+          selectedMessageId=""
+          onSelect={onSelect}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessagesRemoved={vi.fn()}
+          searchQuery=""
+          submittedSearchQuery=""
+          onSearchChange={vi.fn()}
+          onSearchSubmit={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Unread")).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /Alice.*Server-side result/i }));
+    expect(onSelect).toHaveBeenCalledWith("message-one", "archive");
+  });
+
+  it("lists account-wide starred messages without folder search", async () => {
+    vi.mocked(api.listStarredMessages).mockResolvedValue({
+      items: [{ ...serverResult, mailboxId: "archive", flagged: true }],
+      nextCursor: null,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageListPane
+          accountId="account-one"
+          mailboxId={STARRED_MAILBOX_ID}
+          mailboxes={[]}
+          selectedMessageId=""
+          onSelect={vi.fn()}
+          onVisibleMessageIdsChange={vi.fn()}
+          onMessagesRemoved={vi.fn()}
+          searchQuery=""
+          submittedSearchQuery=""
+          onSearchChange={vi.fn()}
+          onSearchSubmit={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Starred")).toBeInTheDocument();
+    expect(api.listStarredMessages).toHaveBeenCalledWith("account-one", null, 50);
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
   });
 
   it("opens a message in an independent window from double click or the context menu", async () => {

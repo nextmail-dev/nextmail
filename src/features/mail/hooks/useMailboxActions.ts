@@ -10,6 +10,8 @@ type MailboxAction =
   | { kind: "move"; mailboxId: string; destinationParentMailboxId: string | null }
   | { kind: "delete"; mailboxId: string }
   | { kind: "markAllRead"; mailboxId: string }
+  | { kind: "markAllUnreadRead"; mailboxIds: string[] }
+  | { kind: "favorite"; mailboxId: string; favorite: boolean }
   | { kind: "reorder"; orderedMailboxIds: string[] };
 
 interface UseMailboxActionsOptions {
@@ -35,6 +37,15 @@ export function useMailboxActions({ accountId, onError }: UseMailboxActionsOptio
       }
       if (action.kind === "markAllRead") {
         return api.markMailboxAllRead(accountId, action.mailboxId);
+      }
+      if (action.kind === "markAllUnreadRead") {
+        for (const mailboxId of action.mailboxIds) {
+          await api.markMailboxAllRead(accountId, mailboxId);
+        }
+        return;
+      }
+      if (action.kind === "favorite") {
+        return api.setMailboxFavorite(accountId, action.mailboxId, action.favorite);
       }
       return api.reorderMailboxes(accountId, action.orderedMailboxIds);
     },
@@ -74,6 +85,15 @@ export function useMailboxActions({ accountId, onError }: UseMailboxActionsOptio
     ),
     markMailboxAllRead: useCallback(
       (mailboxId: string) => mutateAsync({ kind: "markAllRead", mailboxId }),
+      [mutateAsync],
+    ),
+    markAllUnreadRead: useCallback(
+      (mailboxIds: string[]) => mutateAsync({ kind: "markAllUnreadRead", mailboxIds }),
+      [mutateAsync],
+    ),
+    setMailboxFavorite: useCallback(
+      (mailboxId: string, favorite: boolean) =>
+        mutateAsync({ kind: "favorite", mailboxId, favorite }),
       [mutateAsync],
     ),
     reorderMailboxes: useCallback(

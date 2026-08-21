@@ -72,6 +72,28 @@ afterEach(() => {
 });
 
 describe("MessageViewer", () => {
+  it("does not show pending synchronization below the subject", async () => {
+    const detail = await api.getMessageDetail("account-one", "message-one", "inbox");
+    vi.mocked(api.getMessageDetail).mockResolvedValueOnce({ ...detail, pendingOperation: true });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageViewer
+          accountId="account-one"
+          mailboxId="inbox"
+          messageId="message-one"
+          mailboxes={[]}
+          onMessageRemoved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Attachment" });
+    expect(screen.queryByText("Waiting to sync")).not.toBeInTheDocument();
+  });
+
   it("shows only a spinner while the message body is loading", async () => {
     vi.mocked(api.getMessageDetail).mockResolvedValueOnce({
       id: "message-loading",

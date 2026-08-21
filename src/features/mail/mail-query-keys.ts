@@ -1,3 +1,6 @@
+export const UNREAD_MAILBOX_ID = "__nextmail_unread__";
+export const STARRED_MAILBOX_ID = "__nextmail_starred__";
+
 export const mailQueryKeys = {
   accounts: ["accounts"] as const,
   accountRuntimes: ["account-runtimes"] as const,
@@ -5,6 +8,10 @@ export const mailQueryKeys = {
   messagesForAccount: (accountId: string) => ["messages", accountId] as const,
   messagesForMailbox: (accountId: string, mailboxId: string) =>
     ["messages", accountId, mailboxId] as const,
+  unreadMessages: (accountId: string) =>
+    ["messages", accountId, UNREAD_MAILBOX_ID] as const,
+  starredMessages: (accountId: string) =>
+    ["messages", accountId, STARRED_MAILBOX_ID] as const,
   messageSearch: (accountId: string, mailboxId: string, query: string) =>
     ["messages", accountId, mailboxId, "search", query] as const,
   syncProgress: (accountId: string) => ["sync-progress", accountId] as const,

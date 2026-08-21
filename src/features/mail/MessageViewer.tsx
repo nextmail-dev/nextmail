@@ -2,7 +2,6 @@ import {
   Archive,
   ChevronDown,
   ChevronUp,
-  CloudUpload,
   Copy,
   Download,
   ExternalLink,
@@ -208,9 +207,6 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
         <Inline className="flex-wrap items-start gap-x-4 gap-y-2">
           <Stack className="min-w-[220px] flex-1" gap="xs">
             <Heading level={1} className="select-text max-w-none text-lg leading-tight lg:text-lg">{message.subject || t("mail.noSubject")}</Heading>
-            {message.pendingOperation ? (
-              <Inline className="text-muted-foreground"><CloudUpload size={14} /><Text className="text-xs">{t("mail.pendingSync")}</Text></Inline>
-            ) : null}
           </Stack>
           <Inline className="max-w-full flex-wrap justify-end gap-0.5" role="toolbar" aria-label={t("mail.messageActions")}>
             <IconAction label={message.flagged ? t("mail.removeStar") : t("mail.addStar")} onClick={() => messageOperation.mutate({ kind: "flag" })}>

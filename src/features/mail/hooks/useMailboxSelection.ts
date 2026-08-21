@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api, normalizeCommandError } from "@/app/api";
 import type { AccountSummary, NotificationNavigationTarget } from "@/app/types";
-import { mailQueryKeys } from "../mail-query-keys";
+import { mailQueryKeys, STARRED_MAILBOX_ID, UNREAD_MAILBOX_ID } from "../mail-query-keys";
 
 interface UseMailboxSelectionOptions {
   accounts: AccountSummary[];
@@ -59,10 +59,9 @@ export function useMailboxSelection({
       setPendingNavigation(null);
       return;
     }
-    if (selectedMailboxId && mailboxes.some((mailbox) => mailbox.id === selectedMailboxId)) return;
-    const initial = mailboxes.find((mailbox) => mailbox.role === "inbox" && mailbox.selectable)
-      ?? mailboxes.find((mailbox) => mailbox.selectable);
-    setSelectedMailboxId(initial?.id ?? "");
+    if (selectedMailboxId === UNREAD_MAILBOX_ID || selectedMailboxId === STARRED_MAILBOX_ID
+      || selectedMailboxId && mailboxes.some((mailbox) => mailbox.id === selectedMailboxId)) return;
+    setSelectedMailboxId(mailboxes.length ? UNREAD_MAILBOX_ID : "");
   }, [mailboxesQuery.data, pendingNavigation, selectedAccountId, selectedMailboxId]);
 
   const selectAccount = useCallback((accountId: string) => {
@@ -75,11 +74,12 @@ export function useMailboxSelection({
 
   const selectMailbox = useCallback((mailboxId: string) => {
     setPendingNavigation(null);
+    if (mailboxId === selectedMailboxId) return;
     setSelectedMailboxId(mailboxId);
     setSelectedMessageId("");
     setSearchQuery("");
     setSubmittedSearchQuery("");
-  }, []);
+  }, [selectedMailboxId]);
 
   const navigateToMailLocation = useCallback((target: NotificationNavigationTarget) => {
     if (!accounts.some((account) => account.id === target.accountId)) return;

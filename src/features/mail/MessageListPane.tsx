@@ -16,7 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { forwardRef, memo, useEffect, type HTMLAttributes, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
+import { forwardRef, memo, useEffect, type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -34,7 +34,6 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { EmptyState } from "@/components/ui/empty-state";
-import { UnreadDot } from "@/components/ui/icon-tile";
 import { Inline, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SearchField } from "@/components/ui/search-field";
@@ -44,7 +43,7 @@ import { useListSelection } from "@/components/ui/use-list-selection";
 import { ContactIdentity } from "@/features/contacts/ContactIdentity";
 import { cn } from "@/lib/utils";
 import { formatMessageListTimestamp } from "./messageDate";
-import { mailQueryKeys, messageQueryKeys } from "./mail-query-keys";
+import { mailQueryKeys, messageQueryKeys, STARRED_MAILBOX_ID, UNREAD_MAILBOX_ID } from "./mail-query-keys";
 
 interface MessageListPaneProps {
   accountId: string;
@@ -52,7 +51,7 @@ interface MessageListPaneProps {
   mailbox?: MailboxSummary;
   mailboxes: MailboxSummary[];
   selectedMessageId: string;
-  onSelect: (messageId: string) => void;
+  onSelect: (messageId: string, mailboxId: string) => void;
   onVisibleMessageIdsChange: (messageIds: string[]) => void;
   onMessagesRemoved: (messageIds: string[]) => void;
   onOpenContact?: (contactId: string) => void;
@@ -81,16 +80,26 @@ function MessageListPaneBase({
 }: MessageListPaneProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const unreadView = mailboxId === UNREAD_MAILBOX_ID;
+  const starredView = mailboxId === STARRED_MAILBOX_ID;
   const activeSearch = submittedSearchQuery.trim();
   const readingPreferences = useQuery({
     queryKey: ["reading-preferences"],
     queryFn: api.getReadingPreferences,
   });
   const query = useInfiniteQuery({
-    queryKey: activeSearch
+    queryKey: unreadView
+      ? mailQueryKeys.unreadMessages(accountId)
+      : starredView
+      ? mailQueryKeys.starredMessages(accountId)
+      : activeSearch
       ? mailQueryKeys.messageSearch(accountId, mailboxId, activeSearch)
       : mailQueryKeys.messagesForMailbox(accountId, mailboxId),
-    queryFn: ({ pageParam }) => activeSearch
+    queryFn: ({ pageParam }) => unreadView
+      ? api.listUnreadMessages(accountId, pageParam, 50)
+      : starredView
+      ? api.listStarredMessages(accountId, pageParam, 50)
+      : activeSearch
       ? api.searchMessages(accountId, mailboxId, activeSearch, pageParam, 50)
       : api.listMessages(accountId, mailboxId, pageParam, 50),
     initialPageParam: null as string | null,
@@ -108,27 +117,38 @@ function MessageListPaneBase({
     itemIds: visibleMessageIds,
     primaryId: selectedMessageId,
     resetKey: `${accountId}:${mailboxId}:${activeSearch}`,
-    onPrimaryChange: onSelect,
+    onPrimaryChange: (messageId) => onSelect(
+      messageId,
+      items.find((message) => message.id === messageId)?.mailboxId ?? "",
+    ),
   });
   const selectedMessageIdSet = new Set(selection.orderedSelectedIds);
   const selectedMessages = items.filter((message) => selectedMessageIdSet.has(message.id));
   const operation = useMutation({
     mutationFn: async (input: MessageListOperation) => {
       const { messages, reference, kind, destination } = input;
-      const messageIds = messages.map((message) => message.id);
-      if (kind === "read") await api.setMessageRead(accountId, mailboxId, messageIds, reference.unread);
-      if (kind === "flag") await api.setMessageFlagged(accountId, mailboxId, messageIds, !reference.flagged);
-      if (kind === "move" && destination) await api.moveMessages(accountId, mailboxId, destination, messageIds);
-      if (kind === "copy" && destination) await api.copyMessages(accountId, mailboxId, destination, messageIds);
-      if (kind === "archive") await api.archiveMessages(accountId, mailboxId, messageIds);
-      if (kind === "delete") await api.deleteMessages(accountId, mailboxId, messageIds);
+      const groups = new Map<string, MessageListItem[]>();
+      for (const message of messages) {
+        groups.set(message.mailboxId, [...(groups.get(message.mailboxId) ?? []), message]);
+      }
+      await Promise.all([...groups].map(async ([sourceMailboxId, sourceMessages]) => {
+        const messageIds = sourceMessages.map((message) => message.id);
+        if (kind === "read") await api.setMessageRead(accountId, sourceMailboxId, messageIds, reference.unread);
+        if (kind === "flag") await api.setMessageFlagged(accountId, sourceMailboxId, messageIds, !reference.flagged);
+        if (kind === "move" && destination) await api.moveMessages(accountId, sourceMailboxId, destination, messageIds);
+        if (kind === "copy" && destination) await api.copyMessages(accountId, sourceMailboxId, destination, messageIds);
+        if (kind === "archive") await api.archiveMessages(accountId, sourceMailboxId, messageIds);
+        if (kind === "delete") await api.deleteMessages(accountId, sourceMailboxId, messageIds);
+      }));
       return input;
     },
     onSuccess: ({ kind, messages }) => {
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.mailboxes(accountId) });
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(accountId) });
       void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(accountId) });
-      if (["move", "archive", "delete"].includes(kind)) {
+      if (["move", "archive", "delete"].includes(kind)
+        || unreadView && kind === "read"
+        || starredView && kind === "flag") {
         selection.clear();
         onMessagesRemoved(messages.map((message) => message.id));
       }
@@ -143,10 +163,12 @@ function MessageListPaneBase({
     mutationFn: (message: MessageListItem) => api.openRemoteDraft(accountId, message.id),
   });
   const previewOperation = useMutation({
-    mutationFn: (message: MessageListItem) => api.openMessagePreviewWindow(accountId, mailboxId, message.id),
+    mutationFn: (message: MessageListItem) => api.openMessagePreviewWindow(accountId, message.mailboxId, message.id),
   });
   const mailboxName = mailbox
     ? mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`)
+    : unreadView ? t("mailboxNames.unread")
+    : starredView ? t("mailboxNames.starred")
     : t("mail.messages");
   const actionError = operation.error ?? composeOperation.error ?? editDraftOperation.error ?? previewOperation.error;
   const autoLoadMore = readingPreferences.data?.autoLoadMoreMessages ?? true;
@@ -159,6 +181,21 @@ function MessageListPaneBase({
     }
   }
 
+  function handleMessageArrowKey(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const nextRow = event.key === "ArrowDown"
+      ? event.currentTarget.nextElementSibling
+      : event.currentTarget.previousElementSibling;
+    if (!(nextRow instanceof HTMLElement)) return;
+    const messageId = nextRow.dataset.messageSelectionId;
+    const message = items.find((item) => item.id === messageId);
+    if (!message) return;
+    selection.select(message.id, { ctrlKey: false, metaKey: false, shiftKey: false });
+    if (message.unread) operation.mutate({ messages: [message], reference: message, kind: "read" });
+    nextRow.querySelector<HTMLElement>("[data-message-select-button]")?.focus();
+  }
+
   return (
     <Stack className="min-h-0 flex-1 bg-card" gap="none">
       <Stack className="px-5 pt-5 pb-4" gap="sm">
@@ -167,10 +204,12 @@ function MessageListPaneBase({
           <Text className="text-xs">
             {selection.orderedSelectedIds.length > 1
               ? t("mail.selectedCount", { count: selection.orderedSelectedIds.length })
-              : t("mail.folderSummary", { total: mailbox?.totalCount ?? allItems.length, unread: mailbox?.unreadCount ?? 0 })}
+              : unreadView
+                ? t("mail.unreadSummary", { unread: mailboxes.reduce((total, item) => total + item.unreadCount, 0) })
+                : t("mail.folderSummary", { total: mailbox?.totalCount ?? allItems.length, unread: mailbox?.unreadCount ?? 0 })}
           </Text>
         </Stack>
-        <SearchField
+          {unreadView || starredView ? null : <SearchField
           className="h-10 w-full rounded-lg bg-muted px-3.5"
           value={searchQuery}
           placeholder={t("mail.searchPlaceholder")}
@@ -187,7 +226,7 @@ function MessageListPaneBase({
             onSearchChange(query);
             onSearchSubmit(query);
           }}
-        />
+        />}
       </Stack>
       {actionError ? <MessageListError error={actionError} /> : null}
       {items.length ? (
@@ -204,7 +243,9 @@ function MessageListPaneBase({
                 key={message.id}
                 message={message}
                 selectionCount={operationMessages.length}
-                currentMailbox={mailbox}
+                currentMailbox={unreadView || starredView
+                  ? mailboxes.find((item) => item.id === message.mailboxId)
+                  : mailbox}
                 mailboxes={mailboxes}
                 pending={operation.isPending || composeOperation.isPending || editDraftOperation.isPending || previewOperation.isPending}
                 onCompose={(action) => composeOperation.mutate({ message, action })}
@@ -219,13 +260,18 @@ function MessageListPaneBase({
                   yesterdayLabel={t("mail.yesterday")}
                   noSubject={t("mail.noSubject")}
                   starLabel={message.flagged ? t("mail.removeStar") : t("mail.addStar")}
+                  readLabel={message.unread ? t("mail.markRead") : t("mail.markUnread")}
+                  pending={operation.isPending}
                   onContextMenu={() => selection.selectForContextMenu(message.id)}
+                  data-message-selection-id={message.id}
+                  onKeyDown={handleMessageArrowKey}
                   onClick={(event) => {
                     if (event.detail > 1) return;
                     selection.select(message.id, event);
                     if (message.unread) operation.mutate({ messages: [message], reference: message, kind: "read" });
                   }}
                   onOpenInNewWindow={() => previewOperation.mutate(message)}
+                  onToggleRead={() => operation.mutate({ messages: [message], reference: message, kind: "read" })}
                   onToggleFlag={() => operation.mutate({ messages: [message], reference: message, kind: "flag" })}
                   onOpenContact={onOpenContact}
                   onEditContact={onEditContact}
@@ -267,8 +313,11 @@ interface MessageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"
   yesterdayLabel: string;
   noSubject: string;
   starLabel: string;
+  readLabel: string;
+  pending: boolean;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   onOpenInNewWindow: () => void;
+  onToggleRead: () => void;
   onToggleFlag: () => void;
   onOpenContact?: (contactId: string) => void;
   onEditContact?: (contactId: string) => void;
@@ -281,8 +330,11 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
   yesterdayLabel,
   noSubject,
   starLabel,
+  readLabel,
+  pending,
   onClick,
   onOpenInNewWindow,
+  onToggleRead,
   onToggleFlag,
   onOpenContact,
   onEditContact,
@@ -308,8 +360,27 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
     >
       <Button
         variant="ghost"
+        size="icon"
+        className="group/read-state absolute top-3.5 left-3 z-10 size-5 rounded-full bg-transparent hover:bg-transparent"
+        aria-label={readLabel}
+        title={readLabel}
+        aria-pressed={message.unread}
+        disabled={pending}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleRead();
+        }}
+      >
+        <span className={cn(
+          "size-2 rounded-full transition-shadow group-hover/read-state:ring-2 group-hover/read-state:ring-foreground/10",
+          message.unread ? "bg-primary" : "border border-foreground/15",
+        )} />
+      </Button>
+      <Button
+        variant="ghost"
         aria-pressed={selected}
-        className="h-auto min-w-0 flex-1 items-start rounded-none bg-transparent px-5 py-2.5 pr-12 text-left hover:bg-transparent"
+        data-message-select-button="true"
+        className="h-auto min-w-0 flex-1 items-start rounded-none bg-transparent py-2.5 pr-12 pl-10 text-left hover:bg-transparent"
         onClick={onClick}
         onDoubleClick={(event) => {
           event.preventDefault();
@@ -318,7 +389,6 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
       >
         <Stack className="min-w-0 flex-1" gap="xs">
           <Inline className="w-full">
-            {message.unread ? <UnreadDot /> : null}
             {sender ? (
               <ContactIdentity address={sender} className="min-w-0 flex-1" onOpenContact={onOpenContact} onEditContact={onEditContact} focusable={false}>
                 <span className={cn(

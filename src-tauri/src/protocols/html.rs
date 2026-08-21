@@ -6,7 +6,7 @@ use std::{
 
 use ammonia::Builder;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use mail_parser::{Message, MessageParser, MimeHeaders};
+use mail_parser::{decoders::html::html_to_text, Message, MessageParser, MimeHeaders, PartType};
 
 use super::{
     attachment_file_name,
@@ -63,7 +63,7 @@ pub struct ReaderInlineImage {
 
 pub fn sanitize_raw_message_body(raw: &[u8]) -> Option<SanitizedMessageBody> {
     let message = MessageParser::default().parse(raw)?;
-    let plain_text = message.body_text(0).map(|value| value.into_owned());
+    let plain_text = message_body_text(&message);
     let sanitized_html = message
         .body_html(0)
         .map(|value| sanitize_mail_html_with_cid_images(&value, &message));
@@ -89,7 +89,7 @@ pub fn sanitize_raw_message_body(raw: &[u8]) -> Option<SanitizedMessageBody> {
 
 pub fn sanitize_raw_message_for_composer(raw: &[u8]) -> Option<SanitizedComposerBody> {
     let message = MessageParser::default().parse(raw)?;
-    let plain_text = message.body_text(0).map(|value| value.into_owned());
+    let plain_text = message_body_text(&message);
     let safe_html = message
         .body_html(0)
         .map(|value| sanitize_mail_html_for_composer(&value));
@@ -135,6 +135,18 @@ pub fn sanitize_raw_message_for_composer(raw: &[u8]) -> Option<SanitizedComposer
 
 pub fn sanitize_mail_html(input: &str) -> SanitizedHtml {
     sanitize_mail_html_with_data_urls(input, HashMap::new())
+}
+
+pub(crate) fn message_body_text(message: &Message<'_>) -> Option<String> {
+    match &message.part(*message.text_body.first()?)?.body {
+        PartType::Text(text) => Some(text.to_string()),
+        PartType::Html(html) => Some(html_body_text(html)),
+        _ => None,
+    }
+}
+
+pub(crate) fn html_body_text(input: &str) -> String {
+    html_to_text(html_body_content(input))
 }
 
 pub fn sanitize_mail_html_with_cid_images(input: &str, message: &Message<'_>) -> SanitizedHtml {
@@ -414,7 +426,7 @@ fn sanitize_mail_html_fragment_with_scope(
     }
     let data_image_budget = Arc::new(Mutex::new(DataImageBudget::default()));
     builder
-        .add_clean_content_tags(["script", "form", "iframe", "object", "svg", "math"])
+        .add_clean_content_tags(["script", "form", "iframe", "object", "svg", "math", "title"])
         .add_tags(["font", "tfoot"])
         .add_tag_attributes(
             "div",
@@ -689,6 +701,30 @@ fn preserve_body_container(input: &str) -> Cow<'_, str> {
         output.push_str(&input[cursor..]);
         Cow::Owned(output)
     }
+}
+
+fn html_body_content(input: &str) -> &str {
+    let bytes = input.as_bytes();
+    let Some(body_start) = (0..bytes.len()).find(|&index| {
+        starts_with_ascii_case_insensitive(bytes, index, b"<body")
+            && is_html_tag_boundary(bytes.get(index + 5).copied())
+    }) else {
+        return input;
+    };
+    let Some(content_start) = bytes[body_start + 5..]
+        .iter()
+        .position(|value| *value == b'>')
+        .map(|offset| body_start + 6 + offset)
+    else {
+        return input;
+    };
+    let body_end = (content_start..bytes.len())
+        .find(|&index| {
+            starts_with_ascii_case_insensitive(bytes, index, b"</body")
+                && is_html_tag_boundary(bytes.get(index + 6).copied())
+        })
+        .unwrap_or(bytes.len());
+    &input[content_start..body_end]
 }
 
 fn starts_with_ascii_case_insensitive(input: &[u8], start: usize, expected: &[u8]) -> bool {

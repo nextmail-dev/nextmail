@@ -116,10 +116,13 @@ describe("MailboxPane", () => {
     fireEvent.click(parent);
     expect(onSelect).toHaveBeenCalledWith("root");
 
-    fireEvent.click(screen.getByRole("button", { name: "Collapse Other" }));
+    const collapse = screen.getByRole("button", { name: "Collapse Other" });
+    expect(collapse).toHaveClass("w-4");
+    fireEvent.click(collapse);
     expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Expand Other" }));
     expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+    expect(onSelect).toHaveBeenCalledOnce();
   });
 
   it("does not capture an ordinary folder click before the long-press threshold", () => {
@@ -191,6 +194,7 @@ describe("MailboxPane", () => {
     const receive = current.getByRole("button", { name: "Receive" });
     const settings = current.getByRole("button", { name: "Settings" });
     expect(folderHeading.parentElement).toContainElement(receive);
+    expect(folderHeading.parentElement).toHaveClass("pl-[26px]");
     expect(settings).toHaveClass("mt-auto");
 
     fireEvent.click(receive);
@@ -247,6 +251,179 @@ describe("MailboxPane", () => {
     expect(screen.getByRole("menuitem", { name: "Move folder" })).toBeEnabled();
     fireEvent.click(screen.getByRole("menuitem", { name: "Mark all as read" }));
     await waitFor(() => expect(onMarkFolderAllRead).toHaveBeenCalledWith("archive"));
+  });
+
+  it("keeps the unread view in the scrollable folder list with only mark-all-read in its menu", async () => {
+    const onSelect = vi.fn();
+    const onMarkAllUnreadRead = vi.fn().mockResolvedValue(undefined);
+    const inbox: MailboxSummary = {
+      id: "inbox",
+      accountId: "account-one",
+      name: "INBOX",
+      delimiter: "/",
+      role: "inbox",
+      selectable: true,
+      totalCount: 3,
+      unreadCount: 2,
+      revision: 1,
+    };
+    const { container } = render(
+      <MailboxPane
+        mailboxes={[inbox]}
+        selectedMailboxId="__nextmail_unread__"
+        onSelect={onSelect}
+        onCompose={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onMarkAllUnreadRead={onMarkAllUnreadRead}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    const unread = within(container).getByRole("button", { name: "Unread" });
+    const scrollArea = container.querySelector('[data-scrollbar-auto-hide="true"]');
+    expect(scrollArea).toContainElement(unread);
+    expect(unread).toHaveTextContent("2");
+    expect(unread.compareDocumentPosition(within(container).getByRole("button", { name: "Inbox" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(unread);
+    expect(onSelect).toHaveBeenCalledWith("__nextmail_unread__");
+    fireEvent.contextMenu(unread);
+    const items = await screen.findAllByRole("menuitem");
+    expect(items).toHaveLength(1);
+    fireEvent.click(items[0]);
+    await waitFor(() => expect(onMarkAllUnreadRead).toHaveBeenCalledOnce());
+  });
+
+  it("renders fixed virtual favorites and persists real folder favorites from context menus", async () => {
+    const onSetFavorite = vi.fn().mockResolvedValue(undefined);
+    const mailboxes: MailboxSummary[] = [
+      { id: "inbox", accountId: "account-one", name: "INBOX", delimiter: "/", role: "inbox", selectable: true, totalCount: 2, unreadCount: 1, isFavorite: true, revision: 1 },
+      { id: "archive", accountId: "account-one", name: "Archive", delimiter: "/", role: "archive", selectable: true, totalCount: 1, unreadCount: 0, isFavorite: false, revision: 1 },
+    ];
+    const { container } = render(
+      <MailboxPane
+        mailboxes={mailboxes}
+        selectedMailboxId=""
+        onSelect={vi.fn()}
+        onCompose={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onSetFavorite={onSetFavorite}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    const favoritesLabel = within(container).getByText("Favorites");
+    const foldersLabel = within(container).getByText("Mail folders");
+    expect(favoritesLabel.compareDocumentPosition(foldersLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const starred = within(container).getByRole("button", { name: "Starred" });
+    expect(starred).toBeInTheDocument();
+    expect(within(container).getByRole("button", { name: "Unread" })).toBeInTheDocument();
+    const inboxRows = within(container).getAllByRole("button", { name: "Inbox" });
+    expect(inboxRows).toHaveLength(2);
+    expect(inboxRows[0].compareDocumentPosition(starred) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.contextMenu(inboxRows[0]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from favorites" }));
+    await waitFor(() => expect(onSetFavorite).toHaveBeenCalledWith("inbox", false));
+
+    fireEvent.contextMenu(within(container).getByRole("button", { name: "Archive" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Add to favorites" }));
+    await waitFor(() => expect(onSetFavorite).toHaveBeenCalledWith("archive", true));
+  });
+
+  it("highlights only the clicked occurrence of a favorite mailbox", () => {
+    const { container } = render(
+      <MailboxPane
+        mailboxes={[{
+          id: "inbox",
+          accountId: "account-one",
+          name: "INBOX",
+          delimiter: "/",
+          role: "inbox",
+          selectable: true,
+          totalCount: 2,
+          unreadCount: 1,
+          isFavorite: true,
+          revision: 1,
+        }]}
+        selectedMailboxId="inbox"
+        onSelect={vi.fn()}
+        onCompose={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    const inboxRows = within(container).getAllByRole("button", { name: "Inbox" });
+    const favoriteRow = inboxRows[0];
+    const folderRow = inboxRows[1].parentElement;
+    expect(favoriteRow).not.toHaveClass("bg-primary/10");
+    expect(folderRow).toHaveClass("bg-primary/10");
+
+    fireEvent.click(favoriteRow);
+    expect(favoriteRow).toHaveClass("bg-primary/10");
+    expect(folderRow).not.toHaveClass("bg-primary/10");
+
+    fireEvent.click(inboxRows[1]);
+    expect(favoriteRow).not.toHaveClass("bg-primary/10");
+    expect(folderRow).toHaveClass("bg-primary/10");
+  });
+
+  it("selects a leaf folder from the reserved expander area", () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <MailboxPane
+        mailboxes={[{
+          id: "inbox",
+          accountId: "account-one",
+          name: "INBOX",
+          delimiter: "/",
+          role: "inbox",
+          selectable: true,
+          totalCount: 3,
+          unreadCount: 0,
+          revision: 1,
+        }]}
+        selectedMailboxId=""
+        onSelect={onSelect}
+        onCompose={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    const inbox = within(container).getByRole("button", { name: "Inbox" });
+    expect(inbox.previousElementSibling).toHaveClass("w-4");
+    fireEvent.click(inbox.previousElementSibling!);
+    expect(onSelect).toHaveBeenCalledWith("inbox");
+  });
+
+  it("moves folder selection with arrow keys instead of scrolling", () => {
+    const onSelect = vi.fn();
+    const { container } = render(
+      <MailboxPane
+        mailboxes={[
+          { id: "inbox", accountId: "account-one", name: "INBOX", delimiter: "/", role: "inbox", selectable: true, totalCount: 1, unreadCount: 0, revision: 1 },
+          { id: "archive", accountId: "account-one", name: "Archive", delimiter: "/", role: "archive", selectable: true, totalCount: 1, unreadCount: 0, revision: 1 },
+        ]}
+        selectedMailboxId="inbox"
+        onSelect={onSelect}
+        onCompose={vi.fn()}
+        onReceive={vi.fn()}
+        receiving={false}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    const current = within(container);
+    const inbox = current.getByRole("button", { name: "Inbox" });
+    const archive = current.getByRole("button", { name: "Archive" });
+    fireEvent.keyDown(inbox, { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenCalledWith("archive");
+    expect(archive).toHaveFocus();
   });
 
   it("shows a circle-and-line insertion marker while reordering folders", () => {
@@ -366,6 +543,7 @@ describe("MailboxPane", () => {
       onCompose: vi.fn(),
       onReceive: vi.fn(),
       receiving: true,
+      showProgress: true,
       onOpenSettings: vi.fn(),
     };
     const { rerender } = render(
@@ -401,5 +579,30 @@ describe("MailboxPane", () => {
       />,
     );
     expect(screen.getByText("Synchronizing Archive (3/9)")).toBeInTheDocument();
+  });
+
+  it("hides background sync progress unless it was manually requested", () => {
+    const { container } = render(
+      <MailboxPane
+        mailboxes={[]}
+        selectedMailboxId=""
+        onSelect={vi.fn()}
+        onCompose={vi.fn()}
+        onReceive={vi.fn()}
+        receiving
+        onOpenSettings={vi.fn()}
+        progress={{
+          accountId: "account-one",
+          phase: "summaries",
+          completed: 3,
+          total: 9,
+          currentMailboxName: "Archive",
+          errorCode: null,
+          revision: 1,
+        }}
+      />,
+    );
+
+    expect(within(container).queryByText("Synchronizing Archive (3/9)")).not.toBeInTheDocument();
   });
 });

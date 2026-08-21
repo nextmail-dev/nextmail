@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/app/api";
 import type { AccountSummary } from "@/app/types";
+import { UNREAD_MAILBOX_ID } from "../mail-query-keys";
 import { useMailboxSelection } from "./useMailboxSelection";
 
 vi.mock("@/app/api", () => ({
@@ -71,7 +72,7 @@ describe("useMailboxSelection", () => {
     }), { wrapper: createWrapper() });
 
     expect(result.current.selectedAccountId).toBe("account-two");
-    await waitFor(() => expect(result.current.selectedMailboxId).toBe("archive-two"));
+    await waitFor(() => expect(result.current.selectedMailboxId).toBe(UNREAD_MAILBOX_ID));
     act(() => {
       result.current.setSelectedMessageId("message-two");
       result.current.setSearchQuery("quarterly");
@@ -81,7 +82,7 @@ describe("useMailboxSelection", () => {
 
     await waitFor(() => {
       expect(result.current.selectedAccountId).toBe("account-one");
-      expect(result.current.selectedMailboxId).toBe("inbox-one");
+      expect(result.current.selectedMailboxId).toBe(UNREAD_MAILBOX_ID);
       expect(result.current.selectedMessageId).toBe("");
       expect(result.current.searchQuery).toBe("");
       expect(result.current.submittedSearchQuery).toBe("");
@@ -96,7 +97,7 @@ describe("useMailboxSelection", () => {
       lastSelectedAccountId: "account-one",
       onError: vi.fn(),
     }), { wrapper: createWrapper() });
-    await waitFor(() => expect(result.current.selectedMailboxId).toBe("inbox-one"));
+    await waitFor(() => expect(result.current.selectedMailboxId).toBe(UNREAD_MAILBOX_ID));
 
     act(() => result.current.navigateToMailLocation({
       accountId: "account-two",
@@ -118,5 +119,31 @@ describe("useMailboxSelection", () => {
       expect(result.current.selectedMailboxId).toBe("archive-two");
       expect(result.current.selectedMessageId).toBe("");
     });
+  });
+
+  it("keeps the current message when the selected mailbox is clicked again", async () => {
+    const { result } = renderHook(() => useMailboxSelection({
+      accounts,
+      lastSelectedAccountId: "account-one",
+      onError: vi.fn(),
+    }), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.selectedMailboxId).toBe(UNREAD_MAILBOX_ID));
+
+    act(() => result.current.selectMailbox("inbox-one"));
+    act(() => {
+      result.current.setSelectedMessageId("message-one");
+      result.current.setSearchQuery("quarterly");
+      result.current.setSubmittedSearchQuery("quarterly");
+    });
+    act(() => result.current.selectMailbox("inbox-one"));
+
+    expect(result.current.selectedMessageId).toBe("message-one");
+    expect(result.current.searchQuery).toBe("quarterly");
+    expect(result.current.submittedSearchQuery).toBe("quarterly");
+
+    act(() => result.current.selectMailbox(UNREAD_MAILBOX_ID));
+    expect(result.current.selectedMessageId).toBe("");
+    expect(result.current.searchQuery).toBe("");
+    expect(result.current.submittedSearchQuery).toBe("");
   });
 });

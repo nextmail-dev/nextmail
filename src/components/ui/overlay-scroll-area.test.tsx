@@ -8,7 +8,7 @@ afterEach(() => {
 });
 
 describe("OverlayScrollArea", () => {
-  it("uses an overlay thumb that only appears on hover or keyboard focus", () => {
+  it("uses an overlay thumb that only appears on hover", () => {
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(100);
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(400);
 
@@ -28,9 +28,10 @@ describe("OverlayScrollArea", () => {
     expect(track).toHaveClass(
       "opacity-0",
       "group-hover/scroll-area:opacity-100",
-      "group-focus-within/scroll-area:opacity-100",
     );
+    expect(track).not.toHaveClass("group-focus-within/scroll-area:opacity-100");
     expect(thumb).toHaveClass("pointer-events-none", "w-full", "cursor-default");
+    expect(thumb).not.toHaveClass("group-focus-within/scroll-area:pointer-events-auto");
     expect(thumb?.firstElementChild).toHaveClass("w-1.5");
   });
 });

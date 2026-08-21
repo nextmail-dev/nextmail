@@ -7,6 +7,7 @@ import {
   FolderInput,
   FolderPlus,
   Inbox,
+  Mail,
   MailCheck,
   MailPlus,
   Pencil,
@@ -14,10 +15,11 @@ import {
   Send,
   Settings,
   ShieldAlert,
+  Star,
   Trash2,
   UsersRound,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { normalizeCommandError } from "@/app/api";
@@ -43,6 +45,7 @@ import {
 } from "./MailboxFolderDialog";
 import { useMailboxReorderGesture } from "./hooks/useMailboxReorderGesture";
 import { reorderMailboxHierarchy } from "./mailbox-order";
+import { STARRED_MAILBOX_ID, UNREAD_MAILBOX_ID } from "./mail-query-keys";
 
 interface MailboxPaneProps {
   mailboxes: MailboxSummary[];
@@ -64,9 +67,12 @@ interface MailboxPaneProps {
   ) => Promise<void>;
   onDeleteFolder?: (mailboxId: string) => Promise<void>;
   onMarkFolderAllRead?: (mailboxId: string) => Promise<void>;
+  onSetFavorite?: (mailboxId: string, favorite: boolean) => Promise<void>;
+  onMarkAllUnreadRead?: () => Promise<void>;
   onReorderFolders?: (orderedMailboxIds: string[]) => Promise<void>;
   onOpenSettings: () => void;
   collapsed?: boolean;
+  showProgress?: boolean;
 }
 
 export function MailboxPane({
@@ -86,21 +92,30 @@ export function MailboxPane({
   onMoveFolder = async () => {},
   onDeleteFolder = async () => {},
   onMarkFolderAllRead = async () => {},
+  onSetFavorite = async () => {},
+  onMarkAllUnreadRead = async () => {},
   onReorderFolders = async () => {},
   onOpenSettings,
   collapsed = false,
+  showProgress = false,
 }: MailboxPaneProps) {
   const { t } = useTranslation();
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(() => new Set());
   const [folderDialogAction, setFolderDialogAction] = useState<MailboxDialogAction | null>(null);
-  const activeSync = progress && !["idle", "complete", "failed"].includes(progress.phase);
+  const [favoriteSelectionId, setFavoriteSelectionId] = useState<string | null>(null);
+  const activeSync = showProgress && progress && !["idle", "complete", "failed"].includes(progress.phase);
   const percentage = progress?.phase === "summaries" && progress.total
     ? (progress.completed / progress.total) * 100
     : 8;
   const normalizedError = error ? normalizeCommandError(error) : null;
+  const totalUnread = mailboxes.reduce((total, mailbox) => total + mailbox.unreadCount, 0);
+  const favoriteMailboxes = mailboxes.filter((mailbox) => mailbox.isFavorite);
   const mailboxItems = flattenMailboxHierarchy(mailboxes);
   const visibleMailboxItems = mailboxItems.filter((item) =>
     item.ancestorIds.every((ancestorId) => !collapsedFolderIds.has(ancestorId)));
+  useEffect(() => {
+    setFavoriteSelectionId((current) => current === selectedMailboxId ? current : null);
+  }, [selectedMailboxId]);
   const handleFolderDrop = useCallback((
     sourceId: string,
     targetId: string,
@@ -147,6 +162,28 @@ export function MailboxPane({
     setTimeout(() => setFolderDialogAction(action), 0);
   }
 
+  function handleMailboxArrowKey(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    let nextRow = event.key === "ArrowDown"
+      ? event.currentTarget.nextElementSibling
+      : event.currentTarget.previousElementSibling;
+    while (nextRow instanceof HTMLElement && !nextRow.dataset.mailboxSelectionId) {
+      nextRow = event.key === "ArrowDown"
+        ? nextRow.nextElementSibling
+        : nextRow.previousElementSibling;
+    }
+    if (!(nextRow instanceof HTMLElement)) return;
+    const mailboxId = nextRow.dataset.mailboxSelectionId;
+    if (!mailboxId) return;
+    setFavoriteSelectionId(nextRow.dataset.mailboxFavorite === "true" ? mailboxId : null);
+    onSelect(mailboxId);
+    const button = nextRow.matches("[data-mailbox-select-button]")
+      ? nextRow
+      : nextRow.querySelector<HTMLElement>("[data-mailbox-select-button]");
+    button?.focus();
+  }
+
   return (
     <Stack className={collapsed ? "min-h-0 flex-1 items-center px-2 py-4" : "min-h-0 flex-1 px-4 py-4"} gap="sm">
       <Inline className={collapsed ? "w-full justify-center gap-0" : "w-full gap-1"}>
@@ -191,37 +228,7 @@ export function MailboxPane({
             <RefreshCw className={receiving ? "animate-spin" : undefined} size={15} />
           </Button>
         </Inline>
-      ) : (
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <Inline className="w-full px-2 pt-0.5">
-              <LabelText className="min-w-0 flex-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">
-                {t("mail.folders")}
-              </LabelText>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                aria-label={t("mail.receive")}
-                title={t("mail.receive")}
-                disabled={receiving}
-                onClick={onReceive}
-              >
-                <RefreshCw className={receiving ? "animate-spin" : undefined} size={15} />
-              </Button>
-            </Inline>
-          </ContextMenuTrigger>
-          <ContextMenuContent>
-            <ContextMenuItem
-              disabled={folderActionBusy}
-              onSelect={() => openFolderDialog({ kind: "create", parent: null })}
-            >
-              <FolderPlus size={15} />
-              {t("mail.createRootFolder")}
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
-      )}
+      ) : null}
       {activeSync && !collapsed ? (
         <Stack className="rounded-lg border border-border/60 bg-card/60 p-2.5" gap="sm">
           <Text className="text-xs">
@@ -241,14 +248,164 @@ export function MailboxPane({
       {normalizedError && !collapsed ? (
         <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
       ) : null}
-      {mailboxes.length ? (
-        <OverlayScrollArea
-          className={collapsed ? "min-h-0 w-full flex-1" : "-mr-3 min-h-0 flex-1"}
-          contentClassName={collapsed ? "gap-0.5" : "gap-0.5 pr-3"}
-          trackClassName="right-0 w-3"
-        >
+      <OverlayScrollArea
+        className={collapsed ? "min-h-0 w-full flex-1" : "-mr-3 min-h-0 flex-1"}
+        contentClassName={collapsed ? "gap-0.5" : "gap-0.5 pr-3"}
+        trackClassName="right-0 w-3"
+      >
+          {collapsed ? null : (
+            <LabelText className="h-7 w-full px-[26px] pt-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">
+              {t("mail.favorites")}
+            </LabelText>
+          )}
+          {collapsed ? null : favoriteMailboxes.map((mailbox) => {
+            const label = mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`);
+            const selected = mailbox.id === selectedMailboxId && favoriteSelectionId === mailbox.id;
+            return (
+              <ContextMenu key={`favorite-${mailbox.id}`}>
+                <ContextMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className={selected
+                      ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-[26px] text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                      : "h-9 w-full flex-none justify-start pr-3 pl-[26px] text-muted-foreground"}
+                    aria-label={label}
+                    data-mailbox-selection-id={mailbox.id}
+                    data-mailbox-favorite="true"
+                    data-mailbox-select-button="true"
+                    onClick={() => {
+                      setFavoriteSelectionId(mailbox.id);
+                      onSelect(mailbox.id);
+                    }}
+                    onKeyDown={handleMailboxArrowKey}
+                  >
+                    <MailboxIcon role={mailbox.role} />
+                    <Text className="min-w-0 flex-1 truncate text-left text-[length:var(--ui-font-control)] text-inherit">{label}</Text>
+                    {mailbox.unreadCount ? <Text className="min-w-5 text-right text-[11px] leading-none font-semibold text-primary">{mailbox.unreadCount}</Text> : null}
+                  </Button>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    disabled={folderActionBusy}
+                    onSelect={() => void onSetFavorite(mailbox.id, false)
+                      .catch((error) => reportCaughtError("mailbox.favorite", error))}
+                  >
+                    <Star size={15} />
+                    {t("mail.removeFromFavorites")}
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={folderActionBusy || !mailbox.selectable || mailbox.unreadCount === 0}
+                    onSelect={() => void onMarkFolderAllRead(mailbox.id)
+                      .catch((error) => reportCaughtError("mailbox.mark-all-read", error))}
+                  >
+                    <MailCheck size={15} />
+                    {t("mail.markFolderAllRead")}
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
+            );
+          })}
+          <Button
+            variant="ghost"
+            className={collapsed
+              ? selectedMailboxId === STARRED_MAILBOX_ID
+                ? "mx-auto size-10 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
+                : "mx-auto size-10 flex-none justify-center p-0"
+              : selectedMailboxId === STARRED_MAILBOX_ID
+                ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-[26px] text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                : "h-9 w-full flex-none justify-start pr-3 pl-[26px] text-muted-foreground"}
+            aria-label={t("mailboxNames.starred")}
+            title={collapsed ? t("mailboxNames.starred") : undefined}
+            data-mailbox-selection-id={STARRED_MAILBOX_ID}
+            data-mailbox-select-button="true"
+            onClick={() => {
+              setFavoriteSelectionId(null);
+              onSelect(STARRED_MAILBOX_ID);
+            }}
+            onKeyDown={handleMailboxArrowKey}
+          >
+            <Star className="size-[18px] shrink-0" strokeWidth={1.8} />
+            {collapsed ? null : (
+              <Text className="min-w-0 flex-1 truncate text-left text-[length:var(--ui-font-control)] text-inherit">
+                {t("mailboxNames.starred")}
+              </Text>
+            )}
+          </Button>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className={collapsed
+                  ? selectedMailboxId === UNREAD_MAILBOX_ID
+                    ? "mx-auto size-10 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
+                    : "mx-auto size-10 flex-none justify-center p-0"
+                  : selectedMailboxId === UNREAD_MAILBOX_ID
+                    ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-[26px] text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                    : "h-9 w-full flex-none justify-start pr-3 pl-[26px] text-muted-foreground"}
+                aria-label={t("mailboxNames.unread")}
+                title={collapsed ? t("mailboxNames.unread") : undefined}
+                data-mailbox-selection-id={UNREAD_MAILBOX_ID}
+                data-mailbox-select-button="true"
+                onClick={() => {
+                  setFavoriteSelectionId(null);
+                  onSelect(UNREAD_MAILBOX_ID);
+                }}
+                onKeyDown={handleMailboxArrowKey}
+              >
+                <Mail className="size-[18px] shrink-0" strokeWidth={1.8} />
+                {collapsed ? null : (
+                  <>
+                    <Text className="min-w-0 flex-1 truncate text-left text-[length:var(--ui-font-control)] text-inherit">{t("mailboxNames.unread")}</Text>
+                    {totalUnread ? <Text className="min-w-5 text-right text-[11px] leading-none font-semibold text-primary">{totalUnread}</Text> : null}
+                  </>
+                )}
+              </Button>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem
+                disabled={folderActionBusy || totalUnread === 0}
+                onSelect={() => void onMarkAllUnreadRead()
+                  .catch((error) => reportCaughtError("mailbox.mark-all-unread-read", error))}
+              >
+                <MailCheck size={15} />
+                {t("mail.markFolderAllRead")}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
+          {collapsed ? null : (
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <Inline className="mt-2 h-7 w-full pr-2 pl-[26px]">
+                  <LabelText className="min-w-0 flex-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">
+                    {t("mail.folders")}
+                  </LabelText>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    aria-label={t("mail.receive")}
+                    title={t("mail.receive")}
+                    disabled={receiving}
+                    onClick={onReceive}
+                  >
+                    <RefreshCw className={receiving ? "animate-spin" : undefined} size={15} />
+                  </Button>
+                </Inline>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
+                  disabled={folderActionBusy}
+                  onSelect={() => openFolderDialog({ kind: "create", parent: null })}
+                >
+                  <FolderPlus size={15} />
+                  {t("mail.createRootFolder")}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          )}
           {visibleMailboxItems.map(({ mailbox, depth, displayName, hasChildren }) => {
-            const selected = mailbox.id === selectedMailboxId;
+            const selected = mailbox.id === selectedMailboxId
+              && (collapsed || favoriteSelectionId !== mailbox.id);
             const label = mailbox.role === "other" ? displayName : t(`mailboxNames.${mailbox.role}`);
             const folderCollapsed = collapsedFolderIds.has(mailbox.id);
             const structureMutable = mailbox.role !== "inbox";
@@ -288,6 +445,14 @@ export function MailboxPane({
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
+                  disabled={folderActionBusy}
+                  onSelect={() => void onSetFavorite(mailbox.id, !mailbox.isFavorite)
+                    .catch((error) => reportCaughtError("mailbox.favorite", error))}
+                >
+                  <Star size={15} />
+                  {t(mailbox.isFavorite ? "mail.removeFromFavorites" : "mail.addToFavorites")}
+                </ContextMenuItem>
+                <ContextMenuItem
                   disabled={folderActionBusy || !mailbox.selectable || mailbox.unreadCount === 0}
                   onSelect={() => void onMarkFolderAllRead(mailbox.id)
                     .catch((error) => reportCaughtError("mailbox.mark-all-read", error))}
@@ -321,6 +486,12 @@ export function MailboxPane({
                         : "relative h-9 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"} ${draggingId === mailbox.id ? "cursor-grabbing opacity-55" : "cursor-default"}`}
                       style={{ paddingInlineStart: `${4 + depth * 16}px` }}
                       aria-grabbed={draggingId === mailbox.id}
+                      data-mailbox-selection-id={mailbox.id}
+                      onClick={() => {
+                        setFavoriteSelectionId(null);
+                        onSelect(mailbox.id);
+                      }}
+                      onKeyDown={handleMailboxArrowKey}
                     >
                       {dropPosition ? (
                         <span
@@ -336,21 +507,24 @@ export function MailboxPane({
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-6 shrink-0 rounded-none bg-transparent p-0 hover:bg-transparent hover:text-foreground"
+                          className="h-6 w-4 shrink-0 rounded-none bg-transparent p-0 hover:bg-transparent hover:text-foreground"
                           aria-label={t(folderCollapsed ? "mail.expandFolder" : "mail.collapseFolder", { folder: label })}
                           aria-expanded={!folderCollapsed}
-                          onClick={() => toggleFolder(mailbox.id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleFolder(mailbox.id);
+                          }}
                         >
                           {folderCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                         </Button>
                       ) : (
-                        <Inline className="size-6 shrink-0" aria-hidden="true" />
+                        <Inline className="h-6 w-4 shrink-0" aria-hidden="true" />
                       )}
                       <Button
                         variant="ghost"
                         className="h-9 min-w-0 flex-1 justify-start rounded-md bg-transparent px-1.5 text-inherit hover:bg-transparent hover:text-foreground"
                         aria-label={label}
-                        onClick={() => onSelect(mailbox.id)}
+                        data-mailbox-select-button="true"
                       >
                         <MailboxIcon role={mailbox.role} />
                         <Text className="min-w-0 flex-1 truncate text-left text-[length:var(--ui-font-control)] text-inherit">{label}</Text>
@@ -374,7 +548,13 @@ export function MailboxPane({
                       : "mx-auto size-10 flex-none justify-center p-0"}
                     aria-label={label}
                     title={label}
-                    onClick={() => onSelect(mailbox.id)}
+                    data-mailbox-selection-id={mailbox.id}
+                    data-mailbox-select-button="true"
+                    onClick={() => {
+                      setFavoriteSelectionId(null);
+                      onSelect(mailbox.id);
+                    }}
+                    onKeyDown={handleMailboxArrowKey}
                   >
                     <MailboxIcon role={mailbox.role} />
                   </Button>
@@ -383,10 +563,10 @@ export function MailboxPane({
               </ContextMenu>
             );
           })}
-        </OverlayScrollArea>
-      ) : (
-        <EmptyState className="mt-6 flex-1 items-center p-4 text-center" icon={<Inbox size={21} />} title={t("mail.noFolders")} />
-      )}
+          {mailboxes.length ? null : (
+            <EmptyState className="mt-6 flex-1 items-center p-4 text-center" icon={<Inbox size={21} />} title={t("mail.noFolders")} />
+          )}
+      </OverlayScrollArea>
       <Button
         variant="ghost"
         className={collapsed

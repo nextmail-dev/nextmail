@@ -445,6 +445,7 @@ pub struct MailboxSummary {
     pub selectable: bool,
     pub total_count: u32,
     pub unread_count: u32,
+    pub is_favorite: bool,
     pub revision: u64,
 }
 

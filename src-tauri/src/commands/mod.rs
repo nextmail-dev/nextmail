@@ -946,6 +946,19 @@ pub async fn mark_mailbox_all_read(
 }
 
 #[tauri::command]
+pub async fn set_mailbox_favorite(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+    favorite: bool,
+) -> CommandResult<()> {
+    state
+        .mail
+        .set_mailbox_favorite(&account_id, &mailbox_id, favorite)
+        .await
+}
+
+#[tauri::command]
 pub async fn reorder_mailboxes(
     state: State<'_, AppState>,
     account_id: String,
@@ -968,6 +981,32 @@ pub async fn list_messages(
     state
         .mail
         .list_messages(&account_id, &mailbox_id, cursor.as_deref(), limit)
+        .await
+}
+
+#[tauri::command]
+pub async fn list_unread_messages(
+    state: State<'_, AppState>,
+    account_id: String,
+    cursor: Option<String>,
+    limit: u32,
+) -> CommandResult<MessageListPage> {
+    state
+        .mail
+        .list_unread_messages(&account_id, cursor.as_deref(), limit)
+        .await
+}
+
+#[tauri::command]
+pub async fn list_starred_messages(
+    state: State<'_, AppState>,
+    account_id: String,
+    cursor: Option<String>,
+    limit: u32,
+) -> CommandResult<MessageListPage> {
+    state
+        .mail
+        .list_starred_messages(&account_id, cursor.as_deref(), limit)
         .await
 }
 

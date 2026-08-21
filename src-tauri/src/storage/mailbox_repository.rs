@@ -244,6 +244,29 @@ impl MailboxRepository {
             .map_err(map_storage_err("mailbox.local_write_failed"))
     }
 
+    pub async fn set_favorite(
+        &self,
+        account_slot_id: &str,
+        mailbox_id: &str,
+        favorite: bool,
+    ) -> CommandResult<()> {
+        let result = sqlx::query(
+            "UPDATE mailboxes SET is_favorite = ?, revision = revision + 1 \
+             WHERE id = ? AND account_slot_id = ?",
+        )
+        .bind(i64::from(favorite))
+        .bind(mailbox_id)
+        .bind(account_slot_id)
+        .execute(&self.pool)
+        .await
+        .map_err(map_storage_err("mailbox.local_write_failed"))?;
+        if result.rows_affected() == 1 {
+            Ok(())
+        } else {
+            Err(CommandError::new("mailbox.not_found"))
+        }
+    }
+
     pub async fn reorder(
         &self,
         account_slot_id: &str,
@@ -429,5 +452,28 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(sort_order, 1);
+    }
+
+    #[tokio::test]
+    async fn favorites_are_persisted_with_account_isolation() {
+        let (_directory, repository) = repository().await;
+        insert_mailbox(&repository, "one", "One", "One", None).await;
+        let mailboxes = repository.mailboxes();
+        mailboxes.set_favorite("slot", "one", true).await.unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT is_favorite FROM mailboxes WHERE id = 'one'")
+                .fetch_one(&repository.pool)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            mailboxes
+                .set_favorite("missing-slot", "one", false)
+                .await
+                .unwrap_err()
+                .code,
+            "mailbox.not_found"
+        );
     }
 }
