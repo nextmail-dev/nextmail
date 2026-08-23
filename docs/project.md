@@ -134,6 +134,9 @@ docs/adr/                按需查阅的长期架构决策
 - `adapters`/`protocols` 隔离系统和第三方类型；`storage` 提供窄 Repository。
 - `state.rs` 是组合根，具体配置、凭据、协议、Repository、系统 opener 和通知通过 ports 注入。
 - Command 保持薄，只做 DTO 接收、用例委托、稳定错误转换和窄事件发布。
+- `commands` 按系统、账户、窗口、邮件和 Composer 领域拆分，`mod.rs` 只保留共享事件载荷与稳定公开 re-export；Command 名称和 IPC 注册路径不随文件拆分变化。
+- `storage/repository.rs` 只保留 Repository 组合与正文写入，数据库生命周期、邮件读取和公共存储辅助代码分别位于 `database.rs`、`message_read_repository.rs` 与 `support.rs`。
+- 大型单元测试放在所属模块旁的 `模块名/tests.rs` 中，并继续作为 `#[cfg(test)]` 子模块编译，以保留对模块私有实现的测试能力。
 - 公开失败统一为 `CommandError { code, params, retryable }`；UI 不得得到密码、Token、服务器原始响应、内部路径或堆栈。
 
 ### 窗口与 Capability

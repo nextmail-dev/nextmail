@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use sqlx::{FromRow, Row, SqlitePool};
 use uuid::Uuid;
 
-use super::now;
+use super::{now, storage_read_error};
 
 #[derive(Clone)]
 pub struct OperationRepository {
@@ -798,10 +798,6 @@ fn operation_status_from_db(value: String) -> PendingOperationStatus {
         "failed" => PendingOperationStatus::Failed,
         _ => PendingOperationStatus::Queued,
     }
-}
-
-fn storage_read_error(_: sqlx::Error) -> CommandError {
-    CommandError::new("storage.read_failed")
 }
 
 #[cfg(test)]

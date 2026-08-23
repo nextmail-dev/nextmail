@@ -1,7 +1,7 @@
 use crate::core::{CommandError, CommandResult, MailboxRole};
 use sqlx::{Row, SqlitePool};
 
-use super::now;
+use super::{now, role_to_db, storage_read_error};
 
 #[derive(Clone)]
 pub struct MailboxRoleRepository {
@@ -127,18 +127,6 @@ async fn ensure_mailbox(
     }
 }
 
-fn role_to_db(role: &MailboxRole) -> &'static str {
-    match role {
-        MailboxRole::Inbox => "inbox",
-        MailboxRole::Sent => "sent",
-        MailboxRole::Drafts => "drafts",
-        MailboxRole::Trash => "trash",
-        MailboxRole::Junk => "junk",
-        MailboxRole::Archive => "archive",
-        MailboxRole::Other => "other",
-    }
-}
-
 fn role_from_db(value: &str) -> MailboxRole {
     match value {
         "inbox" => MailboxRole::Inbox,
@@ -149,8 +137,4 @@ fn role_from_db(value: &str) -> MailboxRole {
         "archive" => MailboxRole::Archive,
         _ => MailboxRole::Other,
     }
-}
-
-fn storage_read_error(_: sqlx::Error) -> CommandError {
-    CommandError::new("storage.read_failed")
 }

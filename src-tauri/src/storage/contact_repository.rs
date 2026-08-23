@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use lettre::Address;
 use serde::{Deserialize, Serialize};
@@ -12,7 +11,7 @@ use crate::core::{
     RemoteContactAddress,
 };
 
-use super::{map_storage_err, storage_read_error};
+use super::{map_storage_err, now, storage_read_error};
 
 const CONTACT_NAME_MAX_CHARS: usize = 160;
 const CONTACT_BACKFILL_BATCH_SIZE: u32 = 200;
@@ -659,13 +658,6 @@ fn contact_summary_from_row(row: sqlx::sqlite::SqliteRow) -> CommandResult<Conta
 
 fn parse_contact_cursor(value: &str) -> Option<ContactCursor> {
     serde_json::from_str(value).ok()
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
 }
 
 #[cfg(test)]

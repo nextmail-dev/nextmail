@@ -7,10 +7,10 @@ use crate::core::{
     RemoteMessage, RemoteMessageBody, RemoteMessageState, StoredMailbox, StoredMessageLocation,
 };
 
-use super::repository::{
-    encode_json, map_storage_err, now, role_to_db, storage_read_error, SyncSinkRepository,
+use super::{
+    encode_json, map_storage_err, now, role_to_db, storage_read_error,
+    upsert_remote_message_contacts, SyncSinkRepository,
 };
-use super::upsert_remote_message_contacts;
 
 const ATTACHMENT_INSERT_BATCH_SIZE: usize = 100;
 const RECONCILE_UID_INSERT_BATCH_SIZE: usize = 500;
