@@ -186,7 +186,8 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
   const senderName = sender?.name?.trim() || null;
   const senderLabel = sender?.name || sender?.email || "—";
   const isDraft = mailboxes.find((mailbox) => mailbox.id === mailboxId)?.role === "drafts";
-  const attachmentBytes = message.attachments.reduce((total, attachment) => total + attachment.size, 0);
+  const visibleAttachments = message.bodyAvailability === "available" ? message.attachments : [];
+  const attachmentBytes = visibleAttachments.reduce((total, attachment) => total + attachment.size, 0);
 
   async function showRemoteImages() {
     if (message.safeHtml && /<img[^>]+src=["']https?:\/\//i.test(message.safeHtml)) {
@@ -282,12 +283,12 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
             {message.cc.length ? (
               <AddressList label={t("composer.cc")} addresses={message.cc} onOpenContact={onOpenContact} onEditContact={onEditContact} />
             ) : null}
-            {message.attachments.length ? (
+            {visibleAttachments.length ? (
               <Inline className="text-muted-foreground">
                 <Paperclip size={13} />
                 <Text className="text-xs">
                   {t("mail.attachmentOverview", {
-                    count: message.attachments.length,
+                    count: visibleAttachments.length,
                     size: formatBytes(attachmentBytes),
                   })}
                 </Text>
@@ -341,7 +342,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
         )}
       </Stack>
 
-      {message.attachments.length ? (
+      {visibleAttachments.length ? (
         <Stack className="shrink-0 border-t border-border/70 bg-muted/20 px-5 py-2.5">
           <OverlayScrollArea
             intrinsic
@@ -349,7 +350,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
             trackClassName="right-0"
           >
             <Inline className="flex-wrap gap-2">
-              {message.attachments.map((attachment) => (
+              {visibleAttachments.map((attachment) => (
                 <MessageAttachment
                   key={attachment.id}
                   attachment={attachment}

@@ -122,7 +122,7 @@ export function ContactIdentity({
             {children ?? <span className="truncate">{name || address.email}</span>}
           </span>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent onClick={(event) => event.stopPropagation()}>
           <ContextMenuItem disabled={!name} onSelect={() => name && copy(name)}>
             <UserRound size={15} />
             {t("contacts.copyName")}

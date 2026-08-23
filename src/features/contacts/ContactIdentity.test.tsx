@@ -73,4 +73,28 @@ describe("ContactIdentity", () => {
     fireEvent.click(await screen.findByText("Edit contact"));
     await waitFor(() => expect(onEditContact).toHaveBeenCalledWith("contact-one"));
   });
+
+  it("does not bubble contact menu actions into the containing mail row", async () => {
+    const onRowClick = vi.fn();
+    const onEditContact = vi.fn();
+    render(
+      <button type="button" onClick={onRowClick}>
+        <ContactIdentity
+          address={{
+            contactId: "contact-one",
+            name: "Alice",
+            headerName: "Alice",
+            email: "alice@example.com",
+          }}
+          onEditContact={onEditContact}
+        />
+      </button>,
+    );
+
+    fireEvent.contextMenu(screen.getByLabelText("Alice <alice@example.com>"));
+    fireEvent.click(await screen.findByText("Edit contact"));
+
+    await waitFor(() => expect(onEditContact).toHaveBeenCalledWith("contact-one"));
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
 });

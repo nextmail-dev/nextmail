@@ -112,7 +112,13 @@ describe("MessageViewer", () => {
       plainText: null,
       safeHtml: null,
       bodyAvailability: "missing",
-      attachments: [],
+      attachments: [{
+        id: "inline-image",
+        fileName: "inline.png",
+        contentType: "image/png",
+        size: 1024,
+        availability: "missing",
+      }],
       remoteImagesBlocked: false,
       revision: 1,
       unread: false,
@@ -140,6 +146,8 @@ describe("MessageViewer", () => {
     expect(container.querySelector(".animate-spin")).not.toBeNull();
     expect(screen.queryByText("The message body has not been downloaded")).not.toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.queryByText("inline.png")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open inline.png" })).not.toBeInTheDocument();
   });
 
   it("keeps the message subject and addressing selectable", async () => {
