@@ -1026,14 +1026,20 @@ pub async fn list_starred_messages(
 pub async fn search_messages(
     state: State<'_, AppState>,
     account_id: String,
-    mailbox_id: String,
+    mailbox_id: Option<String>,
     query: String,
     cursor: Option<String>,
     limit: u32,
 ) -> CommandResult<MessageListPage> {
     state
         .mail
-        .search_messages(&account_id, &mailbox_id, &query, cursor.as_deref(), limit)
+        .search_messages(
+            &account_id,
+            mailbox_id.as_deref(),
+            &query,
+            cursor.as_deref(),
+            limit,
+        )
         .await
 }
 
@@ -1098,6 +1104,18 @@ pub async fn get_contact_detail(
     state
         .mail
         .get_contact_detail(&account_id, &contact_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn get_contact_summary(
+    state: State<'_, AppState>,
+    account_id: String,
+    contact_id: String,
+) -> CommandResult<ContactSummary> {
+    state
+        .mail
+        .get_contact_summary(&account_id, &contact_id)
         .await
 }
 

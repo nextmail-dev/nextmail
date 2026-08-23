@@ -171,7 +171,7 @@ export const api = {
     invoke<MessageListPage>("list_starred_messages", { accountId, cursor, limit }),
   searchMessages: (
     accountId: string,
-    mailboxId: string,
+    mailboxId: string | null,
     query: string,
     cursor: string | null,
     limit = 50,
@@ -194,6 +194,8 @@ export const api = {
     invoke<AddressPresentation[]>("resolve_contact_addresses", { accountId, addresses }),
   getContactDetail: (accountId: string, contactId: string) =>
     invoke<ContactDetail>("get_contact_detail", { accountId, contactId }),
+  getContactSummary: (accountId: string, contactId: string) =>
+    invoke<ContactSummary>("get_contact_summary", { accountId, contactId }),
   createContact: (accountId: string, draft: ContactDraft) =>
     invoke<ContactSummary>("create_contact", { accountId, draft }),
   updateContactName: (

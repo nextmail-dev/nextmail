@@ -13,6 +13,7 @@ import { ResizeHandle } from "@/components/ui/resize-handle";
 import { Toast } from "@/components/ui/toast";
 import { Text } from "@/components/ui/typography";
 import { ContactsWorkspace } from "@/features/contacts/ContactsWorkspace";
+import { DirectContactEditor } from "@/features/contacts/ContactEditor";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { MailboxPane } from "./MailboxPane";
 import { MessageListPane } from "./MessageListPane";
@@ -107,8 +108,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   const [selectedMessageMailboxId, setSelectedMessageMailboxId] = useState("");
   const [workspace, setWorkspace] = useState<"mail" | "contacts">("mail");
   const [requestedContactId, setRequestedContactId] = useState("");
-  const [requestedContactEdit, setRequestedContactEdit] = useState<{ contactId: string; requestId: number } | null>(null);
-  const contactEditRequestIdRef = useRef(0);
+  const [editingContactId, setEditingContactId] = useState("");
   const [sentNotice, setSentNotice] = useState<{ id: string; subject: string } | null>(null);
   // Kept in a ref (not state): it only feeds selectAfterRemoval, so updating it
   // must not re-render MainShell (and the heavy MessageViewer) on every arrival.
@@ -143,10 +143,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     setWorkspace("contacts");
   }, []);
   const editContact = useCallback((contactId: string) => {
-    contactEditRequestIdRef.current += 1;
-    setRequestedContactId(contactId);
-    setRequestedContactEdit({ contactId, requestId: contactEditRequestIdRef.current });
-    setWorkspace("contacts");
+    setEditingContactId(contactId);
   }, []);
   const {
     folderPaneCollapsed,
@@ -214,6 +211,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   }, [setSelectedMessageId]);
 
   useEffect(() => setSelectedMessageMailboxId(""), [selectedMailboxId]);
+  useEffect(() => setEditingContactId(""), [selectedAccountId]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -349,7 +347,6 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           onListPaneWidthChange={setMessagePaneWidth}
           onNavigateToMessage={navigateToMessage}
           requestedContactId={requestedContactId}
-          requestedContactEdit={requestedContactEdit}
         />
       ) : (
         <Page className="grid min-h-0 bg-card" style={{ gridTemplateColumns: `${messagePaneWidth}px 0 minmax(360px,1fr)` }}>
@@ -393,6 +390,11 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
           <Button variant="ghost" size="icon" aria-label={t("common.close")} onClick={() => setComposeError(null)}><X size={15} /></Button>
         </Alert>
       ) : null}
+      <DirectContactEditor
+        accountId={selectedAccountId}
+        contactId={editingContactId}
+        onClose={() => setEditingContactId("")}
+      />
       {sentNotice ? <Toast title={t("composer.sent")} description={sentNotice.subject || t("mail.noSubject")} closeLabel={t("common.close")} onClose={() => setSentNotice(null)} /> : null}
       {pendingIssue ? (
         <Alert className="fixed right-4 bottom-20 z-40 max-w-sm bg-popover shadow-xl" tone="warning" title={t("mail.syncActionNeedsAttention")}>

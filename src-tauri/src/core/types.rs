@@ -579,6 +579,7 @@ pub struct MessageListItem {
     pub preview: String,
     pub unread: bool,
     pub flagged: bool,
+    pub high_priority: bool,
     pub has_attachments: bool,
     pub body_availability: ContentAvailability,
     pub pending_operation: bool,
@@ -655,6 +656,7 @@ pub struct MessageDetail {
     pub revision: u64,
     pub unread: bool,
     pub flagged: bool,
+    pub high_priority: bool,
     pub pending_operation: bool,
 }
 

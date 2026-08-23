@@ -188,8 +188,8 @@ impl MailSyncSink for SyncSinkRepository {
         sqlx::query(
             "INSERT INTO messages(id, account_slot_id, subject, from_json, to_json, cc_json, \
                     received_at, preview, rfc822_size, message_id, references_json, in_reply_to, \
-                    has_attachments, raw_content_hash, body_availability, remote_images_blocked, revision) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) \
+                    has_attachments, raw_content_hash, body_availability, remote_images_blocked, high_priority, revision) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) \
              ON CONFLICT(id) DO UPDATE SET subject = excluded.subject, from_json = excluded.from_json, \
              to_json = excluded.to_json, cc_json = excluded.cc_json, received_at = excluded.received_at, \
              preview = CASE WHEN excluded.preview = '' THEN messages.preview ELSE excluded.preview END, \
@@ -198,7 +198,8 @@ impl MailSyncSink for SyncSinkRepository {
              has_attachments = MAX(messages.has_attachments, excluded.has_attachments), \
              raw_content_hash = COALESCE(excluded.raw_content_hash, messages.raw_content_hash), \
              body_availability = CASE WHEN excluded.body_availability = 'available' THEN 'available' ELSE messages.body_availability END, \
-             remote_images_blocked = excluded.remote_images_blocked, revision = messages.revision + 1",
+             remote_images_blocked = excluded.remote_images_blocked, high_priority = excluded.high_priority, \
+             revision = messages.revision + 1",
         )
         .bind(&message_id)
         .bind(account_slot_id)
@@ -216,6 +217,7 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(raw_hash)
         .bind(if body_available { "available" } else { "missing" })
         .bind(i64::from(message.remote_images_blocked))
+        .bind(i64::from(message.high_priority))
         .execute(&mut *transaction)
         .await
         .map_err(map_storage_err("storage.message_write_failed"))?;

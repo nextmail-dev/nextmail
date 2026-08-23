@@ -87,6 +87,7 @@ pub struct RemoteMessage {
     pub preview: String,
     pub unread: bool,
     pub flagged: bool,
+    pub high_priority: bool,
     pub size: u64,
     pub message_id: Option<String>,
     pub references: Vec<String>,

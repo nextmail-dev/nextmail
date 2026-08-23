@@ -10,7 +10,7 @@ NextMail 是基于 Tauri 2、React 19 / TypeScript 5.8 和 Rust 的本地优先�
 - `src-tauri/` — 桌面与 Rust 后端，是仓库内**唯一**的 Rust package。
 - `docs/project.md` — 长期技术文档（事实来源）。
 - `docs/iterations/` — 截止 `2026-08-21-02` 的历史开发计划，只读保留。
-- `docs/iterations.md` — 按日期追加的简短开发记录；每项使用 Markdown 待办格式，未验收为 `- [ ]`，用户明确验收后改为 `- [x]`。
+- `docs/iterations.md` — 按日期倒序排列的简短开发记录，新日期区块插在文件顶部；每项使用 Markdown 待办格式，未验收为 `- [ ]`，用户明确验收后改为 `- [x]`。
 - `docs/adr/` — 长期架构/安全决策，按需查阅；当前单一 Tauri Rust package 边界以 ADR 0006 为准。
 - `testdata/mail-rendering/` — 邮件保真与恶意内容回归语料，长期保留。
 
@@ -129,7 +129,7 @@ git diff --check
 ## 文档维护
 
 - `docs/project.md` 是新会话唯一必读的长期技术文档。当前能力、技术栈、目录、数据格式、运行语义、限制或开发约定变化时更新本文。
-- 不再创建开发计划文档；`docs/iterations/` 最后一份计划固定为 `2026-08-21-02-unread-view-and-sync-feedback.md`。完成开发后，在 `docs/iterations.md` 的当天日期下追加未勾选的简短待办项，只有用户明确验收后才标记为 `[x]`。
+- 不再创建开发计划文档；`docs/iterations/` 最后一份计划固定为 `2026-08-21-02-unread-view-and-sync-feedback.md`。完成开发后，在 `docs/iterations.md` 顶部的当天日期区块记录未勾选的简短待办项，日期按倒序排列；只有用户明确验收后才标记为 `[x]`。
 - 重大架构/安全取舍新增 ADR；已有决定变化时更新状态和修订说明。
 - 不创建会话式交接文档、独立 change 流水账或总体计划；`docs/iterations.md` 只保留按日概括，Git 历史承担逐提交细节。
 

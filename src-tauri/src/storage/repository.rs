@@ -52,6 +52,7 @@ struct MessageDetailRow {
     to_json: String,
     cc_json: String,
     received_at: i64,
+    high_priority: i64,
     body_availability: String,
     remote_images_blocked: i64,
     revision: i64,
@@ -94,6 +95,7 @@ fn message_detail_from_rows(
         to: decode_address_presentations(message.to_json)?,
         cc: decode_address_presentations(message.cc_json)?,
         received_at: message.received_at,
+        high_priority: message.high_priority != 0,
         plain_text: body.as_ref().and_then(|value| value.plain_text.clone()),
         safe_html: body.and_then(|value| value.safe_html),
         body_availability: availability_from_db(message.body_availability),
@@ -369,7 +371,7 @@ impl MailReadRepository {
         let limit = limit.clamp(1, 100);
         let (cursor_date, cursor_id) = cursor.and_then(parse_cursor).unzip();
         let rows = sqlx::query(
-            "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, \
+            "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, m.high_priority, \
                     l.unread, l.flagged, m.has_attachments, m.body_availability, \
                     EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
                       AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
@@ -441,7 +443,7 @@ impl MailReadRepository {
         let limit = limit.clamp(1, 100);
         let (cursor_date, cursor_id) = cursor.and_then(parse_cursor).unzip();
         let rows = sqlx::query(
-            "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, \
+            "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, m.high_priority, \
                     l.unread, l.flagged, m.has_attachments, m.body_availability, \
                     EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
                       AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
@@ -485,59 +487,104 @@ impl MailReadRepository {
     pub async fn search_messages(
         &self,
         account_slot_id: &str,
-        mailbox_id: &str,
+        mailbox_id: Option<&str>,
         query: &str,
         cursor: Option<&str>,
         limit: u32,
     ) -> CommandResult<MessageListPage> {
         let query = query.trim();
         if query.is_empty() {
-            return self
-                .list_messages(account_slot_id, mailbox_id, cursor, limit)
-                .await;
+            return match mailbox_id {
+                Some(mailbox_id) => {
+                    self.list_messages(account_slot_id, mailbox_id, cursor, limit)
+                        .await
+                }
+                None => Ok(MessageListPage {
+                    items: Vec::new(),
+                    next_cursor: None,
+                }),
+            };
         }
 
         let limit = limit.clamp(1, 100);
         let (cursor_date, cursor_id) = cursor.and_then(parse_cursor).unzip();
-        let rows = if query.chars().count() < 3 {
-            sqlx::query(
-                "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, \
+        let rows = match (mailbox_id, query.chars().count() < 3) {
+            (Some(mailbox_id), true) => {
+                let query = query.to_ascii_lowercase();
+                sqlx::query(
+                "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, m.high_priority, \
                         l.unread, l.flagged, m.has_attachments, m.body_availability, \
                         EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
                           AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
-                 FROM message_search JOIN messages m ON m.id = message_search.message_id \
-                 JOIN message_locations l ON l.message_id = m.id \
+                 FROM message_locations l INDEXED BY idx_locations_mailbox_date \
+                 JOIN messages m ON m.id = l.message_id \
                  JOIN mailboxes b ON b.id = l.mailbox_id \
-                 WHERE message_search.account_slot_id = ? AND m.account_slot_id = ? \
-                   AND l.mailbox_id = ? AND b.account_slot_id = ? AND l.local_hidden = 0 \
-                   AND (instr(lower(message_search.subject), lower(?)) > 0 \
-                     OR instr(lower(message_search.addresses), lower(?)) > 0 \
-                     OR instr(lower(message_search.preview), lower(?)) > 0 \
-                     OR instr(lower(message_search.body), lower(?)) > 0 \
-                     OR instr(lower(message_search.attachment_names), lower(?)) > 0) \
-                   AND (? IS NULL OR l.internal_date < ? OR (l.internal_date = ? AND m.id < ?)) \
-                 ORDER BY l.internal_date DESC, m.id DESC LIMIT ?",
-            )
-            .bind(account_slot_id)
-            .bind(account_slot_id)
-            .bind(mailbox_id)
-            .bind(account_slot_id)
-            .bind(query)
-            .bind(query)
-            .bind(query)
-            .bind(query)
-            .bind(query)
-            .bind(cursor_date)
-            .bind(cursor_date)
-            .bind(cursor_date)
-            .bind(cursor_id.as_deref())
-            .bind(i64::from(limit) + 1)
-            .fetch_all(&self.pool)
-            .await
-        } else {
-            let literal_query = format!("\"{}\"", query.replace('"', "\"\""));
-            sqlx::query(
-                "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, \
+                 LEFT JOIN message_bodies body ON body.message_id = m.id \
+                 WHERE l.mailbox_id = ? AND b.account_slot_id = ? AND m.account_slot_id = ? \
+                   AND l.local_hidden = 0 \
+                   AND (instr(lower(m.subject), ?) > 0 \
+                     OR instr(lower(m.from_json || ' ' || m.to_json || ' ' || m.cc_json), ?) > 0 \
+                     OR instr(lower(COALESCE(body.plain_text, '')), ?) > 0) \
+                   AND (? IS NULL OR l.internal_date < ? OR (l.internal_date = ? AND l.message_id < ?)) \
+                 ORDER BY l.internal_date DESC, l.message_id DESC LIMIT ?",
+                )
+                .bind(mailbox_id)
+                .bind(account_slot_id)
+                .bind(account_slot_id)
+                .bind(&query)
+                .bind(&query)
+                .bind(&query)
+                .bind(cursor_date)
+                .bind(cursor_date)
+                .bind(cursor_date)
+                .bind(cursor_id.as_deref())
+                .bind(i64::from(limit) + 1)
+                .fetch_all(&self.pool)
+                .await
+            }
+            (None, true) => {
+                let query = query.to_ascii_lowercase();
+                sqlx::query(
+                    "SELECT m.id, l.mailbox_id, m.subject, m.from_json, m.received_at AS internal_date, m.preview, m.high_priority, \
+                            l.unread, l.flagged, m.has_attachments, m.body_availability, \
+                            EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
+                              AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
+                     FROM messages m INDEXED BY idx_messages_account_received \
+                     LEFT JOIN message_bodies body ON body.message_id = m.id \
+                     JOIN message_locations l ON l.id = ( \
+                       SELECT l2.id FROM message_locations l2 INDEXED BY idx_locations_message_date \
+                       JOIN mailboxes b2 ON b2.id = l2.mailbox_id \
+                       WHERE l2.message_id = m.id AND b2.account_slot_id = ? AND b2.selectable = 1 \
+                         AND l2.local_hidden = 0 \
+                       ORDER BY l2.internal_date DESC, l2.mailbox_id DESC LIMIT 1 \
+                     ) \
+                     WHERE m.account_slot_id = ? \
+                       AND (instr(lower(m.subject), ?) > 0 \
+                         OR instr(lower(m.from_json || ' ' || m.to_json || ' ' || m.cc_json), ?) > 0 \
+                         OR instr(lower(COALESCE(body.plain_text, '')), ?) > 0) \
+                       AND (? IS NULL OR m.received_at < ? OR (m.received_at = ? AND m.id < ?)) \
+                     ORDER BY m.received_at DESC, m.id DESC LIMIT ?",
+                )
+                .bind(account_slot_id)
+                .bind(account_slot_id)
+                .bind(&query)
+                .bind(&query)
+                .bind(&query)
+                .bind(cursor_date)
+                .bind(cursor_date)
+                .bind(cursor_date)
+                .bind(cursor_id.as_deref())
+                .bind(i64::from(limit) + 1)
+                .fetch_all(&self.pool)
+                .await
+            }
+            (Some(mailbox_id), false) => {
+                let escaped = query.replace('"', "\"\"");
+                let literal_query = format!(
+                    "subject : \"{escaped}\" OR addresses : \"{escaped}\" OR body : \"{escaped}\""
+                );
+                sqlx::query(
+                "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, m.high_priority, \
                         l.unread, l.flagged, m.has_attachments, m.body_availability, \
                         EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
                           AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
@@ -549,19 +596,55 @@ impl MailReadRepository {
                    AND l.local_hidden = 0 \
                    AND (? IS NULL OR l.internal_date < ? OR (l.internal_date = ? AND m.id < ?)) \
                  ORDER BY l.internal_date DESC, m.id DESC LIMIT ?",
-            )
-            .bind(literal_query)
-            .bind(account_slot_id)
-            .bind(account_slot_id)
-            .bind(mailbox_id)
-            .bind(account_slot_id)
-            .bind(cursor_date)
-            .bind(cursor_date)
-            .bind(cursor_date)
-            .bind(cursor_id.as_deref())
-            .bind(i64::from(limit) + 1)
-            .fetch_all(&self.pool)
-            .await
+                )
+                .bind(literal_query)
+                .bind(account_slot_id)
+                .bind(account_slot_id)
+                .bind(mailbox_id)
+                .bind(account_slot_id)
+                .bind(cursor_date)
+                .bind(cursor_date)
+                .bind(cursor_date)
+                .bind(cursor_id.as_deref())
+                .bind(i64::from(limit) + 1)
+                .fetch_all(&self.pool)
+                .await
+            }
+            (None, false) => {
+                let escaped = query.replace('"', "\"\"");
+                let literal_query = format!(
+                    "subject : \"{escaped}\" OR addresses : \"{escaped}\" OR body : \"{escaped}\""
+                );
+                sqlx::query(
+                    "SELECT m.id, l.mailbox_id, m.subject, m.from_json, m.received_at AS internal_date, m.preview, m.high_priority, \
+                            l.unread, l.flagged, m.has_attachments, m.body_availability, \
+                            EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
+                              AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
+                     FROM message_search JOIN messages m ON m.id = message_search.message_id \
+                     JOIN message_locations l ON l.id = ( \
+                       SELECT l2.id FROM message_locations l2 INDEXED BY idx_locations_message_date \
+                       JOIN mailboxes b2 ON b2.id = l2.mailbox_id \
+                       WHERE l2.message_id = m.id AND b2.account_slot_id = ? AND b2.selectable = 1 \
+                         AND l2.local_hidden = 0 \
+                       ORDER BY l2.internal_date DESC, l2.mailbox_id DESC LIMIT 1 \
+                     ) \
+                     WHERE message_search MATCH ? AND message_search.account_slot_id = ? \
+                       AND m.account_slot_id = ? \
+                       AND (? IS NULL OR m.received_at < ? OR (m.received_at = ? AND m.id < ?)) \
+                     ORDER BY m.received_at DESC, m.id DESC LIMIT ?",
+                )
+                .bind(account_slot_id)
+                .bind(literal_query)
+                .bind(account_slot_id)
+                .bind(account_slot_id)
+                .bind(cursor_date)
+                .bind(cursor_date)
+                .bind(cursor_date)
+                .bind(cursor_id.as_deref())
+                .bind(i64::from(limit) + 1)
+                .fetch_all(&self.pool)
+                .await
+            }
         }
         .map_err(map_storage_err("storage.messages_read_failed"))?;
 
@@ -657,7 +740,7 @@ impl MailReadRepository {
         message_id: &str,
     ) -> CommandResult<MessageDetailRow> {
         sqlx::query_as(
-            "SELECT id, subject, from_json, to_json, cc_json, received_at, body_availability, \
+            "SELECT id, subject, from_json, to_json, cc_json, received_at, high_priority, body_availability, \
                     remote_images_blocked, revision \
              FROM messages WHERE id = ? AND account_slot_id = ?",
         )
@@ -1049,6 +1132,10 @@ fn message_list_item_from_row(row: sqlx::sqlite::SqliteRow) -> CommandResult<Mes
             != 0,
         flagged: row
             .try_get::<i64, _>("flagged")
+            .map_err(storage_read_error)?
+            != 0,
+        high_priority: row
+            .try_get::<i64, _>("high_priority")
             .map_err(storage_read_error)?
             != 0,
         has_attachments: row
@@ -2374,22 +2461,54 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
         for query in [
             "Alice Example",
             "alice@example.com",
+            "bob@example.com",
             "电子发票",
             "发票",
-            "report.pdf",
+            "票",
         ] {
             let page = repository
                 .read()
-                .search_messages("slot", &inbox.id, query, None, 20)
+                .search_messages("slot", Some(&inbox.id), query, None, 20)
                 .await
                 .unwrap();
             assert_eq!(page.items.len(), 1, "query {query:?} must find the message");
             assert_eq!(page.items[0].subject, "Quarterly roadmap");
         }
+        for excluded in ["Finance update", "report.pdf"] {
+            assert!(repository
+                .read()
+                .search_messages("slot", Some(&inbox.id), excluded, None, 20)
+                .await
+                .unwrap()
+                .items
+                .is_empty());
+        }
+
+        let global_archive = repository
+            .read()
+            .search_messages("slot", None, "Archive secret", None, 20)
+            .await
+            .unwrap();
+        assert_eq!(global_archive.items.len(), 1);
+        assert_eq!(global_archive.items[0].mailbox_id, archive.id);
+        let global_archive_short = repository
+            .read()
+            .search_messages("slot", None, "v", None, 20)
+            .await
+            .unwrap();
+        assert_eq!(global_archive_short.items.len(), 1);
+        assert_eq!(global_archive_short.items[0].mailbox_id, archive.id);
+        assert!(repository
+            .read()
+            .search_messages("slot", None, "Private account", None, 20)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
 
         let first_page = repository
             .read()
-            .search_messages("slot", &inbox.id, "Quarterly", None, 1)
+            .search_messages("slot", Some(&inbox.id), "Quarterly", None, 1)
             .await
             .unwrap();
         assert_eq!(first_page.items[0].subject, "Quarterly follow-up");
@@ -2397,7 +2516,7 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
             .read()
             .search_messages(
                 "slot",
-                &inbox.id,
+                Some(&inbox.id),
                 "Quarterly",
                 first_page.next_cursor.as_deref(),
                 1,
@@ -2409,28 +2528,28 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
 
         assert!(repository
             .read()
-            .search_messages("slot", &inbox.id, "Archive secret", None, 20)
+            .search_messages("slot", Some(&inbox.id), "Archive secret", None, 20)
             .await
             .unwrap()
             .items
             .is_empty());
         assert!(repository
             .read()
-            .search_messages("slot", &inbox.id, "Alice OR Private", None, 20)
+            .search_messages("slot", Some(&inbox.id), "Alice OR Private", None, 20)
             .await
             .unwrap()
             .items
             .is_empty());
         assert!(repository
             .read()
-            .search_messages("slot", &inbox.id, "Alice\"", None, 20)
+            .search_messages("slot", Some(&inbox.id), "Alice\"", None, 20)
             .await
             .unwrap()
             .items
             .is_empty());
         assert!(repository
             .read()
-            .search_messages("slot", &private_inbox.id, "Private account", None, 20)
+            .search_messages("slot", Some(&private_inbox.id), "Private account", None, 20,)
             .await
             .unwrap()
             .items
@@ -2438,7 +2557,13 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
         assert_eq!(
             repository
                 .read()
-                .search_messages("slot-b", &private_inbox.id, "Private account", None, 20)
+                .search_messages(
+                    "slot-b",
+                    Some(&private_inbox.id),
+                    "Private account",
+                    None,
+                    20,
+                )
                 .await
                 .unwrap()
                 .items
@@ -2448,7 +2573,7 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
 
         let first_id = repository
             .read()
-            .search_messages("slot", &inbox.id, "Alice Example", None, 20)
+            .search_messages("slot", Some(&inbox.id), "Alice Example", None, 20)
             .await
             .unwrap()
             .items
@@ -2472,7 +2597,7 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
             .unwrap();
         assert!(repository
             .read()
-            .search_messages("slot", &inbox.id, "电子发票", None, 20)
+            .search_messages("slot", Some(&inbox.id), "电子发票", None, 20)
             .await
             .unwrap()
             .items
@@ -2480,7 +2605,7 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
         assert_eq!(
             repository
                 .read()
-                .search_messages("slot", &inbox.id, "searchable content", None, 20)
+                .search_messages("slot", Some(&inbox.id), "searchable content", None, 20,)
                 .await
                 .unwrap()
                 .items
@@ -2519,7 +2644,7 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
             .fetch_one(&repository.pool)
             .await
             .unwrap(),
-            "30"
+            "32"
         );
     }
 
@@ -2893,6 +3018,7 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
             preview: "body".to_owned(),
             unread: true,
             flagged: false,
+            high_priority: false,
             size: 20,
             message_id: Some(format!("message-{uid}@example.com")),
             references: vec![],
@@ -2953,6 +3079,7 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
                     preview: "Hello".to_owned(),
                     unread: true,
                     flagged: false,
+                    high_priority: true,
                     size: 28,
                     message_id: Some("message@example.com".to_owned()),
                     references: vec![],
@@ -2981,12 +3108,14 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
             .await
             .unwrap();
         assert_eq!(page.items.len(), 1);
+        assert!(page.items[0].high_priority);
         let detail = repository
             .read()
             .get_message_detail("slot", &page.items[0].id, Some(&mailbox.id))
             .await
             .unwrap();
         assert_eq!(detail.plain_text.as_deref(), Some("Hello from disk"));
+        assert!(detail.high_priority);
         assert!(repository
             .read()
             .raw_message("slot", &detail.id)
@@ -3018,6 +3147,7 @@ UPDATE schema_metadata SET value = '15' WHERE key = 'data_format_version';
                     preview: String::new(),
                     unread: false,
                     flagged: false,
+                    high_priority: false,
                     size: 100,
                     message_id: None,
                     references: vec![],

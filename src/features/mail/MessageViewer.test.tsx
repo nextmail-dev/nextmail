@@ -35,6 +35,7 @@ vi.mock("@/app/api", () => ({
       revision: 1,
       unread: false,
       flagged: false,
+      highPriority: false,
       pendingOperation: false,
     }),
     getReadingPreferences: vi.fn().mockResolvedValue({
@@ -74,7 +75,11 @@ afterEach(() => {
 describe("MessageViewer", () => {
   it("does not show pending synchronization below the subject", async () => {
     const detail = await api.getMessageDetail("account-one", "message-one", "inbox");
-    vi.mocked(api.getMessageDetail).mockResolvedValueOnce({ ...detail, pendingOperation: true });
+    vi.mocked(api.getMessageDetail).mockResolvedValueOnce({
+      ...detail,
+      highPriority: true,
+      pendingOperation: true,
+    });
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -91,6 +96,7 @@ describe("MessageViewer", () => {
     );
 
     await screen.findByRole("heading", { name: "Attachment" });
+    expect(screen.getByLabelText("High priority")).toHaveTextContent("❗");
     expect(screen.queryByText("Waiting to sync")).not.toBeInTheDocument();
   });
 
@@ -111,6 +117,7 @@ describe("MessageViewer", () => {
       revision: 1,
       unread: false,
       flagged: false,
+      highPriority: false,
       pendingOperation: false,
     });
     vi.mocked(api.requestMessageBody).mockImplementationOnce(() => new Promise(() => undefined));
@@ -187,6 +194,7 @@ describe("MessageViewer", () => {
       revision: 1,
       unread: false,
       flagged: false,
+      highPriority: false,
       pendingOperation: false,
     });
     const queryClient = new QueryClient({

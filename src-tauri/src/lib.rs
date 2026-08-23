@@ -138,6 +138,7 @@ pub fn run() {
             commands::list_contact_suggestions,
             commands::resolve_contact_addresses,
             commands::get_contact_detail,
+            commands::get_contact_summary,
             commands::create_contact,
             commands::update_contact_name,
             commands::delete_contacts,

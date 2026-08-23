@@ -252,6 +252,7 @@ export interface MessageListItem {
   preview: string;
   unread: boolean;
   flagged: boolean;
+  highPriority: boolean;
   hasAttachments: boolean;
   bodyAvailability: ContentAvailability;
   pendingOperation: boolean;
@@ -286,6 +287,7 @@ export interface MessageDetail {
   revision: number;
   unread: boolean;
   flagged: boolean;
+  highPriority: boolean;
   pendingOperation: boolean;
 }
 

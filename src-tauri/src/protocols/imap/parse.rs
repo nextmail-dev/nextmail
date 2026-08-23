@@ -122,6 +122,7 @@ fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMes
         preview,
         unread: input.unread,
         flagged: input.flagged,
+        high_priority: is_high_priority(message),
         size: input.size,
         message_id: message
             .and_then(|message| message.message_id())
@@ -142,6 +143,30 @@ fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMes
             .is_some_and(|value| value.remote_images_blocked),
         modseq: None,
     })
+}
+
+fn is_high_priority(message: Option<&Message<'_>>) -> bool {
+    let Some(message) = message else {
+        return false;
+    };
+    message
+        .header("X-Priority")
+        .and_then(|value| value.as_text())
+        .and_then(|value| value.trim().chars().next())
+        .is_some_and(|value| matches!(value, '1' | '2'))
+        || ["Importance", "X-MSMail-Priority"]
+            .into_iter()
+            .filter_map(|name| message.header(name).and_then(|value| value.as_text()))
+            .any(|value| value.trim().eq_ignore_ascii_case("high"))
+        || message
+            .header("Priority")
+            .and_then(|value| value.as_text())
+            .is_some_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "urgent" | "high"
+                )
+            })
 }
 
 fn attachment_summaries(

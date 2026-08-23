@@ -863,6 +863,7 @@ fn message_list_item_from_remote(
         preview: message.preview.clone(),
         unread: message.unread,
         flagged: message.flagged,
+        high_priority: message.high_priority,
         has_attachments: !message.attachments.is_empty(),
         body_availability: if message.plain_text.is_some() || message.safe_html.is_some() {
             ContentAvailability::Available
@@ -1010,6 +1011,43 @@ mod tests {
         let safe_html = message.safe_html.unwrap();
         assert!(!safe_html.contains("<script"));
         assert!(!safe_html.contains("Hidden title"));
+    }
+
+    #[test]
+    fn recognizes_common_high_priority_headers() {
+        for header in [
+            "X-Priority: 1 (Highest)",
+            "X-Priority: 2",
+            "Importance: high",
+            "Priority: urgent",
+            "X-MSMail-Priority: High",
+        ] {
+            let raw = format!("{header}\r\nSubject: Important\r\n\r\nbody");
+            let message = parse_message(
+                1,
+                1,
+                raw.len() as u64,
+                1,
+                [Flag::Seen].into_iter(),
+                raw.as_bytes(),
+                Some(raw.as_bytes().to_vec()),
+            )
+            .unwrap();
+            assert!(message.high_priority, "header was not recognized: {header}");
+        }
+
+        let normal = b"X-Priority: 3 (Normal)\r\nImportance: normal\r\n\r\nbody";
+        let message = parse_message(
+            1,
+            1,
+            normal.len() as u64,
+            1,
+            [Flag::Seen].into_iter(),
+            normal,
+            Some(normal.to_vec()),
+        )
+        .unwrap();
+        assert!(!message.high_priority);
     }
 
     #[test]

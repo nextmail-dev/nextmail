@@ -206,7 +206,10 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
       <Stack className="shrink-0 border-b border-border/70 px-5 py-4" gap="sm">
         <Inline className="flex-wrap items-start gap-x-4 gap-y-2">
           <Stack className="min-w-[220px] flex-1" gap="xs">
-            <Heading level={1} className="select-text max-w-none text-lg leading-tight lg:text-lg">{message.subject || t("mail.noSubject")}</Heading>
+            <Inline className="items-start gap-1.5">
+              {message.highPriority ? <span className="shrink-0 pt-0.5 text-sm" role="img" aria-label={t("mail.highPriority")} title={t("mail.highPriority")}>❗</span> : null}
+              <Heading level={1} className="select-text max-w-none text-lg leading-tight lg:text-lg">{message.subject || t("mail.noSubject")}</Heading>
+            </Inline>
           </Stack>
           <Inline className="max-w-full flex-wrap justify-end gap-0.5" role="toolbar" aria-label={t("mail.messageActions")}>
             <IconAction label={message.flagged ? t("mail.removeStar") : t("mail.addStar")} onClick={() => messageOperation.mutate({ kind: "flag" })}>

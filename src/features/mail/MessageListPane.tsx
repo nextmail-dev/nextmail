@@ -83,6 +83,8 @@ function MessageListPaneBase({
   const unreadView = mailboxId === UNREAD_MAILBOX_ID;
   const starredView = mailboxId === STARRED_MAILBOX_ID;
   const activeSearch = submittedSearchQuery.trim();
+  const [searchScope, setSearchScope] = useState<"mailbox" | "account">("mailbox");
+  const globalSearch = Boolean(activeSearch && searchScope === "account");
   const [retainedUnreadItems, setRetainedUnreadItems] = useState<Array<{
     index: number;
     message: MessageListItem;
@@ -97,14 +99,14 @@ function MessageListPaneBase({
       : starredView
       ? mailQueryKeys.starredMessages(accountId)
       : activeSearch
-      ? mailQueryKeys.messageSearch(accountId, mailboxId, activeSearch)
+      ? mailQueryKeys.messageSearch(accountId, globalSearch ? null : mailboxId, activeSearch)
       : mailQueryKeys.messagesForMailbox(accountId, mailboxId),
     queryFn: ({ pageParam }) => unreadView
       ? api.listUnreadMessages(accountId, pageParam, 50)
       : starredView
       ? api.listStarredMessages(accountId, pageParam, 50)
       : activeSearch
-      ? api.searchMessages(accountId, mailboxId, activeSearch, pageParam, 50)
+      ? api.searchMessages(accountId, globalSearch ? null : mailboxId, activeSearch, pageParam, 50)
       : api.listMessages(accountId, mailboxId, pageParam, 50),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
@@ -130,7 +132,7 @@ function MessageListPaneBase({
   const selection = useListSelection({
     itemIds: visibleMessageIds,
     primaryId: selectedMessageId,
-    resetKey: `${accountId}:${mailboxId}:${activeSearch}`,
+    resetKey: `${accountId}:${mailboxId}:${activeSearch}:${searchScope}`,
     onPrimaryChange: (messageId) => onSelect(
       messageId,
       items.find((message) => message.id === messageId)?.mailboxId ?? "",
@@ -234,24 +236,56 @@ function MessageListPaneBase({
                 : t("mail.folderSummary", { total: mailbox?.totalCount ?? allItems.length, unread: mailbox?.unreadCount ?? 0 })}
           </Text>
         </Stack>
-          {unreadView || starredView ? null : <SearchField
-          className="h-10 w-full rounded-lg bg-muted px-3.5"
-          value={searchQuery}
-          placeholder={t("mail.searchPlaceholder")}
-          clearLabel={t("mail.clearSearch")}
-          submitLabel={t("mail.searchCurrentFolder")}
-          maxLength={256}
-          aria-label={t("mail.searchCurrentFolder")}
-          onValueChange={(value) => {
-            onSearchChange(value);
-            if (!value.trim()) onSearchSubmit("");
-          }}
-          onSubmit={() => {
-            const query = searchQuery.trim();
-            onSearchChange(query);
-            onSearchSubmit(query);
-          }}
-        />}
+        {unreadView || starredView ? null : (
+          <Stack gap="xs">
+            <SearchField
+              className="h-10 w-full rounded-lg bg-muted px-3.5"
+              value={searchQuery}
+              placeholder={t("mail.searchPlaceholder")}
+              clearLabel={t("mail.clearSearch")}
+              submitLabel={t(globalSearch ? "mail.searchAllFolders" : "mail.searchCurrentFolder")}
+              maxLength={256}
+              aria-label={t(globalSearch ? "mail.searchAllFolders" : "mail.searchCurrentFolder")}
+              onValueChange={(value) => {
+                onSearchChange(value);
+                if (!value.trim()) {
+                  setSearchScope("mailbox");
+                  onSearchSubmit("");
+                }
+              }}
+              onSubmit={() => {
+                const query = searchQuery.trim();
+                onSearchChange(query);
+                onSearchSubmit(query);
+              }}
+            />
+            {activeSearch ? (
+              <Inline className="gap-0 rounded-lg bg-muted/70 p-0.5" role="tablist" aria-label={t("mail.searchScope")}>
+                {(["mailbox", "account"] as const).map((scope) => (
+                  <Button
+                    key={scope}
+                    type="button"
+                    role="tab"
+                    size="sm"
+                    variant="ghost"
+                    aria-selected={searchScope === scope}
+                    className={cn(
+                      "h-7 min-w-0 flex-1 px-2 text-xs",
+                      searchScope === scope && "bg-card text-foreground shadow-sm hover:bg-card",
+                    )}
+                    onClick={() => {
+                      if (scope === searchScope) return;
+                      onSelect("", "");
+                      setSearchScope(scope);
+                    }}
+                  >
+                    {t(scope === "mailbox" ? "mail.searchCurrentFolderTab" : "mail.searchAllFoldersTab")}
+                  </Button>
+                ))}
+              </Inline>
+            ) : null}
+          </Stack>
+        )}
       </Stack>
       {actionError ? <MessageListError error={actionError} /> : null}
       {items.length ? (
@@ -268,7 +302,7 @@ function MessageListPaneBase({
                 key={message.id}
                 message={message}
                 selectionCount={operationMessages.length}
-                currentMailbox={unreadView || starredView
+                currentMailbox={unreadView || starredView || globalSearch
                   ? mailboxes.find((item) => item.id === message.mailboxId)
                   : mailbox}
                 mailboxes={mailboxes}
@@ -284,6 +318,7 @@ function MessageListPaneBase({
                   divider={index < items.length - 1}
                   yesterdayLabel={t("mail.yesterday")}
                   noSubject={t("mail.noSubject")}
+                  highPriorityLabel={t("mail.highPriority")}
                   starLabel={message.flagged ? t("mail.removeStar") : t("mail.addStar")}
                   readLabel={message.unread ? t("mail.markRead") : t("mail.markUnread")}
                   pending={operation.isPending}
@@ -337,6 +372,7 @@ interface MessageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"
   divider: boolean;
   yesterdayLabel: string;
   noSubject: string;
+  highPriorityLabel: string;
   starLabel: string;
   readLabel: string;
   pending: boolean;
@@ -354,6 +390,7 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
   divider,
   yesterdayLabel,
   noSubject,
+  highPriorityLabel,
   starLabel,
   readLabel,
   pending,
@@ -424,10 +461,13 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
             ) : <Text className={cn("min-w-0 flex-1 truncate text-foreground", message.unread ? "font-semibold" : "font-medium text-foreground/80")}>—</Text>}
             <Text className={cn("shrink-0 text-[length:var(--ui-font-caption)]", message.unread && "font-medium text-foreground/75")}>{date}</Text>
           </Inline>
-          <Text className={cn(
-            "truncate text-[length:var(--ui-font-control)] text-foreground",
-            message.unread ? "font-semibold" : "font-normal text-foreground/85",
-          )}>{message.subject || noSubject}</Text>
+          <Inline className="w-full gap-1">
+            {message.highPriority ? <span className="shrink-0 text-xs" role="img" aria-label={highPriorityLabel} title={highPriorityLabel}>❗</span> : null}
+            <Text className={cn(
+              "min-w-0 flex-1 truncate text-[length:var(--ui-font-control)] text-foreground",
+              message.unread ? "font-semibold" : "font-normal text-foreground/85",
+            )}>{message.subject || noSubject}</Text>
+          </Inline>
           <Inline className="w-full text-muted-foreground">
             <Text className="min-w-0 flex-1 truncate text-xs">{message.preview}</Text>
             {message.hasAttachments ? <Paperclip size={13} /> : null}

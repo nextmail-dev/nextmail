@@ -42,6 +42,7 @@ const serverResult: MessageListItem = {
   preview: "The visible list fields do not contain the query.",
   unread: false,
   flagged: false,
+  highPriority: false,
   hasAttachments: true,
   bodyAvailability: "available",
   pendingOperation: false,
@@ -70,7 +71,11 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("MessageListPane", () => {
-  it("waits for the explicit search button before querying indexed body or attachments", async () => {
+  it("waits for the explicit search button before querying indexed message content", async () => {
+    vi.mocked(api.searchMessages).mockResolvedValue({
+      items: [{ ...serverResult, highPriority: true }],
+      nextCursor: null,
+    });
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -84,7 +89,7 @@ describe("MessageListPane", () => {
     ));
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search this folder" }), {
-      target: { value: "annual-report.pdf" },
+      target: { value: "annual report" },
     });
     await new Promise((resolve) => window.setTimeout(resolve, 300));
     expect(api.searchMessages).not.toHaveBeenCalled();
@@ -92,9 +97,34 @@ describe("MessageListPane", () => {
     fireEvent.click(screen.getByRole("button", { name: "Search this folder" }));
 
     await waitFor(() => expect(api.searchMessages).toHaveBeenCalledWith(
-      "account-one", "inbox", "annual-report.pdf", null, 50,
+      "account-one", "inbox", "annual report", null, 50,
     ));
     expect(await screen.findByText("Server-side result")).toBeInTheDocument();
+    expect(screen.getByLabelText("High priority")).toHaveTextContent("❗");
+  });
+
+  it("shows the scope tabs only for an active search and can search all account folders", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ControlledSearchPane />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByRole("tablist", { name: "Search scope" })).not.toBeInTheDocument();
+    const searchbox = screen.getByRole("searchbox", { name: "Search this folder" });
+    fireEvent.change(searchbox, { target: { value: "alice" } });
+    fireEvent.submit(searchbox.closest("form")!);
+
+    expect(await screen.findByRole("tab", { name: "Current folder" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: "All folders" }));
+
+    await waitFor(() => expect(api.searchMessages).toHaveBeenCalledWith(
+      "account-one", null, "alice", null, 50,
+    ));
+    expect(screen.getByRole("tab", { name: "All folders" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("submits the current search when the search form is submitted from the keyboard", async () => {

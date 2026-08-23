@@ -876,6 +876,7 @@ mod tests {
                     preview: "body".into(),
                     unread: true,
                     flagged: false,
+                    high_priority: false,
                     size: 20,
                     message_id: Some("queued@example.com".into()),
                     references: vec![],

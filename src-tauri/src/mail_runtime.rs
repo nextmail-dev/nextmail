@@ -488,7 +488,7 @@ impl MailRuntime {
     pub async fn search_messages(
         &self,
         account_id: &str,
-        mailbox_id: &str,
+        mailbox_id: Option<&str>,
         query: &str,
         cursor: Option<&str>,
         limit: u32,
@@ -567,6 +567,19 @@ impl MailRuntime {
             .await?
             .contacts()
             .get_contact_detail(&account.data_slot_id, contact_id, 20)
+            .await
+    }
+
+    pub async fn get_contact_summary(
+        &self,
+        account_id: &str,
+        contact_id: &str,
+    ) -> CommandResult<ContactSummary> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .contacts()
+            .get_contact_summary(&account.data_slot_id, contact_id)
             .await
     }
 

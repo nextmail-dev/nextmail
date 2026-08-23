@@ -12,14 +12,15 @@ export const mailQueryKeys = {
     ["messages", accountId, UNREAD_MAILBOX_ID] as const,
   starredMessages: (accountId: string) =>
     ["messages", accountId, STARRED_MAILBOX_ID] as const,
-  messageSearch: (accountId: string, mailboxId: string, query: string) =>
-    ["messages", accountId, mailboxId, "search", query] as const,
+  messageSearch: (accountId: string, mailboxId: string | null, query: string) =>
+    ["messages", accountId, "search", mailboxId === null ? "account" : "mailbox", mailboxId, query] as const,
   syncProgress: (accountId: string) => ["sync-progress", accountId] as const,
   drafts: (accountId: string) => ["drafts", accountId] as const,
   pendingOperations: (accountId: string) => ["pending-operations", accountId] as const,
   contactsForAccount: (accountId: string) => ["contacts", accountId] as const,
   contactList: (accountId: string, query: string) => ["contacts", accountId, "list", query] as const,
   contactDetail: (accountId: string, contactId: string) => ["contacts", accountId, "detail", contactId] as const,
+  contactSummary: (accountId: string, contactId: string) => ["contacts", accountId, "summary", contactId] as const,
   contactSuggestions: (accountId: string, query: string) => ["contacts", accountId, "suggestions", query] as const,
   contactAddresses: (accountId: string, emails: string[]) => ["contacts", accountId, "addresses", ...emails] as const,
 };

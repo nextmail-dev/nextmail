@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactElement, type UIEvent } from "react";
+import { memo, useEffect, useMemo, useState, type ReactElement, type UIEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock3, Copy, Mail, Pencil, Plus, Search, Send, Trash2, UserRound, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -15,9 +15,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { EmptyState } from "@/components/ui/empty-state";
-import { TextField } from "@/components/ui/input";
 import { Inline, Page, Stack } from "@/components/ui/layout";
-import { Modal } from "@/components/ui/dialog";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { ResizeHandle } from "@/components/ui/resize-handle";
 import { SearchField } from "@/components/ui/search-field";
@@ -27,6 +25,7 @@ import { useListSelection } from "@/components/ui/use-list-selection";
 import { cn } from "@/lib/utils";
 import { mailQueryKeys, messageQueryKeys } from "@/features/mail/mail-query-keys";
 import { ContactIdentity, ContactInitial, writeClipboardText } from "./ContactIdentity";
+import { ContactEditor, type ContactEditorState } from "./ContactEditor";
 
 interface ContactsWorkspaceProps {
   accountId: string;
@@ -35,11 +34,7 @@ interface ContactsWorkspaceProps {
   onListPaneWidthChange: (width: number) => void;
   onNavigateToMessage: (target: NotificationNavigationTarget) => void;
   requestedContactId?: string;
-  requestedContactEdit?: { contactId: string; requestId: number } | null;
 }
-
-type EditorState = { mode: "create" } | { mode: "edit"; contact: ContactSummary } | null;
-
 function ContactsWorkspaceBase({
   accountId,
   listPaneWidth,
@@ -47,16 +42,14 @@ function ContactsWorkspaceBase({
   onListPaneWidthChange,
   onNavigateToMessage,
   requestedContactId,
-  requestedContactEdit,
 }: ContactsWorkspaceProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [selectedContactId, setSelectedContactId] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
-  const [editor, setEditor] = useState<EditorState>(null);
+  const [editor, setEditor] = useState<ContactEditorState>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
-  const handledEditRequestRef = useRef(0);
 
   useEffect(() => {
     setSelectedContactId("");
@@ -110,15 +103,6 @@ function ContactsWorkspaceBase({
     queryFn: () => api.getContactDetail(accountId, selectedContactId),
     enabled: Boolean(accountId && selectedContactId),
   });
-
-  useEffect(() => {
-    if (!requestedContactEdit || handledEditRequestRef.current === requestedContactEdit.requestId) return;
-    const contact = detailQuery.data?.contact;
-    if (!contact || contact.id !== requestedContactEdit.contactId) return;
-    handledEditRequestRef.current = requestedContactEdit.requestId;
-    setOperationError(null);
-    setEditor({ mode: "edit", contact });
-  }, [detailQuery.data, requestedContactEdit]);
 
   function editContact(contact: ContactSummary) {
     setSelectedContactId(contact.id);
@@ -488,74 +472,5 @@ function ContactDetailView({
         </Stack>
       </Stack>
     </OverlayScrollArea>
-  );
-}
-
-function ContactEditor({
-  state,
-  busy,
-  errorCode,
-  onClose,
-  onCreate,
-  onUpdate,
-}: {
-  state: EditorState;
-  busy: boolean;
-  errorCode: string | null;
-  onClose: () => void;
-  onCreate: (draft: ContactDraft) => void;
-  onUpdate: (contact: ContactSummary, name: string) => void;
-}) {
-  const { t } = useTranslation();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-
-  useEffect(() => {
-    setName(state?.mode === "edit" ? state.contact.name : "");
-    setEmail(state?.mode === "edit" ? state.contact.email : "");
-  }, [state]);
-
-  if (!state) return null;
-  return (
-    <Modal
-      open
-      onOpenChange={(open) => { if (!open && !busy) onClose(); }}
-      title={state.mode === "create" ? t("contacts.add") : t("contacts.edit")}
-      closeLabel={t("common.close")}
-    >
-      <form
-        className="mt-5 space-y-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (state.mode === "create") onCreate({ name, email });
-          else onUpdate(state.contact, name);
-        }}
-      >
-        <TextField
-          label={t("contacts.name")}
-          value={name}
-          maxLength={160}
-          autoFocus
-          onChange={(event) => setName(event.currentTarget.value)}
-        />
-        <TextField
-          label={t("contacts.email")}
-          type="email"
-          value={email}
-          disabled={state.mode === "edit"}
-          hint={state.mode === "edit" ? t("contacts.emailImmutable") : undefined}
-          onChange={(event) => setEmail(event.currentTarget.value)}
-        />
-        {errorCode ? (
-          <Alert tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert>
-        ) : null}
-        <Inline className="flex-wrap justify-end pt-2">
-          <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button>
-          <Button type="submit" loading={busy} disabled={!name.trim() || (state.mode === "create" && !email.trim())}>
-            {t("common.save")}
-          </Button>
-        </Inline>
-      </form>
-    </Modal>
   );
 }
