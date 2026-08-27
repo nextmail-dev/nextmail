@@ -49,8 +49,11 @@ import {
 } from "./composition-nodes";
 import {
   buildComposerPreviewDocument,
+  COMPOSER_CONTENT_STYLE,
+  ensureComposerContentHtml,
   htmlToPlainText,
   inlineImagePreviews,
+  stripComposerContentEnvelope,
 } from "./composer-html";
 import { HtmlSourceEditor } from "./HtmlSourceEditor";
 import {
@@ -112,6 +115,7 @@ interface RichTextEditorProps {
   onChange: (content: DraftContent) => void;
   onCompositionChange?: (selection: CompositionNodeSelection) => void;
   inlineImages?: DraftAttachmentSummary[];
+  includePortableStyles?: boolean;
   onAddInlineImage?: (file: File) => Promise<RichTextInlineImage>;
   onSanitizeHtml?: (html: string) => Promise<string>;
 }
@@ -144,6 +148,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     onChange,
     onCompositionChange,
     inlineImages = [],
+    includePortableStyles = true,
     onAddInlineImage,
     onSanitizeHtml,
   },
@@ -169,7 +174,9 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     ),
   ], [t]);
   const [sourceMode, setSourceMode] = useState(false);
-  const [sourceHtml, setSourceHtml] = useState(initialHtml ?? "");
+  const [sourceHtml, setSourceHtml] = useState(() => includePortableStyles
+    ? ensureComposerContentHtml(initialHtml ?? "")
+    : initialHtml ?? "");
   const sourceInitializedRef = useRef(initialHtml !== undefined);
   const preserveExactSourceRef = useRef(initialHtml !== undefined);
   const [linkEditorOpen, setLinkEditorOpen] = useState(false);
@@ -182,6 +189,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     editorProps: {
       attributes: {
         class: "nextmail-editor-content",
+        "data-nextmail-composer-body": "",
         "aria-label": ariaLabel ?? t("composer.body"),
       },
       handleKeyDown: (view, event) => {
@@ -227,7 +235,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     },
     onUpdate: ({ editor: current }) => {
       if (preserveExactSourceRef.current) return;
-      const content = serializeEditor(current);
+      const content = serializeEditor(current, includePortableStyles);
       setSourceHtml(content.html);
       onChange(content);
       onCompositionChange?.(compositionSelection(JSON.parse(content.editorJson) as JSONContent));
@@ -262,9 +270,9 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
   useEffect(() => {
     if (!editor || sourceInitializedRef.current) return;
-    setSourceHtml(serializeEditor(editor).html);
+    setSourceHtml(serializeEditor(editor, includePortableStyles).html);
     sourceInitializedRef.current = true;
-  }, [editor]);
+  }, [editor, includePortableStyles]);
 
   if (!editor) return null;
   const richDisabled = disabled || sourceMode;
@@ -341,6 +349,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
   return (
     <Page className={cn("flex min-h-0 flex-1 flex-col bg-card", className)}>
+      <style data-nextmail-local-composer-style="">{COMPOSER_CONTENT_STYLE}</style>
       <Inline className="min-h-11 shrink-0 flex-wrap gap-0.5 border-b border-border/70 bg-muted/35 px-3 py-1.5" role="toolbar">
         <SelectField
           compact
@@ -537,7 +546,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
               title={t("composer.htmlPreview")}
               sandbox=""
               referrerPolicy="no-referrer"
-              srcDoc={buildComposerPreviewDocument(sourceHtml, previewMap)}
+              srcDoc={buildComposerPreviewDocument(sourceHtml, previewMap, true)}
             />
           </Page>
         </Page>
@@ -802,7 +811,10 @@ function parseDocument(value: string): JSONContent {
 
 function documentFromHtml(value: string, extensions: Extensions): JSONContent {
   try {
-    return normalizeOriginalNodes(generateJSON(value, extensions) as JSONContent);
+    return normalizeOriginalNodes(generateJSON(
+      stripComposerContentEnvelope(value),
+      extensions,
+    ) as JSONContent);
   } catch {
     return { type: "doc", content: [{ type: "paragraph" }] };
   }
@@ -831,9 +843,10 @@ function textFromJson(node: JSONContent): string {
   return (node.content ?? []).map(textFromJson).join("\n");
 }
 
-function serializeEditor(editor: Editor): DraftContent {
+function serializeEditor(editor: Editor, includePortableStyles: boolean): DraftContent {
   const document = stripTransientAttributes(editor.getJSON());
-  const html = materializeOriginalHtml(editor.getHTML(), document);
+  const materialized = materializeOriginalHtml(editor.getHTML(), document);
+  const html = includePortableStyles ? ensureComposerContentHtml(materialized) : materialized;
   return {
     editorJson: JSON.stringify(document),
     html,

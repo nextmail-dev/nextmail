@@ -1,5 +1,95 @@
 import type { DraftAttachmentSummary } from "@/app/types";
 
+export const COMPOSER_CONTENT_STYLE = [
+  '[data-nextmail-composer-body]{color:#202124;background:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Arial,sans-serif;font-size:14px;line-height:1.2;overflow-wrap:anywhere}',
+  '[data-nextmail-composer-body] p{margin:0 0 .8em}',
+  '[data-nextmail-composer-body] h1,[data-nextmail-composer-body] h2,[data-nextmail-composer-body] h3{font-size:inherit;font-weight:inherit;margin:1.1em 0 .55em;line-height:1.25}',
+  '[data-nextmail-composer-body] blockquote{margin:1em 0;padding-left:1rem;border-left:3px solid #8a94a6;color:#5f6d80}',
+  '[data-nextmail-composer-body] ul,[data-nextmail-composer-body] ol{margin:.8em 0;padding-left:1.5rem;list-style-type:none}',
+  '[data-nextmail-composer-body] a{color:inherit;text-decoration:inherit}',
+  '[data-nextmail-composer-body] span[style*="background-color"]{color:#202124}',
+  '[data-nextmail-composer-body] .nextmail-composition-template,[data-nextmail-composer-body] .nextmail-composition-signature{margin:0;padding:0;border:0;border-radius:0;background:transparent}',
+  '[data-nextmail-composer-body] .nextmail-composition-signature>:last-child{margin-bottom:0}',
+  '[data-nextmail-original-message]{margin-top:.9rem;overflow-wrap:normal}',
+  '[data-nextmail-composer-body] table{table-layout:auto}',
+  '[data-nextmail-composer-body] td,[data-nextmail-composer-body] th{vertical-align:top}',
+  '[data-nextmail-composer-body] img{display:inline-block}',
+].join("");
+
+export function ensureComposerContentHtml(html: string) {
+  const document = fragmentDocument(html);
+  const directChildren = Array.from(document.body.children);
+  const composerBodies = directChildren.filter((element) => (
+    element.hasAttribute("data-nextmail-composer-body")
+  ));
+  const composerStyles = directChildren.filter((element): element is HTMLStyleElement => (
+    element instanceof HTMLStyleElement && isComposerContentStyle(element.textContent ?? "")
+  ));
+  const hasUnwrappedContent = Array.from(document.body.childNodes).some((node) => {
+    if (node instanceof HTMLStyleElement) return false;
+    if (node instanceof HTMLElement) {
+      return !node.hasAttribute("data-nextmail-composer-body")
+        && !node.hasAttribute("data-nextmail-original-message");
+    }
+    return Boolean(node.textContent?.trim());
+  });
+  if (composerBodies.length && composerStyles.length && !hasUnwrappedContent) return html;
+
+  for (const style of composerStyles) style.remove();
+  for (const body of composerBodies) body.replaceWith(...Array.from(body.childNodes));
+
+  const groups: Node[][] = [];
+  let current: Node[] = [];
+  const flush = () => {
+    if (current.length) groups.push(current);
+    current = [];
+  };
+  for (const node of Array.from(document.body.childNodes)) {
+    if (
+      node instanceof HTMLStyleElement
+      || (node instanceof HTMLElement && node.hasAttribute("data-nextmail-original-message"))
+    ) {
+      flush();
+    } else {
+      current.push(node);
+    }
+  }
+  flush();
+
+  for (const group of groups) {
+    const body = document.createElement("div");
+    body.setAttribute("data-nextmail-composer-body", "");
+    if (group[0]?.parentNode) group[0].parentNode.insertBefore(body, group[0]);
+    body.append(...group);
+  }
+  if (!document.body.querySelector(":scope > [data-nextmail-composer-body]")) {
+    const body = document.createElement("div");
+    body.setAttribute("data-nextmail-composer-body", "");
+    document.body.prepend(body);
+  }
+
+  const style = document.createElement("style");
+  style.setAttribute("data-nextmail-composer-style", "");
+  style.textContent = COMPOSER_CONTENT_STYLE;
+  document.body.prepend(style);
+  return document.body.innerHTML;
+}
+
+export function stripComposerContentEnvelope(html: string) {
+  const document = fragmentDocument(html);
+  for (const style of Array.from(document.body.children)) {
+    if (style instanceof HTMLStyleElement && isComposerContentStyle(style.textContent ?? "")) {
+      style.remove();
+    }
+  }
+  for (const body of Array.from(document.body.children)) {
+    if (body.hasAttribute("data-nextmail-composer-body")) {
+      body.replaceWith(...Array.from(body.childNodes));
+    }
+  }
+  return document.body.innerHTML;
+}
+
 export function inlineImagePreviews(attachments: DraftAttachmentSummary[]) {
   return Object.fromEntries(attachments.flatMap((attachment) => (
     attachment.isInline && attachment.contentId && attachment.previewDataUrl
@@ -15,7 +105,9 @@ export function normalizeContentId(value: string) {
 export function buildComposerPreviewDocument(
   html: string,
   previews: Record<string, string>,
+  applyComposerDefaults = false,
 ) {
+  if (applyComposerDefaults) html = ensureComposerContentHtml(html);
   const document = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
   // Rust remains the authoritative sanitizer. This second, deliberately
   // narrow guard prevents historical editor content from handing active
@@ -102,6 +194,17 @@ function hideUnavailableImage(image: HTMLImageElement) {
   image.removeAttribute("src");
   image.classList.add("nextmail-preview-unavailable");
   image.setAttribute("aria-hidden", "true");
+}
+
+function fragmentDocument(html: string) {
+  return new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+}
+
+function isComposerContentStyle(css: string) {
+  const compact = css.replace(/\s+/g, "").toLocaleLowerCase();
+  return compact.includes("[data-nextmail-composer-body]{")
+    && compact.includes("font-size:14px")
+    && compact.includes("line-height:1.2");
 }
 
 export function htmlToPlainText(html: string) {

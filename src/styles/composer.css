@@ -1,68 +1,11 @@
 .nextmail-editor-content {
   min-height: 100%;
   padding: 22px 24px 80px;
-  color: var(--foreground);
-  background: var(--card);
-  font-size: 14px;
-  line-height: 1.2;
   outline: none;
-  overflow-wrap: anywhere;
-}
-
-.nextmail-editor-content p {
-  margin: 0 0 0.8em;
-}
-
-.nextmail-editor-content h1,
-.nextmail-editor-content h2,
-.nextmail-editor-content h3 {
-  margin: 1.1em 0 0.55em;
-  line-height: 1.25;
-}
-
-.nextmail-editor-content blockquote {
-  margin: 1em 0;
-  padding-left: 1rem;
-  border-left: 3px solid var(--primary);
-  color: var(--muted-foreground);
-}
-
-.nextmail-editor-content ul,
-.nextmail-editor-content ol {
-  margin: 0.8em 0;
-  padding-left: 1.5rem;
-}
-
-.nextmail-editor-content span[style*="background-color"] {
-  color: #202124;
-}
-
-.nextmail-editor-content .nextmail-composition-template,
-.nextmail-editor-content .nextmail-composition-signature {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.nextmail-editor-content .nextmail-composition-signature > :last-child {
-  margin-bottom: 0;
 }
 
 .nextmail-editor-content .nextmail-composition-reply {
   min-height: 2.2rem;
-}
-
-.nextmail-editor-content hr[data-nextmail-signature-divider] {
-  margin: 20px 0;
-  border: 0;
-  border-top: 1px solid var(--border);
-}
-
-.nextmail-editor-content .nextmail-composition-original-message {
-  margin-top: 0.9rem;
-  overflow-wrap: normal;
 }
 
 .nextmail-editor-content .nextmail-composition-original-frame {
@@ -84,7 +27,6 @@
 .nextmail-editor-content td,
 .nextmail-editor-content th {
   position: relative;
-  vertical-align: top;
 }
 
 .nextmail-editor-content .selectedCell::after {
@@ -94,8 +36,4 @@
   content: "";
   pointer-events: none;
   background: color-mix(in srgb, var(--primary) 14%, transparent);
-}
-
-.nextmail-editor-content .nextmail-email-image {
-  display: inline-block;
 }

@@ -531,6 +531,30 @@ fn scopes_rich_text_paste_styles_without_losing_safe_formatting() {
 }
 
 #[test]
+fn preserves_portable_composer_body_styles() {
+    let sanitized = sanitize_composer_document(
+        r#"<style>
+            [data-nextmail-composer-body]{background:#fff;font-family:system-ui,"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.2;overflow-wrap:anywhere}
+            [data-nextmail-composer-body] p{margin:0 0 .8em}
+            [data-nextmail-composer-body] ul{list-style-type:none}
+            [data-nextmail-composer-body] .nextmail-composition-signature>:last-child{margin-bottom:0}
+        </style>
+            <div data-nextmail-composer-body=""><p>Visible body</p></div>"#,
+    );
+
+    for expected in [
+        "data-nextmail-composer-body",
+        "font-size:14px",
+        "line-height:1.2",
+        "list-style-type:none",
+        "nextmail-composition-signature>:last-child",
+        "Visible body",
+    ] {
+        assert!(sanitized.contains(expected), "missing {expected}");
+    }
+}
+
+#[test]
 fn preserves_flex_invoice_column_ratios_for_reading_and_composer_import() {
     let fixture = include_str!("../../../../testdata/mail-rendering/flex-invoice-table.html");
     let reading = sanitize_mail_html(fixture);

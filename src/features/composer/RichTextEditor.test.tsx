@@ -270,9 +270,31 @@ describe("RichTextEditor composition nodes", () => {
     await waitFor(() => {
       const content = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
       expect(content?.html).toContain("&nbsp;&nbsp;&nbsp;&nbsp;");
+      expect(content?.html).toContain("data-nextmail-composer-body");
+      expect(content?.html).toContain("line-height:1.2");
     });
     expect(editable.textContent).toContain("\u00a0".repeat(4));
     expect(editable).toHaveFocus();
+  });
+
+  it("keeps reusable definition HTML as a fragment", async () => {
+    const onChange = vi.fn<(content: DraftContent) => void>();
+    const { container } = render(
+      <RichTextEditor
+        initialJson={EMPTY}
+        includePortableStyles={false}
+        onChange={onChange}
+      />,
+    );
+    const editable = await waitFor(() => container.querySelector<HTMLElement>(".ProseMirror") as HTMLElement);
+
+    fireEvent.keyDown(editable, { key: "Tab" });
+
+    await waitFor(() => {
+      const content = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0];
+      expect(content?.html).toContain("&nbsp;&nbsp;&nbsp;&nbsp;");
+      expect(content?.html).not.toContain("data-nextmail-composer-body");
+    });
   });
 
   it("inserts a prepared reusable-definition image as a persistent data source", async () => {
@@ -366,7 +388,7 @@ describe("RichTextEditor composition nodes", () => {
     });
   });
 
-  it("keeps the persisted HTML source exact until the rich editor is actually changed", async () => {
+  it("keeps authored HTML intact inside the portable composer envelope", async () => {
     const exactHtml = 'Bare text <span style="font-size:19px">without a paragraph wrapper</span>';
     render(
       <RichTextEditor
@@ -378,7 +400,9 @@ describe("RichTextEditor composition nodes", () => {
 
     await selectMoreFormatting("HTML source");
     const source = await screen.findByRole("textbox", { name: "HTML source" });
-    expect(source.textContent).toBe(exactHtml);
+    expect(source.textContent).toContain(exactHtml);
+    expect(source.textContent).toContain("data-nextmail-composer-body");
+    expect(source.textContent).toContain("line-height:1.2");
 
     await selectMoreFormatting("HTML source");
     await selectMoreFormatting("HTML source");

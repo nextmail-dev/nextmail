@@ -433,6 +433,7 @@ fn sanitize_mail_html_fragment_with_scope(
             [
                 "align",
                 "data-nextmail-body",
+                "data-nextmail-composer-body",
                 "data-nextmail-original-message",
                 "data-nextmail-pasted-html",
                 "data-nextmail-reply",

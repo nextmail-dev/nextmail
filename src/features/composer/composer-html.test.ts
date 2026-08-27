@@ -2,12 +2,36 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildComposerPreviewDocument,
+  ensureComposerContentHtml,
   estimateComposerDocumentHeight,
   htmlToPlainText,
   inlineImagePreviews,
+  stripComposerContentEnvelope,
 } from "./composer-html";
 
 describe("composer HTML preview", () => {
+  it("uses the same portable styles for editing, preview, and outgoing HTML", () => {
+    const html = ensureComposerContentHtml([
+      '<p style="font-size:18px">Current reply</p>',
+      '<div data-nextmail-original-message=""><p>Original message</p></div>',
+    ].join(""));
+    const document = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+    const body = document.body.querySelector("[data-nextmail-composer-body]");
+    const original = document.body.querySelector("[data-nextmail-original-message]");
+
+    expect(html).toContain("font-size:14px");
+    expect(html).toContain("line-height:1.2");
+    expect(body?.innerHTML).toContain('<p style="font-size:18px">Current reply</p>');
+    expect(original?.closest("[data-nextmail-composer-body]")).toBeNull();
+    expect(ensureComposerContentHtml(html)).toBe(html);
+    expect(buildComposerPreviewDocument(html, {}, true)).toContain("line-height:1.2");
+
+    const fragment = stripComposerContentEnvelope(html);
+    expect(fragment).toContain("Current reply");
+    expect(fragment).toContain("Original message");
+    expect(fragment).not.toContain("data-nextmail-composer-body");
+  });
+
   it("resolves cached CID images and hides unavailable remote images without placeholders", () => {
     const previews = inlineImagePreviews([{
       id: "inline-one",

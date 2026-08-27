@@ -31,6 +31,7 @@ import {
   type CompositionNodeSelection,
   type RichTextEditorHandle,
 } from "./RichTextEditor";
+import { ensureComposerContentHtml } from "./composer-html";
 import { fileToBase64 } from "./fileToBase64";
 import { AddressTag, RecipientField } from "./RecipientField";
 import { addRecipientInput, formatAddress } from "./recipient-utils";
@@ -169,7 +170,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         draft.id,
         resolvedRecipients,
         subject,
-        content,
+        { ...content, html: ensureComposerContentHtml(content.html) },
         revisionRef.current,
       );
       revisionRef.current = saved.revision;
@@ -475,8 +476,8 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     }
     setConfirmEmptySubject(false);
     setSubmitting(true);
-    const saved = await saveNow(true);
-    if (dirty && !saved) {
+    const saved = await saveNow(true, true);
+    if (!saved) {
       setSubmitting(false);
       return;
     }
@@ -624,7 +625,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         <RichTextEditor
           ref={editorRef}
           initialJson={draft.content.editorJson}
-          initialHtml={draft.content.html}
+          initialHtml={ensureComposerContentHtml(draft.content.html)}
           disabled={!editable}
           inlineImages={attachments}
           onAddInlineImage={addInlineImage}

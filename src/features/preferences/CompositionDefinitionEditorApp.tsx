@@ -342,6 +342,7 @@ function DefinitionEditorForm({
               initialHtml={content.html}
               ariaLabel={label}
               disabled={saving}
+              includePortableStyles={false}
               onChange={setContent}
               onAddInlineImage={addInlineImage}
               onSanitizeHtml={api.sanitizeRichTextPaste}

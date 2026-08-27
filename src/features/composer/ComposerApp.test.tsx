@@ -202,12 +202,43 @@ describe("ComposerApp close lifecycle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save as draft" }));
     await waitFor(() => expect(destroyMock).toHaveBeenCalledOnce());
     expect(api.saveDraft).toHaveBeenCalledOnce();
-    expect(vi.mocked(api.saveDraft).mock.calls[0]?.[4]).toEqual({
+    const savedContent = vi.mocked(api.saveDraft).mock.calls[0]?.[4];
+    expect(savedContent).toMatchObject({
       editorJson: "{\"type\":\"doc\"}",
-      html: "<p>Changed body</p>",
       plainText: "Changed body",
     });
+    expect(savedContent?.html).toContain("data-nextmail-composer-body");
+    expect(savedContent?.html).toContain("line-height:1.2");
+    expect(savedContent?.html).toContain("<p>Changed body</p>");
     expect(api.queueRemoteDraft).toHaveBeenCalledWith("account-one", "draft-one");
+  });
+
+  it("adds portable styles before sending an unchanged draft", async () => {
+    vi.mocked(api.getComposerBootstrap).mockResolvedValue({
+      ...bootstrap,
+      draft: {
+        ...bootstrap.draft,
+        recipients: { to: [{ name: null, email: "bob@example.com" }], cc: [], bcc: [] },
+        subject: "Hello",
+      },
+    });
+    vi.mocked(api.queueDraftSend).mockResolvedValue({
+      id: "send-one",
+      draftId: "draft-one",
+      accountId: "account-one",
+      status: "queued",
+      attemptCount: 0,
+      errorCode: null,
+      revision: 1,
+    });
+
+    renderComposer();
+    fireEvent.click(await screen.findByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(api.queueDraftSend).toHaveBeenCalledWith("account-one", "draft-one"));
+    const savedContent = vi.mocked(api.saveDraft).mock.calls[0]?.[4];
+    expect(savedContent?.html).toContain("data-nextmail-composer-body");
+    expect(savedContent?.html).toContain("line-height:1.2");
   });
 
   it("discards the composing session without saving when the user declines", async () => {
