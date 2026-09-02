@@ -471,6 +471,15 @@ pub async fn request_raw_message(
 }
 
 #[tauri::command]
+pub async fn save_message_as(
+    state: State<'_, AppState>,
+    account_id: String,
+    message_id: String,
+) -> CommandResult<bool> {
+    state.mail.save_message_as(&account_id, &message_id).await
+}
+
+#[tauri::command]
 pub async fn request_message_body(
     state: State<'_, AppState>,
     account_id: String,

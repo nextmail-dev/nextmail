@@ -183,6 +183,7 @@
       "complete": "Message body downloaded ({{progress}}%)"
     },
     "viewSource": "View message source",
+    "saveMessageAs": "Save as EML",
     "openInNewWindow": "Open in new window",
     "previewWindowTitle": "Message",
     "sourceTitle": "Message source",
@@ -699,6 +700,9 @@
     "mailbox.order_conflict": "The folder list changed while it was being reordered. Try dragging again.",
     "message.remote_location_missing": "The server location for this message is unavailable.",
     "message.raw_unavailable": "The raw message is currently unavailable.",
+    "message.save_dialog_failed": "The message save dialog could not be opened.",
+    "message.save_path_invalid": "The selected message save location is invalid.",
+    "message.save_failed": "The message could not be saved to the selected location.",
     "message.not_found": "This message could not be found. It may have been moved or deleted.",
     "attachment.not_found": "This attachment could not be found.",
     "attachment.read_failed": "The selected attachment could not be read. Make sure it is still available.",

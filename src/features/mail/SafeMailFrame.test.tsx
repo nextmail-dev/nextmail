@@ -72,4 +72,19 @@ describe("SafeMailFrame", () => {
     expect(frameSource).not.toContain("background-color: rgb(");
     document.documentElement.removeAttribute("data-theme");
   });
+
+  it("constrains message images to the frame viewport", () => {
+    const source = '<!doctype html><html><head></head><body><img src="data:image/png;base64,AA==" width="1200" height="800" alt="Chart"><img src="https://cdn.example/banner.png"></body></html>';
+    render(<SafeMailFrame document={source} title="Images" />);
+
+    const frame = screen.getByTitle("Images") as HTMLIFrameElement;
+    const frameDocument = new DOMParser().parseFromString(
+      frame.getAttribute("srcdoc") ?? "",
+      "text/html",
+    );
+    const images = frameDocument.querySelectorAll("img");
+    expect(images[0].style.getPropertyValue("max-width")).toBe("100vw");
+    expect(images[0].style.getPropertyPriority("max-width")).toBe("important");
+    expect(images[0].style.getPropertyValue("height")).toBe("auto");
+  });
 });

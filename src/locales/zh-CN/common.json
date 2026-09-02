@@ -183,6 +183,7 @@
       "complete": "正文下载完成（{{progress}}%）"
     },
     "viewSource": "查看原始邮件",
+    "saveMessageAs": "另存为 EML",
     "openInNewWindow": "在新窗口中打开",
     "previewWindowTitle": "邮件",
     "sourceTitle": "原始邮件",
@@ -698,6 +699,9 @@
     "mailbox.order_conflict": "拖拽期间文件夹列表已变化，请重新排序。",
     "message.remote_location_missing": "找不到这封邮件对应的服务器位置。",
     "message.raw_unavailable": "原始邮件当前不可用。",
+    "message.save_dialog_failed": "无法打开邮件保存窗口。",
+    "message.save_path_invalid": "所选邮件保存位置无效。",
+    "message.save_failed": "无法将邮件保存到所选位置。",
     "message.not_found": "找不到这封邮件，可能已被移动或删除。",
     "attachment.not_found": "找不到此附件。",
     "attachment.read_failed": "无法读取所选附件，请确认文件仍然可用。",

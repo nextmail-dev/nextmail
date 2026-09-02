@@ -12,6 +12,7 @@ import {
   Paperclip,
   Reply,
   ReplyAll,
+  Save,
   Star,
   Trash2,
 } from "lucide-react";
@@ -192,12 +193,15 @@ function MessageListPaneBase({
   const previewOperation = useMutation({
     mutationFn: (message: MessageListItem) => api.openMessagePreviewWindow(accountId, message.mailboxId, message.id),
   });
+  const saveOperation = useMutation({
+    mutationFn: (message: MessageListItem) => api.saveMessageAs(accountId, message.id),
+  });
   const mailboxName = mailbox
     ? mailbox.role === "other" ? mailbox.name : t(`mailboxNames.${mailbox.role}`)
     : unreadView ? t("mailboxNames.unread")
     : starredView ? t("mailboxNames.starred")
     : t("mail.messages");
-  const actionError = operation.error ?? composeOperation.error ?? editDraftOperation.error ?? previewOperation.error;
+  const actionError = operation.error ?? composeOperation.error ?? editDraftOperation.error ?? previewOperation.error ?? saveOperation.error;
   const autoLoadMore = readingPreferences.data?.autoLoadMoreMessages ?? true;
 
   function loadNextPageNearEnd(event: UIEvent<HTMLDivElement>) {
@@ -306,11 +310,12 @@ function MessageListPaneBase({
                   ? mailboxes.find((item) => item.id === message.mailboxId)
                   : mailbox}
                 mailboxes={mailboxes}
-                pending={operation.isPending || composeOperation.isPending || editDraftOperation.isPending || previewOperation.isPending}
+                pending={operation.isPending || composeOperation.isPending || editDraftOperation.isPending || previewOperation.isPending || saveOperation.isPending}
                 onCompose={(action) => composeOperation.mutate({ message, action })}
                 onOperate={(kind, destination) => operation.mutate({ messages: operationMessages, reference: message, kind, destination })}
                 onEditDraft={() => editDraftOperation.mutate(message)}
                 onOpenInNewWindow={() => previewOperation.mutate(message)}
+                onSaveAs={() => saveOperation.mutate(message)}
               >
                 <MessageRow
                   message={message}
@@ -508,6 +513,7 @@ function MessageActionsContextMenu({
   onOperate,
   onEditDraft,
   onOpenInNewWindow,
+  onSaveAs,
   children,
 }: {
   message: MessageListItem;
@@ -519,6 +525,7 @@ function MessageActionsContextMenu({
   onOperate: (kind: MessageListOperationKind, destination?: string) => void;
   onEditDraft: () => void;
   onOpenInNewWindow: () => void;
+  onSaveAs: () => void;
   children: ReactElement;
 }) {
   const { t } = useTranslation();
@@ -531,6 +538,7 @@ function MessageActionsContextMenu({
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
         {single ? <ContextMenuItem disabled={pending} onSelect={onOpenInNewWindow}><ExternalLink size={16} />{t("mail.openInNewWindow")}</ContextMenuItem> : null}
+        {single ? <ContextMenuItem disabled={pending} onSelect={onSaveAs}><Save size={16} />{t("mail.saveMessageAs")}</ContextMenuItem> : null}
         {single && !isDraft ? (
           <>
             <ContextMenuItem disabled={pending} onSelect={() => onCompose("reply")}><Reply size={16} />{t("mail.reply")}</ContextMenuItem>

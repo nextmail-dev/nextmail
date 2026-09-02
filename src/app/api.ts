@@ -243,6 +243,8 @@ export const api = {
     invoke<boolean>("set_account_download_full_messages", { accountId, enabled }),
   requestRawMessage: (accountId: string, messageId: string) =>
     invoke<string>("request_raw_message", { accountId, messageId }),
+  saveMessageAs: (accountId: string, messageId: string) =>
+    invoke<boolean>("save_message_as", { accountId, messageId }),
   requestAttachment: (accountId: string, attachmentId: string) =>
     invoke<AttachmentSummary>("request_attachment", { accountId, attachmentId }),
   openMessageAttachment: (accountId: string, attachmentId: string) =>

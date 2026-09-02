@@ -21,6 +21,47 @@ impl MailRuntime {
         account_id: &str,
         message_id: &str,
     ) -> CommandResult<String> {
+        let raw = self.ensure_raw_message(account_id, message_id).await?;
+        Ok(String::from_utf8_lossy(&raw).into_owned())
+    }
+
+    pub async fn save_message_as(&self, account_id: &str, message_id: &str) -> CommandResult<bool> {
+        let account = self.service.account_record(account_id)?;
+        let repository = Arc::clone(self.repository().await?);
+        let subject = repository
+            .read()
+            .message_subject(&account.data_slot_id, message_id)
+            .await?;
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.app
+            .dialog()
+            .file()
+            .add_filter("EML", &["eml"])
+            .set_file_name(message_eml_file_name(&subject))
+            .save_file(move |path| {
+                let _ = sender.send(path);
+            });
+        let selected = receiver
+            .await
+            .map_err(|_| CommandError::new("message.save_dialog_failed"))?;
+        let Some(selected) = selected else {
+            return Ok(false);
+        };
+        let target = selected
+            .into_path()
+            .map_err(|_| CommandError::new("message.save_path_invalid"))?;
+        let raw = self.ensure_raw_message(account_id, message_id).await?;
+        tokio::fs::write(target, raw)
+            .await
+            .map_err(|_| CommandError::new("message.save_failed"))?;
+        Ok(true)
+    }
+
+    async fn ensure_raw_message(
+        &self,
+        account_id: &str,
+        message_id: &str,
+    ) -> CommandResult<Vec<u8>> {
         let account = self.service.account_record(account_id)?;
         let repository = Arc::clone(self.repository().await?);
         let raw = match repository
@@ -39,7 +80,7 @@ impl MailRuntime {
                     .ok_or_else(|| CommandError::new("message.raw_unavailable"))?
             }
         };
-        Ok(String::from_utf8_lossy(&raw).into_owned())
+        Ok(raw)
     }
 
     pub async fn request_message_body(
@@ -469,5 +510,33 @@ impl MailRuntime {
             }
             Err(error) => Err(error),
         }
+    }
+}
+
+fn message_eml_file_name(subject: &str) -> String {
+    let stem = if subject.trim().is_empty() {
+        "message".to_owned()
+    } else {
+        crate::storage::sanitize_attachment_file_name(&subject.replace(['/', '\\'], "_"))
+    };
+    if stem.to_ascii_lowercase().ends_with(".eml") {
+        stem
+    } else {
+        format!("{stem}.eml")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::message_eml_file_name;
+
+    #[test]
+    fn builds_safe_eml_file_names_from_message_subjects() {
+        assert_eq!(
+            message_eml_file_name("Quarterly / report"),
+            "Quarterly _ report.eml"
+        );
+        assert_eq!(message_eml_file_name("message.EML"), "message.EML");
+        assert_eq!(message_eml_file_name("  "), "message.eml");
     }
 }

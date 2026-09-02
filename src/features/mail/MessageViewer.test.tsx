@@ -55,6 +55,7 @@ vi.mock("@/app/api", () => ({
     revealMessageAttachment: vi.fn().mockResolvedValue(undefined),
     openRawMessageWindow: vi.fn().mockResolvedValue(undefined),
     openMessagePreviewWindow: vi.fn().mockResolvedValue(undefined),
+    saveMessageAs: vi.fn().mockResolvedValue(true),
   },
   normalizeCommandError: vi.fn(() => ({
     code: "common.unexpected_error",
@@ -302,6 +303,33 @@ describe("MessageViewer", () => {
       expect(api.openRawMessageWindow).toHaveBeenCalledWith("account-one", "message-one");
     });
     expect(screen.queryByRole("dialog", { name: "Message source" })).not.toBeInTheDocument();
+  });
+
+  it("saves the message as EML from the overflow menu", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MessageViewer
+          accountId="account-one"
+          mailboxId="inbox"
+          messageId="message-one"
+          mailboxes={[]}
+          onMessageRemoved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "More actions" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Save as EML" }));
+
+    await waitFor(() => expect(api.saveMessageAs).toHaveBeenCalledWith(
+      "account-one", "message-one",
+    ));
   });
 
   it("keeps move and copy destinations in the overflow menu", async () => {

@@ -15,6 +15,7 @@ import {
   Paperclip,
   Reply,
   ReplyAll,
+  Save,
   Star,
   Trash2,
 } from "lucide-react";
@@ -137,6 +138,9 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
   const rawWindowMutation = useMutation({
     mutationFn: () => api.openRawMessageWindow(accountId, messageId),
   });
+  const saveMessageMutation = useMutation({
+    mutationFn: () => api.saveMessageAs(accountId, messageId),
+  });
   const revealAttachmentMutation = useMutation({
     mutationFn: (attachment: AttachmentSummary) => api.revealMessageAttachment(accountId, attachment.id),
     onSettled: (_result, _error, attachment) => {
@@ -179,7 +183,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
 
   const message = query.data;
   const allowRemoteImages = remoteImagesAllowed || readingPreferences.data?.autoLoadRemoteImages === true;
-  const operationError = bodyMutation.error ?? rawWindowMutation.error ?? previewWindowMutation.error ?? attachmentMutation.error ?? saveAttachmentMutation.error ?? revealAttachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
+  const operationError = bodyMutation.error ?? rawWindowMutation.error ?? saveMessageMutation.error ?? previewWindowMutation.error ?? attachmentMutation.error ?? saveAttachmentMutation.error ?? revealAttachmentMutation.error ?? messageOperation.error ?? editDraftMutation.error ?? composeMutation.error;
   const normalizedOperationError = operationError ? normalizeCommandError(operationError) : null;
   const date = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(message.receivedAt * 1000));
   const sender = message.from[0];
@@ -260,6 +264,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
                   </>
                 ) : null}
                 <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={saveMessageMutation.isPending} onSelect={() => saveMessageMutation.mutate()}><Save size={16} />{t("mail.saveMessageAs")}</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => rawWindowMutation.mutate()}><FileText size={16} />{t("mail.viewSource")}</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -310,7 +315,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
         ) : null}
       </Stack>
 
-      <Stack className="min-h-0 flex-1" gap="none">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {message.safeHtml ? (
           <div className="min-h-0 flex-1 overflow-hidden px-4 py-3">
             <SafeMailFrame document={message.safeHtml} title={message.subject || t("mail.messageBody")} allowRemoteImages={allowRemoteImages} />
@@ -340,7 +345,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
             />
           </Stack>
         )}
-      </Stack>
+      </div>
 
       {visibleAttachments.length ? (
         <Stack className="shrink-0 border-t border-border/70 bg-muted/20 px-5 py-2.5">

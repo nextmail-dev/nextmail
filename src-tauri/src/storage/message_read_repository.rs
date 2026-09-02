@@ -573,6 +573,17 @@ impl MailReadRepository {
         Ok(detail)
     }
 
+    pub async fn message_subject(
+        &self,
+        account_slot_id: &str,
+        message_id: &str,
+    ) -> CommandResult<String> {
+        Ok(self
+            .message_detail_row(account_slot_id, message_id)
+            .await?
+            .subject)
+    }
+
     async fn resolve_message_items(
         &self,
         account_slot_id: &str,

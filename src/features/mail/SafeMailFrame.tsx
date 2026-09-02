@@ -66,5 +66,11 @@ function prepareFrameDocument(source: string, allowRemoteImages: boolean, dark: 
   document = /<head(?:\s[^>]*)?>/i.test(document)
     ? document.replace(/<head(\s[^>]*)?>/i, (head) => `${head}${themeStyle}`)
     : `${themeStyle}${document}`;
-  return document;
+
+  const mailDocument = new DOMParser().parseFromString(document, "text/html");
+  for (const image of mailDocument.querySelectorAll<HTMLImageElement>("img")) {
+    image.style.setProperty("max-width", "100vw", "important");
+    image.style.setProperty("height", "auto", "important");
+  }
+  return `<!doctype html>${mailDocument.documentElement.outerHTML}`;
 }

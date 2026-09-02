@@ -158,6 +158,7 @@ pub fn run() {
             commands::set_account_sync_interval,
             commands::set_account_download_full_messages,
             commands::request_raw_message,
+            commands::save_message_as,
             commands::request_message_body,
             commands::request_attachment,
             commands::open_message_attachment,

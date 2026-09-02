@@ -19,6 +19,7 @@ vi.mock("@/app/api", () => ({
     setMessageRead: vi.fn(),
     setMessageFlagged: vi.fn(),
     openMessagePreviewWindow: vi.fn(),
+    saveMessageAs: vi.fn(),
     openMessageActionComposer: vi.fn(),
     openRemoteDraft: vi.fn(),
     moveMessages: vi.fn(),
@@ -378,7 +379,7 @@ describe("MessageListPane", () => {
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
   });
 
-  it("opens a message in an independent window from double click or the context menu", async () => {
+  it("opens or saves a message from the list context menu", async () => {
     vi.mocked(api.listMessages).mockResolvedValue({ items: [serverResult], nextCursor: null });
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -412,6 +413,12 @@ describe("MessageListPane", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Open in new window" }));
     await waitFor(() => expect(api.openMessagePreviewWindow).toHaveBeenCalledWith(
       "account-one", "inbox", "message-one",
+    ));
+
+    fireEvent.contextMenu(row);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Save as EML" }));
+    await waitFor(() => expect(api.saveMessageAs).toHaveBeenCalledWith(
+      "account-one", "message-one",
     ));
   });
 
