@@ -249,9 +249,9 @@ export function MailboxPane({
         <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
       ) : null}
       <OverlayScrollArea
-        className={collapsed ? "min-h-0 w-full flex-1" : "-mr-3 min-h-0 flex-1"}
-        contentClassName={collapsed ? "gap-0.5" : "gap-0.5 pr-3"}
-        trackClassName="right-0 w-3"
+        className={collapsed ? "-mr-1 min-h-0 flex-1 self-stretch" : "-mr-3 min-h-0 flex-1"}
+        contentClassName={collapsed ? "gap-0.5 pr-1" : "gap-0.5 pr-3"}
+        trackClassName="right-px w-2"
       >
           {collapsed ? null : (
             <LabelText className="h-7 w-full px-[26px] pt-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">

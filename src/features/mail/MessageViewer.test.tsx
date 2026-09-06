@@ -222,7 +222,7 @@ describe("MessageViewer", () => {
     );
 
     const frame = await screen.findByTitle("HTML message");
-    expect(frame.parentElement).toHaveClass("min-h-0", "flex-1", "overflow-hidden", "px-4", "py-3");
+    expect(frame.parentElement).toHaveClass("min-h-0", "flex-1", "overflow-hidden", "px-2", "py-3");
   });
 
   it("collapses overflowing recipients to one row until explicitly expanded", async () => {

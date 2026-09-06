@@ -12,12 +12,19 @@ describe("ResizeHandle", () => {
         max={520}
         onValueChange={vi.fn()}
         label="Resize pane"
+        onCollapsedChange={vi.fn()}
+        collapseLabel="Collapse pane"
       />,
     );
 
     const separator = screen.getByRole("separator", { name: "Resize pane" });
     const rail = separator.querySelector("span");
-    expect(separator).toHaveClass("w-3", "-translate-x-1/2");
+    expect(separator).toHaveClass("w-1.5", "-translate-x-1/2");
+    expect(screen.getByRole("button", { name: "Collapse pane" })).toHaveClass(
+      "pointer-events-none",
+      "group-hover:pointer-events-auto",
+      "group-focus-within:pointer-events-auto",
+    );
     expect(rail).toHaveClass(
       "inset-y-0",
       "w-px",

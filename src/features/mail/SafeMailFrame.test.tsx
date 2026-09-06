@@ -83,8 +83,29 @@ describe("SafeMailFrame", () => {
       "text/html",
     );
     const images = frameDocument.querySelectorAll("img");
-    expect(images[0].style.getPropertyValue("max-width")).toBe("100vw");
+    expect(images[0].style.getPropertyValue("max-width")).toBe("calc(100vw - 16px)");
     expect(images[0].style.getPropertyPriority("max-width")).toBe("important");
+    expect(images[0].style.getPropertyValue("box-sizing")).toBe("border-box");
     expect(images[0].style.getPropertyValue("height")).toBe("auto");
+  });
+
+  it("keeps a themed scrollbar visible inside the reader inset without hover", () => {
+    document.documentElement.style.setProperty("--muted-foreground", "#5f6d80");
+    try {
+      render(<SafeMailFrame document={plainUnstyledMail} title="Scrollbars" />);
+      const source = screen.getByTitle("Scrollbars").getAttribute("srcdoc") ?? "";
+      const frameDocument = new DOMParser().parseFromString(source, "text/html");
+      const styles = frameDocument.getElementById("nextmail-reader-scrollbar")?.textContent ?? "";
+      expect(styles).toContain("width:calc(100vw - 16px) !important");
+      expect(styles).toContain("margin:0 0 0 8px !important");
+      expect(styles).toMatch(/:root::-webkit-scrollbar\s*\{[^}]*width:6px/);
+      expect(styles).toMatch(/:root::-webkit-scrollbar-thumb\s*\{[^}]*background:color-mix\(in srgb, #5f6d80 55%, transparent\)/);
+      expect(styles).toContain("cursor:default");
+      expect(styles).not.toContain(":root:hover");
+      expect(styles).not.toContain("scrollbar-gutter");
+      expect(frameDocument.querySelector("script")).toBeNull();
+    } finally {
+      document.documentElement.style.removeProperty("--muted-foreground");
+    }
   });
 });

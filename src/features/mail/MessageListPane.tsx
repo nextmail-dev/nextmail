@@ -296,7 +296,7 @@ function MessageListPaneBase({
         <OverlayScrollArea
           key={`${accountId}:${mailboxId}`}
           className="min-h-0 flex-1"
-          trackClassName="right-2 w-3"
+          trackClassName="right-[7px] w-2"
           onViewportScroll={loadNextPageNearEnd}
         >
           {items.map((message, index) => {

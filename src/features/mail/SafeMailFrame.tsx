@@ -24,7 +24,7 @@ export function SafeMailFrame({ document, title, allowRemoteImages = false }: Sa
   );
   return (
     <iframe
-      className="size-full border-0 bg-card"
+      className="block size-full border-0 bg-card"
       title={title}
       sandbox="allow-popups"
       referrerPolicy="no-referrer"
@@ -68,8 +68,25 @@ function prepareFrameDocument(source: string, allowRemoteImages: boolean, dark: 
     : `${themeStyle}${document}`;
 
   const mailDocument = new DOMParser().parseFromString(document, "text/html");
+  // Keep the scriptless, opaque frame: style its own scrollbar instead of
+  // reading its DOM from OverlayScrollArea. The 6px track fits in the existing inset.
+  const scrollbarForeground = getComputedStyle(globalThis.document.documentElement)
+    .getPropertyValue("--muted-foreground").trim() || "currentColor";
+  const readerStyle = mailDocument.createElement("style");
+  readerStyle.id = "nextmail-reader-scrollbar";
+  readerStyle.textContent = `
+    :root { min-height:100%; overflow:auto; scrollbar-color:auto; scrollbar-width:auto; }
+    :root > body { box-sizing:border-box; width:calc(100vw - 16px) !important; margin:0 0 0 8px !important; }
+    :root::-webkit-scrollbar { width:6px; height:6px; background:transparent; cursor:default; }
+    :root::-webkit-scrollbar-thumb { min-height:32px; border-radius:999px; background:color-mix(in srgb, ${scrollbarForeground} 55%, transparent); cursor:default; }
+    :root::-webkit-scrollbar-thumb:hover { background:color-mix(in srgb, ${scrollbarForeground} 70%, transparent); }
+    :root::-webkit-scrollbar-track, :root::-webkit-scrollbar-corner { background:transparent; }
+    :root::-webkit-scrollbar-button { display:none; width:0; height:0; }
+  `;
+  mailDocument.head.append(readerStyle);
   for (const image of mailDocument.querySelectorAll<HTMLImageElement>("img")) {
-    image.style.setProperty("max-width", "100vw", "important");
+    image.style.setProperty("max-width", "calc(100vw - 16px)", "important");
+    image.style.setProperty("box-sizing", "border-box", "important");
     image.style.setProperty("height", "auto", "important");
   }
   return `<!doctype html>${mailDocument.documentElement.outerHTML}`;
