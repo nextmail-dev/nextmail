@@ -14,6 +14,10 @@ import type {
   ContactDraft,
   ContactListPage,
   ContactSummary,
+  ContactGroupDraft,
+  ContactGroupSummary,
+  ContactGroupDetail,
+  ContactSuggestions,
   DataDirectoryValidation,
   DiscoveredAccountConfig,
   AppAbout,
@@ -189,7 +193,15 @@ export const api = {
     accountId, query, cursor, limit,
   }),
   listContactSuggestions: (accountId: string, query: string, limit = 8) =>
-    invoke<ContactSummary[]>("list_contact_suggestions", { accountId, query, limit }),
+    invoke<ContactSuggestions>("list_contact_suggestions", { accountId, query, limit }),
+  listContactGroups: (accountId: string) =>
+    invoke<ContactGroupSummary[]>("list_contact_groups", { accountId }),
+  getContactGroup: (accountId: string, groupId: string) =>
+    invoke<ContactGroupDetail>("get_contact_group", { accountId, groupId }),
+  saveContactGroup: (accountId: string, groupId: string | null, draft: ContactGroupDraft, expectedRevision: number | null) =>
+    invoke<ContactGroupDetail>("save_contact_group", { accountId, groupId, draft, expectedRevision }),
+  deleteContactGroup: (accountId: string, groupId: string, expectedRevision: number) =>
+    invoke<void>("delete_contact_group", { accountId, groupId, expectedRevision }),
   resolveContactAddresses: (accountId: string, addresses: MessageAddress[]) =>
     invoke<AddressPresentation[]>("resolve_contact_addresses", { accountId, addresses }),
   getContactDetail: (accountId: string, contactId: string) =>

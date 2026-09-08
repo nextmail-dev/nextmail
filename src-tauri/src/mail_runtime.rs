@@ -15,11 +15,12 @@ use std::{
 
 use crate::core::{
     AccountManagementDetail, AccountRemovalImpact, AccountRuntimeState, AccountRuntimeSummary,
-    AddressPresentation, CommandError, CommandResult, ContactDetail, ContactDraft, ContactListPage,
-    ContactSummary, ImapAccountConfig, ImapSyncProvider, MailSyncSink, MailboxRole, MailboxSummary,
-    MessageAddress, MessageDetail, MessageListPage, NewMailCandidate, NotificationDisplayMode,
-    NotificationNavigationTarget, PendingOperationKind, RemoteOperation, RemoteOperationKind,
-    SyncInterval, SyncPhase, SyncProgress,
+    AddressPresentation, CommandError, CommandResult, ContactDetail, ContactDraft,
+    ContactGroupDetail, ContactGroupDraft, ContactGroupSummary, ContactListPage,
+    ContactSuggestions, ContactSummary, ImapAccountConfig, ImapSyncProvider, MailSyncSink,
+    MailboxRole, MailboxSummary, MessageAddress, MessageDetail, MessageListPage, NewMailCandidate,
+    NotificationDisplayMode, NotificationNavigationTarget, PendingOperationKind, RemoteOperation,
+    RemoteOperationKind, SyncInterval, SyncPhase, SyncProgress,
 };
 use crate::storage::{MailRepository, MailRepositoryProvider, PendingOperationWork};
 use tauri::{AppHandle, Emitter};
@@ -535,7 +536,7 @@ impl MailRuntime {
         account_id: &str,
         query: &str,
         limit: u32,
-    ) -> CommandResult<Vec<ContactSummary>> {
+    ) -> CommandResult<ContactSuggestions> {
         let account = self.service.account_record(account_id)?;
         self.repository()
             .await?
@@ -568,6 +569,65 @@ impl MailRuntime {
             .contacts()
             .get_contact_detail(&account.data_slot_id, contact_id, 20)
             .await
+    }
+
+    pub async fn list_contact_groups(
+        &self,
+        account_id: &str,
+    ) -> CommandResult<Vec<ContactGroupSummary>> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .contacts()
+            .list_contact_groups(&account.data_slot_id)
+            .await
+    }
+
+    pub async fn get_contact_group(
+        &self,
+        account_id: &str,
+        group_id: &str,
+    ) -> CommandResult<ContactGroupDetail> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .contacts()
+            .get_contact_group(&account.data_slot_id, group_id)
+            .await
+    }
+
+    pub async fn save_contact_group(
+        &self,
+        account_id: &str,
+        group_id: Option<&str>,
+        draft: &ContactGroupDraft,
+        expected_revision: Option<u64>,
+    ) -> CommandResult<ContactGroupDetail> {
+        let account = self.service.account_record(account_id)?;
+        let group = self
+            .repository()
+            .await?
+            .contacts()
+            .save_contact_group(&account.data_slot_id, group_id, draft, expected_revision)
+            .await?;
+        self.emit_contacts_changed(account_id);
+        Ok(group)
+    }
+
+    pub async fn delete_contact_group(
+        &self,
+        account_id: &str,
+        group_id: &str,
+        expected_revision: u64,
+    ) -> CommandResult<()> {
+        let account = self.service.account_record(account_id)?;
+        self.repository()
+            .await?
+            .contacts()
+            .delete_contact_group(&account.data_slot_id, group_id, expected_revision)
+            .await?;
+        self.emit_contacts_changed(account_id);
+        Ok(())
     }
 
     pub async fn get_contact_summary(

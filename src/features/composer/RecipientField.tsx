@@ -1,14 +1,23 @@
-import { X } from "lucide-react";
+import { UsersRound, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api } from "@/app/api";
 import type { AddressPresentation, ContactSummary, MessageAddress } from "@/app/types";
 import { Button } from "@/components/ui/button";
+import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { ContactIdentity, ContactInitial } from "@/features/contacts/ContactIdentity";
 import { mailQueryKeys } from "@/features/mail/mail-query-keys";
 import { cn } from "@/lib/utils";
+import { parseAddress } from "./recipient-utils";
+
+interface RecipientSuggestion {
+  id: string;
+  name: string;
+  contacts: ContactSummary[];
+  isGroup: boolean;
+}
 
 interface RecipientFieldProps {
   label: string;
@@ -25,7 +34,7 @@ interface RecipientFieldProps {
   onCommit: () => void;
   onRemove: (index: number) => void;
   onEditLast: (address: MessageAddress, index: number) => void;
-  onSelectContact?: (contact: ContactSummary) => void;
+  onSelectContacts?: (contacts: ContactSummary[]) => void;
 }
 
 export function RecipientField({
@@ -43,27 +52,39 @@ export function RecipientField({
   onCommit,
   onRemove,
   onEditLast,
-  onSelectContact,
+  onSelectContacts,
 }: RecipientFieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
   const suggestionsId = `${id}-suggestions`;
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const [dismissed, setDismissed] = useState(false);
   const trimmedInput = input.trim();
+  const enabled = Boolean(accountId && trimmedInput && !disabled && onSelectContacts);
   const suggestions = useQuery({
     queryKey: mailQueryKeys.contactSuggestions(accountId ?? "", trimmedInput),
     queryFn: () => api.listContactSuggestions(accountId ?? "", trimmedInput, 8),
-    enabled: Boolean(accountId && trimmedInput && !disabled && onSelectContact),
+    enabled,
   });
   const existing = new Set(addresses.map((address) => address.email.trim().toLocaleLowerCase()));
-  const visibleSuggestions = (suggestions.data ?? []).filter(
-    (contact) => !existing.has(contact.email.trim().toLocaleLowerCase()),
-  );
+  const visibleSuggestions: RecipientSuggestion[] = enabled && !dismissed ? [
+    ...(suggestions.data?.groups ?? []).map(({ group, members }) => ({
+      id: `group-${group.id}`, name: group.name, contacts: members, isGroup: true,
+    })),
+    ...(suggestions.data?.contacts ?? []).map((contact) => ({
+      id: `contact-${contact.id}`, name: contact.name, contacts: [contact], isGroup: false,
+    })),
+  ].filter((suggestion) => suggestion.contacts.some((contact) => !existing.has(contact.email.trim().toLocaleLowerCase()))) : [];
   const activeContact = visibleSuggestions[activeSuggestion];
+  useEffect(() => { setActiveSuggestion(-1); setDismissed(false); }, [accountId, input]);
+  useEffect(() => {
+    if (activeContact) document.getElementById(`${suggestionsId}-${activeContact.id}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [activeContact?.id, suggestionsId]);
 
-  function selectSuggestion(contact: ContactSummary) {
+  function selectSuggestion(suggestion: RecipientSuggestion) {
     setActiveSuggestion(-1);
-    onSelectContact?.(contact);
+    setDismissed(true);
+    onSelectContacts?.(suggestion.contacts.filter((contact) => !existing.has(contact.email.trim().toLocaleLowerCase())));
   }
 
   return (
@@ -115,8 +136,17 @@ export function RecipientField({
               setActiveSuggestion(-1);
               onInputChange(event.currentTarget.value);
             }}
-            onBlur={() => { if (input.trim()) onCommit(); }}
+            onFocus={() => setDismissed(false)}
+            onBlur={() => { setDismissed(true); if (input.trim()) onCommit(); }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === "Escape" && visibleSuggestions.length) {
+                event.preventDefault();
+                event.stopPropagation();
+                setDismissed(true);
+                setActiveSuggestion(-1);
+                return;
+              }
               if (visibleSuggestions.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
                 event.preventDefault();
                 setActiveSuggestion((current) => event.key === "ArrowDown"
@@ -135,7 +165,7 @@ export function RecipientField({
                 }
               }
               const commitSeparator = event.key === "Enter" || event.key === "," || event.key === ";";
-              const completeSpace = event.key === " " && input.trim().length > 0;
+              const completeSpace = event.key === " " && parseAddress(input) !== null;
               if (commitSeparator || completeSpace) {
                 event.preventDefault();
                 onCommit();
@@ -149,7 +179,7 @@ export function RecipientField({
           {visibleSuggestions.length ? (
             <ContactSuggestions
               id={suggestionsId}
-              contacts={visibleSuggestions}
+              suggestions={visibleSuggestions}
               activeIndex={activeSuggestion}
               onActiveIndexChange={setActiveSuggestion}
               onSelect={selectSuggestion}
@@ -163,25 +193,45 @@ export function RecipientField({
   );
 }
 
-function ContactSuggestions({ id, contacts, activeIndex, onActiveIndexChange, onSelect }: {
+function ContactSuggestions({ id, suggestions, activeIndex, onActiveIndexChange, onSelect }: {
   id: string;
-  contacts: ContactSummary[];
+  suggestions: RecipientSuggestion[];
   activeIndex: number;
   onActiveIndexChange: (index: number) => void;
-  onSelect: (contact: ContactSummary) => void;
+  onSelect: (suggestion: RecipientSuggestion) => void;
 }) {
   const { t } = useTranslation();
+  const popupRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState({ above: false, height: 288, width: 448 });
+  useLayoutEffect(() => {
+    const measure = () => {
+      const anchor = popupRef.current?.parentElement?.getBoundingClientRect();
+      if (!anchor) return;
+      const below = window.innerHeight - anchor.bottom - 12;
+      const above = anchor.top - 12;
+      const placeAbove = below < Math.min(288, above);
+      setLayout({ above: placeAbove, height: Math.max(0, Math.min(288, (placeAbove ? above : below) - 10)),
+        width: Math.max(0, Math.min(448, window.innerWidth - anchor.left - 12)) });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => { window.removeEventListener("resize", measure); window.removeEventListener("scroll", measure, true); };
+  }, []);
   return (
     <div
+      ref={popupRef}
       id={id}
-      className="absolute top-full left-0 z-50 mt-1 w-[min(28rem,calc(100vw-3rem))] overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-xl"
+      className={cn("absolute left-0 z-50 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-xl", layout.above ? "bottom-full mb-1" : "top-full mt-1")}
+      style={{ width: layout.width }}
       role="listbox"
       aria-label={t("contacts.suggestions")}
     >
-      {contacts.map((contact, index) => (
+      <OverlayScrollArea intrinsic style={{ maxHeight: layout.height }}>
+      {suggestions.map((suggestion, index) => (
         <button
-          key={contact.id}
-          id={`${id}-${contact.id}`}
+          key={suggestion.id}
+          id={`${id}-${suggestion.id}`}
           type="button"
           role="option"
           aria-selected={index === activeIndex}
@@ -191,21 +241,28 @@ function ContactSuggestions({ id, contacts, activeIndex, onActiveIndexChange, on
           )}
           onMouseDown={(event) => event.preventDefault()}
           onMouseEnter={() => onActiveIndexChange(index)}
-          onClick={() => onSelect(contact)}
+          onClick={() => onSelect(suggestion)}
         >
-          <ContactInitial name={contact.name} className="size-8 text-xs" />
-          <ContactIdentity
-            address={{ contactId: contact.id, name: contact.name, headerName: null, email: contact.email }}
+          {suggestion.isGroup ? <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><UsersRound size={18} /></span>
+            : <ContactInitial name={suggestion.name} className="size-8 text-xs" />}
+          {suggestion.isGroup ? (
+            <span className="block min-w-0">
+              <span className="block truncate text-sm font-medium text-foreground">{suggestion.name}</span>
+              <span className="block truncate text-xs text-muted-foreground">{t("contactGroups.suggestion", { count: suggestion.contacts.length })}</span>
+            </span>
+          ) : <ContactIdentity
+            address={{ contactId: suggestion.contacts[0].id, name: suggestion.name, headerName: null, email: suggestion.contacts[0].email }}
             className="min-w-0"
             focusable={false}
           >
             <span className="block min-w-0">
-              <span className="block truncate text-sm font-medium text-foreground">{contact.name}</span>
-              <span className="block truncate text-xs text-muted-foreground">{contact.email}</span>
+              <span className="block truncate text-sm font-medium text-foreground">{suggestion.name}</span>
+              <span className="block truncate text-xs text-muted-foreground">{suggestion.contacts[0].email}</span>
             </span>
-          </ContactIdentity>
+          </ContactIdentity>}
         </button>
       ))}
+      </OverlayScrollArea>
     </div>
   );
 }

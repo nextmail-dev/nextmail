@@ -144,7 +144,7 @@ beforeEach(() => {
     language: "en-US",
   });
   vi.mocked(api.getComposerBootstrap).mockResolvedValue(bootstrap);
-  vi.mocked(api.listContactSuggestions).mockResolvedValue([]);
+  vi.mocked(api.listContactSuggestions).mockResolvedValue({ contacts: [], groups: [] });
   vi.mocked(api.saveDraft).mockImplementation(async (_accountId, _draftId, _recipients, _subject, content) => ({
     ...bootstrap.draft,
     content,
@@ -168,6 +168,27 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ComposerApp close lifecycle", () => {
+  it.each(["To", "Cc", "Bcc"])("expands group members into %s and persists the complete batch", async (label) => {
+    const members = ["Alice", "Bob"].map((name) => ({ id: name, name, email: `${name.toLowerCase()}@example.com`, revision: 1, createdAt: 1, updatedAt: 1 }));
+    vi.mocked(api.listContactSuggestions).mockResolvedValue({ contacts: [], groups: [{ group: { id: "team", name: "Team", memberCount: 2, revision: 1 }, members }] });
+    renderComposer();
+    await screen.findByRole("button", { name: "Change body" });
+    if (label === "Bcc") fireEvent.click(screen.getByRole("button", { name: "Bcc" }));
+    const input = screen.getByRole("combobox", { name: label });
+    fireEvent.change(input, { target: { value: "alice@example.com" } });
+    fireEvent.keyDown(input, { key: ";" });
+    fireEvent.change(input, { target: { value: "Team" } });
+    fireEvent.click(await screen.findByRole("option", { name: /Team/ }));
+    expect(input).toHaveValue("");
+    expect(screen.getAllByRole("button", { name: `${label}: alice@example.com` })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: `${label}: bob@example.com` })).toBeInTheDocument();
+    await act(async () => closeHandler?.({ preventDefault: vi.fn() }));
+    fireEvent.click(screen.getByRole("button", { name: "Save as draft" }));
+    await waitFor(() => expect(api.saveDraft).toHaveBeenCalled());
+    expect(vi.mocked(api.saveDraft).mock.calls[0][2]).toMatchObject({
+      [label.toLowerCase()]: [{ name: null, email: "alice@example.com" }, { name: "Bob", email: "bob@example.com" }],
+    });
+  });
   it("keeps a recipient editable until a delimiter or blur commits it", async () => {
     renderComposer();
     const recipient = await screen.findByRole("combobox", { name: "To" });

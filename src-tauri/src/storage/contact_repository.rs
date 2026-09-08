@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use crate::core::{
     AddressPresentation, CommandError, CommandResult, ContactAddressRole, ContactDetail,
-    ContactDraft, ContactListPage, ContactRecentMessage, ContactSummary, MessageAddress,
-    RemoteContactAddress,
+    ContactDraft, ContactListPage, ContactRecentMessage, ContactSuggestions, ContactSummary,
+    MessageAddress, RemoteContactAddress,
 };
 
 use super::{map_storage_err, now, storage_read_error};
@@ -125,11 +125,36 @@ impl ContactRepository {
         account_slot_id: &str,
         query: &str,
         limit: u32,
-    ) -> CommandResult<Vec<ContactSummary>> {
-        Ok(self
+    ) -> CommandResult<ContactSuggestions> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(ContactSuggestions {
+                contacts: vec![],
+                groups: vec![],
+            });
+        }
+        let contacts = self
             .list_contacts(account_slot_id, query, None, limit.clamp(1, 20))
             .await?
-            .items)
+            .items;
+        let mut groups = Vec::new();
+        for group in self
+            .list_contact_groups(account_slot_id)
+            .await?
+            .into_iter()
+            .filter(|group| {
+                group.member_count > 0 && group.name.to_lowercase().contains(&query.to_lowercase())
+            })
+            .take(4)
+        {
+            match self.get_contact_group(account_slot_id, &group.id).await {
+                Ok(detail) if !detail.members.is_empty() => groups.push(detail),
+                Ok(_) => {}
+                Err(error) if error.code == "contact_group.not_found" => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(ContactSuggestions { contacts, groups })
     }
 
     pub async fn get_contact_detail(
@@ -643,7 +668,9 @@ fn append_stored_addresses(
     target.extend(values.into_iter().map(|address| (role, address)));
 }
 
-fn contact_summary_from_row(row: sqlx::sqlite::SqliteRow) -> CommandResult<ContactSummary> {
+pub(super) fn contact_summary_from_row(
+    row: sqlx::sqlite::SqliteRow,
+) -> CommandResult<ContactSummary> {
     Ok(ContactSummary {
         id: row.try_get("id").map_err(storage_read_error)?,
         name: row.try_get("name").map_err(storage_read_error)?,

@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { addRecipientInput, formatAddresses, isValidEmailAddress, parseAddresses } from "./recipient-utils";
+import { addRecipientInput, formatAddresses, isValidEmailAddress, mergeRecipientAddresses, parseAddresses } from "./recipient-utils";
 
 describe("composer recipient fields", () => {
+  it("merges a group without duplicate addresses or changing existing names", () => {
+    const original = { name: "Original", email: "alice@example.com" };
+    const bob = { name: "Bob", email: "bob@example.com" };
+    expect(mergeRecipientAddresses([original], [
+      { name: "Alice", email: "ALICE@example.com" }, bob, { name: "Duplicate", email: "BOB@example.com" },
+    ])).toEqual([original, bob]);
+  });
   it("accepts comma and semicolon separated addresses with unicode display names", () => {
     const parsed = parseAddresses("张三 <zhang@example.com>; plain@example.com");
     expect(parsed).toEqual([

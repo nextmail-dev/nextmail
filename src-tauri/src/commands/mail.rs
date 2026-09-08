@@ -191,7 +191,7 @@ pub async fn list_contact_suggestions(
     account_id: String,
     query: String,
     limit: u32,
-) -> CommandResult<Vec<ContactSummary>> {
+) -> CommandResult<ContactSuggestions> {
     state
         .mail
         .list_contact_suggestions(&account_id, &query, limit)
@@ -207,6 +207,50 @@ pub async fn resolve_contact_addresses(
     state
         .mail
         .resolve_contact_addresses(&account_id, &addresses)
+        .await
+}
+
+#[tauri::command]
+pub async fn list_contact_groups(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> CommandResult<Vec<ContactGroupSummary>> {
+    state.mail.list_contact_groups(&account_id).await
+}
+
+#[tauri::command]
+pub async fn get_contact_group(
+    state: State<'_, AppState>,
+    account_id: String,
+    group_id: String,
+) -> CommandResult<ContactGroupDetail> {
+    state.mail.get_contact_group(&account_id, &group_id).await
+}
+
+#[tauri::command]
+pub async fn save_contact_group(
+    state: State<'_, AppState>,
+    account_id: String,
+    group_id: Option<String>,
+    draft: ContactGroupDraft,
+    expected_revision: Option<u64>,
+) -> CommandResult<ContactGroupDetail> {
+    state
+        .mail
+        .save_contact_group(&account_id, group_id.as_deref(), &draft, expected_revision)
+        .await
+}
+
+#[tauri::command]
+pub async fn delete_contact_group(
+    state: State<'_, AppState>,
+    account_id: String,
+    group_id: String,
+    expected_revision: u64,
+) -> CommandResult<()> {
+    state
+        .mail
+        .delete_contact_group(&account_id, &group_id, expected_revision)
         .await
 }
 

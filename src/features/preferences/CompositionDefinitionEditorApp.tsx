@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -21,7 +22,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Heading, LabelText, Text } from "@/components/ui/typography";
 import { fileToBase64 } from "@/features/composer/fileToBase64";
 import { RecipientField } from "@/features/composer/RecipientField";
-import { addRecipientInput, formatAddress } from "@/features/composer/recipient-utils";
+import { addRecipientInput, formatAddress, mergeRecipientAddresses } from "@/features/composer/recipient-utils";
 import { RichTextEditor } from "@/features/composer/RichTextEditor";
 import { mailQueryKeys } from "@/features/mail/mail-query-keys";
 
@@ -119,6 +120,16 @@ function DefinitionEditorForm({
     enabled: kind === "template" && accountId === null,
   });
   const contactAccountId = accountId ?? lastSelectedAccount.data ?? null;
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!contactAccountId || !("__TAURI_INTERNALS__" in globalThis)) return;
+    const unlisten = listen<{ accountId: string }>("contacts-changed", ({ payload }) => {
+      if (payload.accountId === contactAccountId) {
+        void queryClient.invalidateQueries({ queryKey: mailQueryKeys.contactsForAccount(contactAccountId) });
+      }
+    });
+    return () => { void unlisten.then((dispose) => dispose()); };
+  }, [contactAccountId, queryClient]);
   const recipientAddresses = useMemo(() => [...to, ...cc, ...bcc], [to, cc, bcc]);
   const recipientEmails = useMemo(
     () => [...new Set(recipientAddresses.map((address) => address.email.trim().toLocaleLowerCase()))].sort(),
@@ -216,15 +227,9 @@ function DefinitionEditorForm({
     setRecipientInput(recipientKind, formatAddress(address));
   }
 
-  function selectContactRecipient(recipientKind: RecipientKind, contact: { name: string; email: string }) {
+  function selectContactRecipients(recipientKind: RecipientKind, contacts: { name: string; email: string }[]) {
     const current = recipientValue(recipientKind);
-    const normalizedEmail = contact.email.trim().toLocaleLowerCase();
-    if (!current.addresses.some((address) => address.email.trim().toLocaleLowerCase() === normalizedEmail)) {
-      setRecipientAddresses(recipientKind, [
-        ...current.addresses,
-        { name: contact.name, email: contact.email },
-      ]);
-    }
+    setRecipientAddresses(recipientKind, mergeRecipientAddresses(current.addresses, contacts.map(({ name, email }) => ({ name, email }))));
     setRecipientInput(recipientKind, "");
   }
 
@@ -319,7 +324,7 @@ function DefinitionEditorForm({
                     onCommit={() => commitRecipient(recipientKind)}
                     onRemove={(index) => removeRecipient(recipientKind, index)}
                     onEditLast={(address, index) => editLastRecipient(recipientKind, address, index)}
-                    onSelectContact={(contact) => selectContactRecipient(recipientKind, contact)}
+                    onSelectContacts={(contacts) => selectContactRecipients(recipientKind, contacts)}
                   />
                 );
               })}

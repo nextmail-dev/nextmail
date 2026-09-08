@@ -506,6 +506,36 @@ pub struct ContactListPage {
     pub total: u64,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactGroupDraft {
+    pub name: String,
+    pub contact_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactGroupSummary {
+    pub id: String,
+    pub name: String,
+    pub member_count: u64,
+    pub revision: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactGroupDetail {
+    pub group: ContactGroupSummary,
+    pub members: Vec<ContactSummary>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactSuggestions {
+    pub contacts: Vec<ContactSummary>,
+    pub groups: Vec<ContactGroupDetail>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ContactRecentMessage {

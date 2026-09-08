@@ -24,14 +24,17 @@ export function addRecipientInput(current: MessageAddress[], value: string) {
   const invalid = parsed.find((item) => !item.address)?.item ?? null;
   if (invalid) return { addresses: current, invalid };
 
-  const addresses = [...current];
-  for (const item of parsed) {
-    const address = item.address!;
-    if (!addresses.some((existing) => existing.email.toLocaleLowerCase() === address.email.toLocaleLowerCase())) {
-      addresses.push(address);
-    }
-  }
-  return { addresses, invalid: null };
+  return { addresses: mergeRecipientAddresses(current, parsed.map((item) => item.address!)), invalid: null };
+}
+
+export function mergeRecipientAddresses(current: MessageAddress[], added: MessageAddress[]) {
+  const existing = new Set(current.map((address) => address.email.trim().toLocaleLowerCase()));
+  return [...current, ...added.filter((address) => {
+    const email = address.email.trim().toLocaleLowerCase();
+    if (existing.has(email)) return false;
+    existing.add(email);
+    return true;
+  })];
 }
 
 export function parseAddresses(value: string): MessageAddress[] {

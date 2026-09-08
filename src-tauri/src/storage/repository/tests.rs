@@ -3,8 +3,8 @@ use std::time::Duration;
 use super::super::database::open_pool;
 use super::*;
 use crate::core::{
-    ContactAddressRole, ContactDraft, ContentAvailability, MailSyncSink, MailboxRole,
-    MessageAddress, RemoteContactAddress, RemoteMailbox, RemoteMessage, StoredMailbox,
+    ContactAddressRole, ContactDraft, ContactGroupDraft, ContentAvailability, MailSyncSink,
+    MailboxRole, MessageAddress, RemoteContactAddress, RemoteMailbox, RemoteMessage, StoredMailbox,
     SyncInterval,
 };
 use crate::storage::{create_account_slot, initialize_content_database};
@@ -1390,7 +1390,7 @@ async fn account_sync_interval_defaults_to_one_minute_and_round_trips() {
         .fetch_one(&repository.pool)
         .await
         .unwrap(),
-        "32"
+        "33"
     );
 }
 
@@ -1701,6 +1701,242 @@ async fn contact_backfill_indexes_messages_stored_before_contact_support() {
             .unwrap()
             .complete
     );
+}
+
+#[tokio::test]
+async fn contact_groups_preserve_account_boundaries_and_expand_current_members() {
+    let (directory, repository, _) = repository_with_mailbox(12).await;
+    create_account_slot(directory.path(), "slot-b", 2)
+        .await
+        .unwrap();
+    let contacts = repository.contacts();
+    let alice = contacts
+        .create_contact(
+            "slot",
+            &ContactDraft {
+                name: "Alice".into(),
+                email: "alice@example.com".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let bob = contacts
+        .create_contact(
+            "slot",
+            &ContactDraft {
+                name: "Bob".into(),
+                email: "bob@example.com".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let foreign = contacts
+        .create_contact(
+            "slot-b",
+            &ContactDraft {
+                name: "Foreign".into(),
+                email: "foreign@example.com".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let draft = ContactGroupDraft {
+        name: "  Project Team  ".into(),
+        contact_ids: vec![alice.id.clone(), bob.id.clone(), alice.id.clone()],
+    };
+    let detail = contacts
+        .save_contact_group("slot", None, &draft, None)
+        .await
+        .unwrap();
+    let id = &detail.group.id;
+    assert_eq!(detail.group.name, "Project Team");
+    assert_eq!(detail.group.member_count, 2);
+    assert_eq!(detail.members.len(), 2);
+    assert!(contacts
+        .list_contact_groups("slot-b")
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        contacts
+            .get_contact_group("slot-b", id)
+            .await
+            .unwrap_err()
+            .code,
+        "contact_group.not_found"
+    );
+
+    assert_eq!(
+        contacts
+            .save_contact_group(
+                "slot",
+                None,
+                &ContactGroupDraft {
+                    name: "project team".into(),
+                    contact_ids: vec![],
+                },
+                None
+            )
+            .await
+            .unwrap_err()
+            .code,
+        "contact_group.already_exists"
+    );
+    for name in [" ".to_string(), "x".repeat(81), "Project\nTeam".into()] {
+        assert!(contacts
+            .save_contact_group(
+                "slot",
+                None,
+                &ContactGroupDraft {
+                    name,
+                    contact_ids: vec![]
+                },
+                None
+            )
+            .await
+            .is_err());
+    }
+    // Same names in different accounts are independent.
+    contacts
+        .save_contact_group(
+            "slot-b",
+            None,
+            &ContactGroupDraft {
+                name: "Project Team".into(),
+                contact_ids: vec![foreign.id.clone()],
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        contacts
+            .save_contact_group("slot-b", Some(id), &draft, Some(1))
+            .await
+            .unwrap_err()
+            .code,
+        "contact_group.conflict"
+    );
+    assert_eq!(
+        contacts
+            .delete_contact_group("slot-b", id, 1)
+            .await
+            .unwrap_err()
+            .code,
+        "contact_group.conflict"
+    );
+
+    // An invalid member rolls back both the rename and membership replacement.
+    assert_eq!(
+        contacts
+            .save_contact_group(
+                "slot",
+                Some(id),
+                &ContactGroupDraft {
+                    name: "Changed".into(),
+                    contact_ids: vec![alice.id.clone(), foreign.id.clone()],
+                },
+                Some(1)
+            )
+            .await
+            .unwrap_err()
+            .code,
+        "contact_group.member_unavailable"
+    );
+    let unchanged = contacts.get_contact_group("slot", id).await.unwrap();
+    assert_eq!(unchanged.group.name, "Project Team");
+    assert_eq!(unchanged.group.revision, 1);
+    assert_eq!(unchanged.members.len(), 2);
+    // The database also rejects cross-account membership independently of application validation.
+    assert!(sqlx::query("INSERT INTO contact_group_members(account_slot_id, group_id, contact_id) VALUES ('slot', ?, ?)")
+        .bind(id).bind(&foreign.id).execute(&repository.pool).await.is_err());
+
+    let renamed = contacts
+        .save_contact_group(
+            "slot",
+            Some(id),
+            &ContactGroupDraft {
+                name: "Design Team".into(),
+                contact_ids: vec![alice.id.clone(), bob.id.clone()],
+            },
+            Some(1),
+        )
+        .await
+        .unwrap();
+    assert_eq!(renamed.group.revision, 2);
+    assert_eq!(
+        contacts
+            .save_contact_group("slot", Some(id), &draft, Some(1))
+            .await
+            .unwrap_err()
+            .code,
+        "contact_group.conflict"
+    );
+    assert_eq!(
+        contacts
+            .delete_contact_group("slot", id, 1)
+            .await
+            .unwrap_err()
+            .code,
+        "contact_group.conflict"
+    );
+    contacts
+        .save_contact_group(
+            "slot",
+            None,
+            &ContactGroupDraft {
+                name: "Empty Team".into(),
+                contact_ids: vec![],
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    contacts
+        .update_contact_name("slot", &alice.id, "Alice Updated", alice.revision)
+        .await
+        .unwrap();
+    let suggestions = contacts.list_suggestions("slot", "team", 8).await.unwrap();
+    assert!(suggestions.contacts.is_empty());
+    assert_eq!(suggestions.groups.len(), 1);
+    assert_eq!(suggestions.groups[0].members[0].name, "Alice Updated");
+    assert_eq!(suggestions.groups[0].members.len(), 2);
+    assert!(contacts
+        .list_suggestions("slot", "", 8)
+        .await
+        .unwrap()
+        .groups
+        .is_empty());
+    assert_eq!(
+        contacts
+            .list_suggestions("slot-b", "team", 8)
+            .await
+            .unwrap()
+            .groups[0]
+            .members[0]
+            .id,
+        foreign.id
+    );
+
+    contacts
+        .delete_contacts("slot", std::slice::from_ref(&alice.id))
+        .await
+        .unwrap();
+    let remaining = contacts.get_contact_group("slot", id).await.unwrap();
+    assert_eq!(remaining.group.member_count, 1);
+    assert_eq!(remaining.members[0].id, bob.id);
+    contacts.delete_contact_group("slot", id, 2).await.unwrap();
+    assert!(contacts.get_contact_summary("slot", &bob.id).await.is_ok());
+    assert!(contacts.get_contact_group("slot", id).await.is_err());
+    sqlx::query("DELETE FROM account_slots WHERE id = 'slot-b'")
+        .execute(&repository.pool)
+        .await
+        .unwrap();
+    assert!(contacts
+        .list_contact_groups("slot-b")
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]

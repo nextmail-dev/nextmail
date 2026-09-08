@@ -99,14 +99,14 @@ beforeEach(() => {
   vi.mocked(api.listMailTemplates).mockResolvedValue([]);
   vi.mocked(api.listMailSignatures).mockResolvedValue([]);
   vi.mocked(api.getLastSelectedAccount).mockResolvedValue("account-one");
-  vi.mocked(api.listContactSuggestions).mockResolvedValue([{
+  vi.mocked(api.listContactSuggestions).mockResolvedValue({ contacts: [{
     id: "contact-one",
     name: "Alice Local",
     email: "alice@example.com",
     revision: 1,
     createdAt: 1,
     updatedAt: 1,
-  }]);
+  }], groups: [] });
   vi.mocked(api.resolveContactAddresses).mockImplementation(async (_accountId, addresses) => addresses.map((address) => ({
     contactId: address.email === "alice@example.com" ? "contact-one" : null,
     name: address.name,
@@ -171,6 +171,22 @@ describe("CompositionDefinitionEditorApp", () => {
     })));
     expect(api.getLastSelectedAccount).toHaveBeenCalledOnce();
     expect(api.listContactSuggestions).toHaveBeenCalledWith("account-one", "ali", 8);
+  });
+
+  it("expands groups in every template recipient field and saves ordinary addresses", async () => {
+    const members = ["Alice", "Bob"].map((name) => ({ id: name, name, email: `${name.toLowerCase()}@example.com`, revision: 1, createdAt: 1, updatedAt: 1 }));
+    vi.mocked(api.listContactSuggestions).mockResolvedValue({ contacts: [], groups: [{ group: { id: "team", name: "Team", memberCount: 2, revision: 1 }, members }] });
+    renderEditor("template", null, "account-one");
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Group template" } });
+    for (const label of ["To", "Cc", "Bcc"]) {
+      fireEvent.change(screen.getByRole("combobox", { name: label }), { target: { value: "Team" } });
+      fireEvent.click(await screen.findByRole("option", { name: /Team/ }));
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const addresses = members.map(({ name, email }) => ({ name, email }));
+    await waitFor(() => expect(api.createMailTemplate).toHaveBeenCalledWith("account-one", expect.objectContaining({
+      recipients: { to: addresses, cc: addresses, bcc: addresses },
+    })));
   });
 
   it("inserts a validated embedded image and saves it in a new signature", async () => {

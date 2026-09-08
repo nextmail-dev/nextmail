@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/app/api";
@@ -57,15 +57,15 @@ describe("RecipientField", () => {
   });
 
   it("offers account-local contacts and selects one without committing free text", async () => {
-    vi.mocked(api.listContactSuggestions).mockResolvedValue([{
+    vi.mocked(api.listContactSuggestions).mockResolvedValue({ contacts: [{
       id: "contact-one",
       name: "Alice Local",
       email: "alice@example.com",
       revision: 1,
       createdAt: 1,
       updatedAt: 1,
-    }]);
-    const onSelectContact = vi.fn();
+    }], groups: [] });
+    const onSelectContacts = vi.fn();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
@@ -78,18 +78,18 @@ describe("RecipientField", () => {
           onCommit={vi.fn()}
           onRemove={vi.fn()}
           onEditLast={vi.fn()}
-          onSelectContact={onSelectContact}
+          onSelectContacts={onSelectContacts}
         />
       </QueryClientProvider>,
     );
 
     fireEvent.click(await screen.findByRole("option", { name: /Alice Local/ }));
     expect(api.listContactSuggestions).toHaveBeenCalledWith("account-one", "ali", 8);
-    expect(onSelectContact).toHaveBeenCalledWith(expect.objectContaining({ id: "contact-one" }));
+    expect(onSelectContacts).toHaveBeenCalledWith([expect.objectContaining({ id: "contact-one" })]);
   });
 
   it("selects contact suggestions with arrow keys and Enter", async () => {
-    vi.mocked(api.listContactSuggestions).mockResolvedValue([
+    vi.mocked(api.listContactSuggestions).mockResolvedValue({ contacts: [
       {
         id: "contact-one",
         name: "Alice Local",
@@ -106,9 +106,9 @@ describe("RecipientField", () => {
         createdAt: 1,
         updatedAt: 1,
       },
-    ]);
+    ], groups: [] });
     const onCommit = vi.fn();
-    const onSelectContact = vi.fn();
+    const onSelectContacts = vi.fn();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
@@ -121,7 +121,7 @@ describe("RecipientField", () => {
           onCommit={onCommit}
           onRemove={vi.fn()}
           onEditLast={vi.fn()}
-          onSelectContact={onSelectContact}
+          onSelectContacts={onSelectContacts}
         />
       </QueryClientProvider>,
     );
@@ -136,7 +136,35 @@ describe("RecipientField", () => {
     expect(options[0]).toHaveAttribute("aria-selected", "true");
     fireEvent.keyDown(input, { key: "Enter" });
 
-    expect(onSelectContact).toHaveBeenCalledWith(expect.objectContaining({ id: "contact-one" }));
+    expect(onSelectContacts).toHaveBeenCalledWith([expect.objectContaining({ id: "contact-one" })]);
     expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("expands a group once, excludes existing addresses, and drops suggestions on account changes", async () => {
+    const alice = { id: "a", name: "Alice", email: "alice@example.com", revision: 1, createdAt: 1, updatedAt: 1 };
+    const bob = { ...alice, id: "b", name: "Bob", email: "bob@example.com" };
+    vi.mocked(api.listContactSuggestions).mockImplementation(async (accountId) => ({
+      contacts: [], groups: accountId === "account-one" ? [{ group: { id: "team", name: "Project Team", revision: 1, memberCount: 2 }, members: [alice, bob] }] : [],
+    }));
+    const onCommit = vi.fn();
+    const onSelectContacts = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const field = (accountId: string) => (
+      <QueryClientProvider client={queryClient}>
+        <RecipientField accountId={accountId} label="To" addresses={[{ name: "Existing", email: "ALICE@example.com" }]} input="Project"
+          onInputChange={vi.fn()} onCommit={onCommit} onRemove={vi.fn()} onEditLast={vi.fn()} onSelectContacts={onSelectContacts} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(field("account-one"));
+    await screen.findByRole("option", { name: /Project Team/ });
+    const input = screen.getByRole("combobox", { name: "To" });
+    fireEvent.keyDown(input, { key: " " });
+    expect(onCommit).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSelectContacts).toHaveBeenCalledExactlyOnceWith([bob]);
+    rerender(field("account-two"));
+    await waitFor(() => expect(api.listContactSuggestions).toHaveBeenCalledWith("account-two", "Project", 8));
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
   });
 });

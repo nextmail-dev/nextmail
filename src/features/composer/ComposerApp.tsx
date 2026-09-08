@@ -34,7 +34,7 @@ import {
 import { ensureComposerContentHtml } from "./composer-html";
 import { fileToBase64 } from "./fileToBase64";
 import { AddressTag, RecipientField } from "./RecipientField";
-import { addRecipientInput, formatAddress } from "./recipient-utils";
+import { addRecipientInput, formatAddress, mergeRecipientAddresses } from "./recipient-utils";
 
 interface ComposerAppProps {
   accountId: string;
@@ -321,12 +321,9 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     setRecipientErrors((errors) => ({ ...errors, [kind]: null }));
   }
 
-  function selectContactRecipient(kind: RecipientKind, contact: { name: string; email: string }) {
+  function selectContactRecipients(kind: RecipientKind, contacts: { name: string; email: string }[]) {
     const current = recipientValue(kind);
-    const normalizedEmail = contact.email.trim().toLocaleLowerCase();
-    if (!current.addresses.some((address) => address.email.trim().toLocaleLowerCase() === normalizedEmail)) {
-      setRecipientAddresses(kind, [...current.addresses, { name: contact.name, email: contact.email }]);
-    }
+    setRecipientAddresses(kind, mergeRecipientAddresses(current.addresses, contacts.map(({ name, email }) => ({ name, email }))));
     if (kind === "to") setToInput("");
     else if (kind === "cc") setCcInput("");
     else setBccInput("");
@@ -528,7 +525,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           onCommit={() => commitRecipient("to")}
           onRemove={(index) => removeRecipient("to", index)}
           onEditLast={(address, index) => editLastRecipient("to", address, index)}
-          onSelectContact={(contact) => selectContactRecipient("to", contact)}
+          onSelectContacts={(contacts) => selectContactRecipients("to", contacts)}
           trailing={
             <Button
               type="button"
@@ -554,7 +551,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           onCommit={() => commitRecipient("cc")}
           onRemove={(index) => removeRecipient("cc", index)}
           onEditLast={(address, index) => editLastRecipient("cc", address, index)}
-          onSelectContact={(contact) => selectContactRecipient("cc", contact)}
+          onSelectContacts={(contacts) => selectContactRecipients("cc", contacts)}
         />
         {showBcc ? (
           <RecipientField
@@ -569,7 +566,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
             onCommit={() => commitRecipient("bcc")}
             onRemove={(index) => removeRecipient("bcc", index)}
             onEditLast={(address, index) => editLastRecipient("bcc", address, index)}
-            onSelectContact={(contact) => selectContactRecipient("bcc", contact)}
+            onSelectContacts={(contacts) => selectContactRecipients("bcc", contacts)}
           />
         ) : null}
         <CompactField label={t("composer.subject")} value={subject} disabled={!editable} onChange={(event) => { setSubject(event.currentTarget.value); markDirty(); }} />

@@ -1,5 +1,6 @@
 mod account_repository;
 mod composition_definition_repository;
+mod contact_group_repository;
 mod contact_repository;
 mod content_store;
 mod database;

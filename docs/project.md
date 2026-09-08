@@ -45,7 +45,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - Windows/macOS 窗口壳、窗口状态记忆、独立设置/账户/定义/预览/原文窗口。
 - 设置-通用提供“开机自动启动”开关（默认关闭，Windows 注册表 Run 键 / macOS LaunchAgent，状态只存系统机制）；同一应用标识仅允许一个进程，再次启动时显示并聚焦既有主窗口（含托盘隐藏状态）。
 - 中英文、系统/浅色/深色主题、主题色和分层通知偏好。
-- 账户隔离的本地联系人、既有邮件后台回填、收信自动沉淀、联系人工作区、最近往来、姓名优先、身份名片/复制/编辑/删除和 Composer 联系人建议。
+- 账户隔离的本地联系人、既有邮件后台回填、收信自动沉淀、联系人工作区、最近往来、姓名优先、身份名片/复制/编辑/删除，以及联系人分组管理与 Composer / 模板地址栏整组补全。
 - 邮件与联系人列表支持 Ctrl/Cmd、Shift 范围多选及针对当前选择的右键操作。
 - NextMail 自有通知窗口、跨平台托盘、可持久化关闭偏好，以及 `v*` tag 触发的三平台 GitHub Release 工作流。
 - 基于 Tauri Updater 的签名更新检查与安装；中国大陆优先 NextMail GitHub 反代，其他地区及定位失败优先 GitHub 直连，两种传输地址互为备用。
@@ -99,7 +99,7 @@ src/
   styles/               语义主题与全局样式
 src-tauri/
   capabilities/         各窗口最小权限
-  migrations/           只增不改的 SQLx 迁移，当前到 0032
+  migrations/           只增不改的 SQLx 迁移，当前到 0033
   src/core/             无 Tauri/SQLx/协议库依赖的 DTO、错误与 ports
   src/application/      账户生命周期与纯业务组合用例
   src/adapters/         JSON、Keyring、发现、连接测试和系统集成
@@ -173,7 +173,7 @@ cache/attachment-open/...
 
 设备级托盘、关闭与更新偏好保存在系统应用配置区的 `config/desktop-preferences.json`，不随邮件数据目录迁移。每个账户最后选中的真实或虚拟文件夹随账户记录保存在 `config/accounts.json`；启动或切回账户时恢复该文件夹，记录无效时依次回退到真实收件箱和第一个可选真实文件夹。
 
-- SQLite schema metadata 当前为版本 32：自 2026-08-15 起以 `0001_bootstrap.sql` 作为数据格式 29 的完整基线，不再支持从 0.6.x 及更早版本数据库升级，旧库打开按 `data_directory.database_migration_failed` 失败，需重建数据目录；后续迁移继续只增不改，`0030_mailbox_favorites.sql` 增加账号隔离的真实文件夹收藏状态，`0031_message_priority.sql` 保存从常见邮件优先级头部归一出的高优先级标记，`0032_global_message_search.sql` 为跨文件夹结果定位增加消息到文件夹的时间索引。migration 编号是本地数据格式序号，不等于产品阶段编号。
+- SQLite schema metadata 当前为版本 33：自 2026-08-15 起以 `0001_bootstrap.sql` 作为数据格式 29 的完整基线，不再支持从 0.6.x 及更早版本数据库升级，旧库打开按 `data_directory.database_migration_failed` 失败，需重建数据目录；后续迁移继续只增不改，`0030_mailbox_favorites.sql` 增加账号隔离的真实文件夹收藏状态，`0031_message_priority.sql` 保存从常见邮件优先级头部归一出的高优先级标记，`0032_global_message_search.sql` 为跨文件夹结果定位增加消息到文件夹的时间索引，`0033_contact_groups.sql` 增加账户内联系人分组与成员关系。migration 编号是本地数据格式序号，不等于产品阶段编号。
 - `.nextmail-data.json` 的 `format_version` 当前为独立版本 1，不是 SQLite schema 版本。
 - 已发布迁移只允许新增，不得修改。
 - 迁移 SQL 行尾由根目录 `.gitattributes` 固定为 LF：sqlx 校验和按编译时文件原始字节计算，行尾漂移会使不同机构建的二进制互相打不开对方迁移过的数据库。
@@ -189,7 +189,10 @@ cache/attachment-open/...
 - 既有邮件后台回填使用稳定 message rowid 游标，每批 200 封，只能从已持久化的 `From`、`To`、`Cc` 恢复；回填状态可中断续跑，变化事件按批次合并。
 - 联系人邮箱是不可变身份键；允许新增、改名和账户内直接删除。删除会级联移除本地邮件关联，后续同步再次发现同邮箱时允许按现有自动命名规则重新创建。
 - 邮件持久化头部名称保持原样；读取时批量生成 `AddressPresentation`，展示优先级为当前账户联系人姓名、邮件头/草稿名称、邮箱。禁止 React 逐行查询或跨账户借用身份。
-- 联系人事件为 `contacts-changed { accountId, revision }`，只触发账户范围的联系人、邮件列表、详情和 Composer 查询失效，不携带联系人或邮件内容。
+- `contact_groups` 与 `contact_group_members` 保存账户内分组及多对多成员关系，复合外键阻止跨账户引用。分组名称清理首尾空白，最多 80 字符且不含控制字符，账户内按 Unicode 小写形式唯一；允许空组。保存以短写事务整体替换成员并检查 revision，错误成员或过期修改全部回滚；删除联系人级联移除其分组关系，删除分组保留联系人。
+- 联系人页加号右侧提供分组管理按钮；独立对话框左侧为名称/人数列表，右侧可编辑名称、搜索和分页勾选成员、仅看已选，搜索或翻页不丢已选成员。保存/取消明确结束编辑，离开未保存编辑时提示放弃，删除分组需在对话框内确认。
+- `list_contact_suggestions` 返回 `{ contacts, groups }`，非空搜索最多包含 20 位联系人（地址栏请求 8 位）及 4 个名称匹配的非空分组；分组候选携带同一快照内的 revision 和完整成员。共享 `RecipientField` 在 Composer 和模板的 To/Cc/Bcc 中显示分组人数，鼠标或方向键加 Enter 选中后一次展开为普通地址标签，并在当前栏内按邮箱去重；支持含空格的名称搜索及 Escape 收起候选，发送/保存仍使用普通地址 DTO。
+- 联系人和分组变更共用 `contacts-changed { accountId, revision }`，只触发账户范围的联系人、分组、邮件列表、详情、Composer 和模板地址查询失效，不携带联系人或邮件内容。
 
 ### 同步模型
 

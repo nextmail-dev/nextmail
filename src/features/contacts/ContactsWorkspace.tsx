@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { mailQueryKeys, messageQueryKeys } from "@/features/mail/mail-query-keys";
 import { ContactIdentity, ContactInitial, writeClipboardText } from "./ContactIdentity";
 import { ContactEditor, type ContactEditorState } from "./ContactEditor";
+import { ContactGroupManager } from "./ContactGroupManager";
 
 interface ContactsWorkspaceProps {
   accountId: string;
@@ -49,6 +50,7 @@ function ContactsWorkspaceBase({
   const [searchInput, setSearchInput] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
   const [editor, setEditor] = useState<ContactEditorState>(null);
+  const [groupsOpen, setGroupsOpen] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -56,6 +58,7 @@ function ContactsWorkspaceBase({
     setSearchInput("");
     setSubmittedSearch("");
     setEditor(null);
+    setGroupsOpen(false);
     setOperationError(null);
   }, [accountId]);
 
@@ -177,18 +180,23 @@ function ContactsWorkspaceBase({
                   : t("contacts.count", { count: total })}
               </Text>
             </Stack>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label={t("contacts.add")}
-              title={t("contacts.add")}
-              onClick={() => {
-                setOperationError(null);
-                setEditor({ mode: "create" });
-              }}
-            >
-              <Plus size={18} />
-            </Button>
+            <Inline className="gap-1">
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label={t("contacts.add")}
+                title={t("contacts.add")}
+                onClick={() => {
+                  setOperationError(null);
+                  setEditor({ mode: "create" });
+                }}
+              >
+                <Plus size={18} />
+              </Button>
+              <Button size="icon" variant="ghost" aria-label={t("contactGroups.title")} title={t("contactGroups.title")} onClick={() => setGroupsOpen(true)}>
+                <UsersRound size={18} />
+              </Button>
+            </Inline>
           </Inline>
           <SearchField
             className="w-full"
@@ -340,6 +348,7 @@ function ContactsWorkspaceBase({
         onCreate={(draft) => createMutation.mutate(draft)}
         onUpdate={(contact, name) => updateMutation.mutate({ contact, name })}
       />
+      {groupsOpen ? <ContactGroupManager key={accountId} accountId={accountId} onClose={() => setGroupsOpen(false)} /> : null}
     </Page>
   );
 }

@@ -231,6 +231,28 @@ export interface ContactListPage {
   total: number;
 }
 
+export interface ContactGroupDraft {
+  name: string;
+  contactIds: string[];
+}
+
+export interface ContactGroupSummary {
+  id: string;
+  name: string;
+  memberCount: number;
+  revision: number;
+}
+
+export interface ContactGroupDetail {
+  group: ContactGroupSummary;
+  members: ContactSummary[];
+}
+
+export interface ContactSuggestions {
+  contacts: ContactSummary[];
+  groups: ContactGroupDetail[];
+}
+
 export interface ContactRecentMessage {
   messageId: string;
   mailboxId: string;
