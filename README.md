@@ -20,23 +20,14 @@
 </div>
 
 > [!IMPORTANT]
-> NextMail is currently an early-stage preview. Windows 10 22H2+ x64 is the primary hands-on validation platform; macOS 12+ is a target platform. Linux packages are built for early testing, but Linux is not yet deeply adapted or validated.
+> NextMail is currently an early-stage preview. Windows 10 22H2+ x64 and macOS 12+ are the primary hands-on validation platforms. Linux packages are built for early testing, but Linux is not yet deeply adapted or validated.
 
 ## Preview
-
-<!-- Replace the cells below with real screenshots when they are ready. Suggested files:
-     docs/screenshots/main-workspace.png
-     docs/screenshots/composer.png
-     docs/screenshots/appearance.png
--->
 
 <table>
   <tr>
     <td colspan="2" align="center">
-      <br />
-      <strong>Mail workspace</strong><br />
-      <sub>Screenshot placeholder · main workspace</sub>
-      <br /><br />
+        <img src="./assets/screenshots/workspace/en_US-combined.png" alt="Workspace" />
     </td>
   </tr>
   <tr>

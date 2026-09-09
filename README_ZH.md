@@ -20,36 +20,27 @@
 </div>
 
 > [!IMPORTANT]
-> NextMail 当前处于 `0.2.3` 预览阶段。Windows 10 22H2+ x64 是主要实机验收平台，macOS 12+ 是目标平台。项目会为 Linux 生成早期测试包，但尚未对 Linux 进行深度适配或实机验收。
+> NextMail 当前处于早期预览阶段。Windows 10 22H2+ x64 和 macOS 12+ 是主要的实机验收平台。项目会为 Linux 生成早期测试包，但尚未对 Linux 进行深度适配或实机验收。
 
 ## 应用预览
-
-<!-- 截图准备好后，用真实图片替换下面的单元格。建议路径：
-     docs/screenshots/main-workspace.png
-     docs/screenshots/composer.png
-     docs/screenshots/appearance.png
--->
 
 <table>
   <tr>
     <td colspan="2" align="center">
-      <br />
-      <strong>邮件工作区</strong><br />
-      <sub>截图占位 · 主界面</sub>
-      <br /><br />
+        <img src="./assets/screenshots/workspace/zh_CN-combined.png" alt="Workspace" />
     </td>
   </tr>
   <tr>
     <td width="50%" align="center">
       <br />
-      <strong>富文本写信</strong><br />
-      <sub>截图占位 · 新建、回复与转发</sub>
+      <strong>Rich composer</strong><br />
+      <sub>Screenshot placeholder · compose and reply</sub>
       <br /><br />
     </td>
     <td width="50%" align="center">
       <br />
-      <strong>浅色与深色外观</strong><br />
-      <sub>截图占位 · 主题与主题色</sub>
+      <strong>Light &amp; dark</strong><br />
+      <sub>Screenshot placeholder · themes and accent colors</sub>
       <br /><br />
     </td>
   </tr>
