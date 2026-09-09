@@ -23,6 +23,15 @@ pub async fn initialize_data_directory(
 
 #[tauri::command]
 pub fn get_preferences(state: State<'_, AppState>) -> CommandResult<AppearancePreferences> {
+    if let Some(preferences) = state
+        .demo
+        .0
+        .lock()
+        .map_err(|_| crate::error::CommandError::new("demo.unavailable"))?
+        .clone()
+    {
+        return Ok(preferences);
+    }
     state.service.get_preferences()
 }
 
@@ -32,9 +41,22 @@ pub fn set_appearance_preferences(
     app: AppHandle,
     preferences: AppearancePreferences,
 ) -> CommandResult<AppearancePreferences> {
-    let preferences = state.service.set_preferences(preferences)?;
+    let preferences = {
+        let mut demo = state
+            .demo
+            .0
+            .lock()
+            .map_err(|_| crate::error::CommandError::new("demo.unavailable"))?;
+        if demo.is_some() {
+            *demo = Some(preferences.clone());
+            preferences
+        } else {
+            state.service.set_preferences(preferences)?
+        }
+    };
     update_open_window_titles(&app, &preferences.language);
     tray_runtime::update_language(&app, &preferences.language);
+    crate::demo::update_language(&app, &preferences.language);
     emit_or_log(&app, "appearance-preferences-changed", &preferences);
     Ok(preferences)
 }
@@ -78,7 +100,7 @@ pub fn resolve_main_close(
     action: MainCloseAction,
     remember: bool,
 ) -> CommandResult<()> {
-    if remember {
+    if remember && !state.demo.active() {
         let mut preferences = state.service.get_desktop_preferences()?;
         preferences.ask_before_exit = false;
         preferences.minimize_to_tray = action == MainCloseAction::MinimizeToTray;

@@ -1,4 +1,11 @@
 {
+  "demo": {
+    "enterTitle": "进入演示模式？",
+    "enterDescription": "本次运行将仅展示虚构的账户、联系人和邮件。无法管理账户、发送邮件或访问文件；已读、星标等操作只影响演示数据。按 Ctrl+L 可切换界面与演示内容的语言。完全退出应用并重新打开后恢复正常。请先保存并关闭所有编辑窗口。",
+    "enter": "进入演示模式",
+    "languageTitle": "切换语言",
+    "languageDescription": "语言选择仅在本次演示中有效。"
+  },
   "app": {
     "name": "NextMail",
     "tagline": "专注、可靠的桌面邮件体验"
@@ -583,6 +590,10 @@
     "description": "一款专注、安全且支持离线使用的桌面邮件客户端。"
   },
   "errors": {
+    "demo": {
+      "unavailable": "演示模式下无法使用此功能。完全退出应用并重新打开后恢复。",
+      "closeEditors": "请先保存或放弃编辑，并关闭写信及模板、签名编辑窗口，再进入演示模式。"
+    },
     "contact.email_invalid": "请输入有效的邮箱地址。",
     "contact.already_exists": "当前账户中已存在使用该邮箱地址的联系人。",
     "contact.name_required": "请输入联系人姓名。",

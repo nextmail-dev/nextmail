@@ -11,7 +11,7 @@ use crate::{
     storage::ClaimedSendJob,
 };
 use lettre::{address::Envelope, Address};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use super::{
     add_draft_identity_headers, add_threading_headers, envelope_recipients, nonempty,
@@ -20,7 +20,15 @@ use super::{
 };
 
 impl ComposerRuntime {
+    pub fn stop_for_demo(&self) {
+        self.started.store(false, Ordering::Release);
+        self.wake_worker.notify_one();
+    }
+
     pub fn start(self: &Arc<Self>) {
+        if self.app.state::<crate::state::AppState>().demo.active() {
+            return;
+        }
         if self.started.swap(true, Ordering::AcqRel) {
             self.wake_worker.notify_one();
             return;
@@ -42,7 +50,17 @@ impl ComposerRuntime {
             let mut workers = tokio::task::JoinSet::new();
             let mut fair_cursor = 0_usize;
             loop {
-                while active_accounts.len() < 2 {
+                if !runtime.started.load(Ordering::Acquire)
+                    || runtime.app.state::<crate::state::AppState>().demo.active()
+                {
+                    // Finish already accepted SMTP work without cancelling it mid-send.
+                    while workers.join_next().await.is_some() {}
+                    break;
+                }
+                while active_accounts.len() < 2
+                    && runtime.started.load(Ordering::Acquire)
+                    && !runtime.app.state::<crate::state::AppState>().demo.active()
+                {
                     let slots = match repository.send_jobs().ready_send_account_slots().await {
                         Ok(slots) => slots,
                         Err(error) => {

@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { isDemoMode } from "@/app/demo/session";
 import { ChevronDown, Settings, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -62,7 +63,7 @@ function AccountSwitcherBase({
             </DropdownMenuCheckboxItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onManageAccounts}>
+          <DropdownMenuItem disabled={isDemoMode()} onSelect={onManageAccounts}>
             <Settings size={15} />
             {t("mail.accountManagement")}
           </DropdownMenuItem>

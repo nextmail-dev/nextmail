@@ -1,4 +1,11 @@
 {
+  "demo": {
+    "enterTitle": "Enter demo mode?",
+    "enterDescription": "This session will show fictional accounts, contacts and messages only. Account management, sending mail and file access are unavailable; read and star actions affect demo data only. Press Ctrl+L to change the interface and demo content language. Quit the app completely and reopen it to return to normal. Save and close any editors first.",
+    "enter": "Enter demo mode",
+    "languageTitle": "Switch language",
+    "languageDescription": "Your language choice applies only to this demo session."
+  },
   "app": {
     "name": "NextMail",
     "tagline": "A focused, dependable desktop email experience"
@@ -584,6 +591,10 @@
     "description": "A focused, secure desktop mail client designed for offline use."
   },
   "errors": {
+    "demo": {
+      "unavailable": "This feature is unavailable in demo mode. Quit the app completely and reopen it to return to normal.",
+      "closeEditors": "Save or discard your changes and close all message, template and signature editors before entering demo mode."
+    },
     "contact.email_invalid": "Enter a valid email address.",
     "contact.already_exists": "A contact with this email address already exists in this account.",
     "contact.name_required": "Enter a contact name.",

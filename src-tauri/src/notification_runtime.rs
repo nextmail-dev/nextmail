@@ -60,7 +60,7 @@ impl NotificationRuntime {
         candidates: Vec<NewMailCandidate>,
         preferences: &NotificationPreferences,
     ) {
-        if candidates.is_empty() {
+        if candidates.is_empty() || self.app.state::<crate::state::AppState>().demo.active() {
             return;
         }
         let max_visible = self.max_visible(preferences.max_stacked);
@@ -208,6 +208,9 @@ impl NotificationRuntime {
     }
 
     fn ensure_window(&self, notification: &NewMailNotification) -> CommandResult<()> {
+        if self.app.state::<crate::state::AppState>().demo.active() {
+            return Err(CommandError::new("demo.unavailable"));
+        }
         let label = notification_window_label(&notification.id);
         if self.app.get_webview_window(&label).is_some() {
             return Ok(());

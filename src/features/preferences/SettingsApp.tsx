@@ -35,6 +35,7 @@ import { Heading, Text } from "@/components/ui/typography";
 import { CompositionDefinitionsSettings } from "./CompositionDefinitionsSettings";
 import { NotificationSettings } from "./NotificationSettings";
 import { UpdateSettings } from "./UpdateSettings";
+import { DemoEntryTitle } from "@/app/demo/DemoControls";
 
 type SettingsCategory =
   | "general"
@@ -395,7 +396,7 @@ function SettingsContent({
       <SettingsSection category={category}>
         <SettingsGroup title={t("settings.group.application")}>
           <Stack gap="sm">
-            <Heading level={2}>NextMail</Heading>
+            <DemoEntryTitle />
             <Text>{t("about.version", { version })}</Text>
             <Text>{t("about.description")}</Text>
           </Stack>

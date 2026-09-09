@@ -19,6 +19,7 @@ use crate::{
 };
 
 pub struct AppState {
+    pub demo: crate::demo::DemoSession,
     pub service: Arc<AppService>,
     pub mail: Arc<MailRuntime>,
     pub composer: Arc<ComposerRuntime>,
@@ -66,6 +67,7 @@ impl AppState {
         ));
         let external_link_opener = Arc::new(SystemExternalLinkOpener);
         Ok(Self {
+            demo: crate::demo::DemoSession::default(),
             service,
             mail,
             composer,

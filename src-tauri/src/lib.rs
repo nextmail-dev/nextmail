@@ -3,6 +3,7 @@ mod application;
 mod commands;
 mod composer_runtime;
 pub mod core;
+mod demo;
 mod domain;
 mod error;
 mod logging;
@@ -76,7 +77,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(tray_runtime::handle_main_window_event)
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(demo::guard(tauri::generate_handler![
+            demo::get_demo_status,
+            demo::enter_demo_mode,
+            demo::get_demo_content,
             commands::get_bootstrap_status,
             commands::validate_data_directory,
             commands::initialize_data_directory,
@@ -201,7 +205,7 @@ pub fn run() {
             commands::queue_draft_send,
             commands::retry_send_job,
             commands::get_send_job,
-        ])
+        ]))
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
     app.run(tray_runtime::handle_run_event);

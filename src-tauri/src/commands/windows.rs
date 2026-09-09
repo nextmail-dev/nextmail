@@ -50,6 +50,9 @@ pub(crate) async fn open_settings_window_from_tray(app: AppHandle) -> CommandRes
 }
 
 async fn open_settings_window_inner(state: &AppState, app: &AppHandle) -> CommandResult<()> {
+    if state.demo.active() {
+        return Err(crate::error::CommandError::new("demo.unavailable"));
+    }
     // Window creation must not run inside the synchronous WebView IPC callback on Windows.
     // Yielding here keeps this path aligned with the working composer-window lifecycle.
     tokio::task::yield_now().await;

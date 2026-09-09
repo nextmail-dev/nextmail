@@ -28,6 +28,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/typography";
 import { WindowTitlebar, type WindowKind } from "@/components/window/WindowTitlebar";
 import { StartupUpdateChecker } from "@/features/preferences/UpdateSettings";
+import { DemoLanguageDialog } from "./demo/DemoControls";
+import { isDemoMode } from "./demo/session";
 
 const ComposerApp = lazy(() =>
   import("@/features/composer/ComposerApp").then((module) => ({ default: module.ComposerApp })),
@@ -136,6 +138,7 @@ export function App() {
             {windowContent}
           </WindowContentBoundary>
           <MainCloseDialog />
+          {isDemoMode() && <DemoLanguageDialog />}
           <StartupUpdateChecker />
         </WindowFrame>
       ) : (

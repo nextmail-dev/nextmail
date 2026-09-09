@@ -128,6 +128,12 @@ pub fn handle_main_window_event(window: &Window, event: &WindowEvent) {
     }
 }
 
+pub fn disable_settings_for_demo(app: &AppHandle) {
+    if let Some(items) = app.try_state::<TrayMenuItems>() {
+        let _ = items.settings.set_enabled(false);
+    }
+}
+
 pub fn handle_run_event(_app: &AppHandle, _event: tauri::RunEvent) {
     #[cfg(target_os = "macos")]
     if let tauri::RunEvent::Reopen {

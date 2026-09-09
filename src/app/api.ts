@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./demo/session";
 import type {
   AccountDraft,
   AccountConnectionDraft,
@@ -59,6 +59,7 @@ import type {
 } from "./types";
 
 export const api = {
+  enterDemoMode: () => invoke<void>("enter_demo_mode"),
   getBootstrapStatus: () =>
     invoke<BootstrapStatus>("get_bootstrap_status"),
   validateDataDirectory: (path: string) =>

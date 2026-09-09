@@ -10,6 +10,7 @@ import type {
 } from "@/app/types";
 import { reportCaughtError } from "@/app/errorReporting";
 import { mailQueryKeys, messageQueryKeys } from "../mail-query-keys";
+import { isDemoMode } from "@/app/demo/session";
 
 interface SentNotice {
   id: string;
@@ -100,6 +101,7 @@ export function useMailRuntimeEvents({
   onNavigateRef.current = onNavigate;
 
   useEffect(() => {
+    if (isDemoMode()) return;
     let disposed = false;
     const unlisteners: Array<() => void> = [];
     const register = <T,>(eventName: string, handler: (payload: T) => void) => (

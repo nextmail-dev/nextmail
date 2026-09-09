@@ -1,3 +1,4 @@
+import { isDemoMode } from "@/app/demo/session";
 import {
   Archive,
   ChevronDown,
@@ -574,6 +575,7 @@ export function MailboxPane({
           : "mt-auto h-9 w-full flex-none justify-start px-3"}
         aria-label={t("mail.settings")}
         title={collapsed ? t("mail.settings") : undefined}
+        disabled={isDemoMode()}
         onClick={onOpenSettings}
       >
         <Settings className="size-[18px] shrink-0" strokeWidth={1.8} />

@@ -23,7 +23,7 @@ use crate::core::{
     RemoteOperationKind, SyncInterval, SyncPhase, SyncProgress,
 };
 use crate::storage::{MailRepository, MailRepositoryProvider, PendingOperationWork};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{OnceCell, Semaphore};
 
 use crate::adapters::AttachmentOpener;
@@ -79,6 +79,9 @@ impl MailRuntime {
     }
 
     pub fn start(self: &Arc<Self>) {
+        if self.app.state::<crate::state::AppState>().demo.active() {
+            return;
+        }
         self.started.store(true, Ordering::Release);
         self.reconcile_accounts();
     }
@@ -106,6 +109,18 @@ impl MailRuntime {
         }
         for account in accounts {
             self.ensure_supervisor(&account.id);
+        }
+    }
+
+    pub fn stop_for_demo(&self) {
+        self.started.store(false, Ordering::Release);
+        let ids = self
+            .supervisors
+            .read()
+            .map(|values| values.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for id in ids {
+            self.stop_account(&id, AccountRuntimeState::Stopped);
         }
     }
 
@@ -187,6 +202,9 @@ impl MailRuntime {
     }
 
     fn ensure_supervisor(self: &Arc<Self>, account_id: &str) {
+        if self.app.state::<crate::state::AppState>().demo.active() {
+            return;
+        }
         if self.supervisor(account_id).is_some() {
             return;
         }

@@ -21,6 +21,7 @@ import { forwardRef, memo, useEffect, useState, type HTMLAttributes, type Keyboa
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
+import { isDemoMode } from "@/app/demo/session";
 import type { MailboxSummary, MessageListItem } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -114,6 +115,23 @@ function MessageListPaneBase({
     enabled: Boolean(accountId && mailboxId),
   });
   const allItems = query.data?.pages.flatMap((page) => page.items) ?? [];
+  useEffect(() => {
+    if (!isDemoMode() || !unreadView || !retainedUnreadItems.length) return;
+    let disposed = false;
+    // Read items retained outside the query also need translated content after
+    // a demo-language refetch. Preserve their current optimistic flag state.
+    void Promise.all(retainedUnreadItems.map(async ({ message }) => {
+      try { return await api.getMessageDetail(accountId, message.id, message.mailboxId); }
+      catch { return null; }
+    })).then((messages) => {
+      if (disposed) return;
+      setRetainedUnreadItems((current) => current.map((retained) => {
+        const detail = messages.find((message) => message?.id === retained.message.id && message.mailboxId === retained.message.mailboxId);
+        return detail ? { ...retained, message: { ...retained.message, subject: detail.subject, from: detail.from, preview: detail.plainText ?? "" } } : retained;
+      }));
+    });
+    return () => { disposed = true; };
+  }, [accountId, unreadView, query.dataUpdatedAt]);
   const items = unreadView
     ? retainedUnreadItems.reduce((current, retained) => {
       const existingIndex = current.findIndex((message) =>
