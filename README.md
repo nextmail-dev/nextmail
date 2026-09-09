@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./app-icon.png" width="96" height="96" alt="NextMail icon" />
+  <img src="./assets/app-icon.png" width="96" height="96" alt="NextMail icon" />
   <h1>NextMail</h1>
   <p><strong>A calm, local-first desktop email client.</strong></p>
   <p>Fast offline reading, faithful mail rendering, and reliable delivery — without giving your inbox to another cloud.</p>

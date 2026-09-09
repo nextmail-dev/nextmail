@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./app-icon.png" width="96" height="96" alt="NextMail 图标" />
+  <img src="./assets/app-icon.png" width="96" height="96" alt="NextMail 图标" />
   <h1>NextMail</h1>
   <p><strong>一款安静、可靠、本地优先的桌面邮件客户端。</strong></p>
   <p>快速离线阅读，忠实还原邮件，可靠完成投递——无需把收件箱交给另一朵云。</p>
