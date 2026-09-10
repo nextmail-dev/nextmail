@@ -1,6 +1,7 @@
 use async_imap::Session;
 use async_trait::async_trait;
 use futures_util::future::try_join_all;
+use std::{collections::HashSet, sync::RwLock};
 
 use super::{
     connection::{connect_session, BoxedImapTransport},
@@ -11,7 +12,7 @@ use super::{
         replace_draft_session,
     },
     session_budget::{SessionBudgetRegistry, SYNC_SESSION_COUNT},
-    sync_mailbox_session, sync_session,
+    sync_mailbox_session, sync_session, BodystructureMode, SyncSessionOutcome,
 };
 use crate::core::{
     CommandResult, ImapAccountConfig, ImapSyncProvider, MailSyncSink, MailboxSyncTarget,
@@ -23,6 +24,7 @@ use crate::core::{
 pub struct AsyncImapProvider {
     session_budgets: SessionBudgetRegistry,
     mailbox_path_locks: MailboxPathLockRegistry,
+    bodystructure_incompatible_accounts: RwLock<HashSet<String>>,
 }
 
 #[async_trait]
@@ -39,13 +41,34 @@ impl ImapSyncProvider for AsyncImapProvider {
         // slot lets interactive body/attachment and pending-operation requests
         // proceed without opening a fourth connection that can cause stricter
         // servers to reset one of the existing sync sessions.
-        let budgeted =
-            try_join_all((0..SYNC_SESSION_COUNT).map(|_| self.connect_budgeted_session(account)))
-                .await?;
-        let (session_permits, pool): (Vec<_>, Vec<_>) = budgeted.into_iter().unzip();
-        let result = sync_session(pool, account, sink, observer).await;
-        drop(session_permits);
-        result
+        let mut mode = self.bodystructure_mode(account);
+        loop {
+            let budgeted = try_join_all(
+                (0..SYNC_SESSION_COUNT).map(|_| self.connect_budgeted_session(account)),
+            )
+            .await?;
+            let (session_permits, pool): (Vec<_>, Vec<_>) = budgeted.into_iter().unzip();
+            let result = sync_session(pool, account, sink, observer, mode).await;
+            drop(session_permits);
+            match result? {
+                SyncSessionOutcome::Complete => return Ok(()),
+                SyncSessionOutcome::BodystructureIncompatible
+                    if mode == BodystructureMode::Enabled =>
+                {
+                    self.remember_bodystructure_incompatible(account);
+                    mode = BodystructureMode::Disabled;
+                    tracing::warn!(
+                        account_id = %account.account_id,
+                        "reconnecting IMAP sync with BODYSTRUCTURE disabled"
+                    );
+                }
+                SyncSessionOutcome::BodystructureIncompatible => {
+                    return Err(crate::core::CommandError::retryable(
+                        "sync.imap_connection_failed",
+                    ));
+                }
+            }
+        }
     }
 
     async fn fetch_message(
@@ -68,10 +91,23 @@ impl ImapSyncProvider for AsyncImapProvider {
         uid: u32,
         expected_uid_validity: u32,
     ) -> CommandResult<RemoteMessageBody> {
+        if self.bodystructure_mode(account) == BodystructureMode::Disabled {
+            return Err(crate::core::CommandError::new(
+                super::SELECTIVE_FETCH_UNSUPPORTED,
+            ));
+        }
         let path_lock = self.mailbox_path_locks.lock(&account.account_id);
         let _path_guard = path_lock.read().await;
         let (_permit, session) = self.connect_budgeted_session(account).await?;
-        fetch_message_body_session(session, mailbox_name, uid, expected_uid_validity).await
+        let result =
+            fetch_message_body_session(session, mailbox_name, uid, expected_uid_validity).await;
+        if result
+            .as_ref()
+            .is_err_and(|error| error.code == super::SELECTIVE_FETCH_UNSUPPORTED)
+        {
+            self.remember_bodystructure_incompatible(account);
+        }
+        result
     }
 
     async fn fetch_attachment(
@@ -104,8 +140,24 @@ impl ImapSyncProvider for AsyncImapProvider {
     ) -> CommandResult<()> {
         let path_lock = self.mailbox_path_locks.lock(&account.account_id);
         let _path_guard = path_lock.read().await;
-        let (_permit, session) = self.connect_budgeted_session(account).await?;
-        sync_mailbox_session(session, account, mailbox, sink, observer).await
+        let mut mode = self.bodystructure_mode(account);
+        loop {
+            let (_permit, session) = self.connect_budgeted_session(account).await?;
+            match sync_mailbox_session(session, account, mailbox, sink, observer, mode).await? {
+                SyncSessionOutcome::Complete => return Ok(()),
+                SyncSessionOutcome::BodystructureIncompatible
+                    if mode == BodystructureMode::Enabled =>
+                {
+                    self.remember_bodystructure_incompatible(account);
+                    mode = BodystructureMode::Disabled;
+                }
+                SyncSessionOutcome::BodystructureIncompatible => {
+                    return Err(crate::core::CommandError::retryable(
+                        "sync.imap_connection_failed",
+                    ));
+                }
+            }
+        }
     }
 
     async fn apply_operation(
@@ -158,6 +210,26 @@ impl ImapSyncProvider for AsyncImapProvider {
 }
 
 impl AsyncImapProvider {
+    fn bodystructure_mode(&self, account: &ImapAccountConfig) -> BodystructureMode {
+        if self
+            .bodystructure_incompatible_accounts
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(&account.account_id)
+        {
+            BodystructureMode::Disabled
+        } else {
+            BodystructureMode::Enabled
+        }
+    }
+
+    fn remember_bodystructure_incompatible(&self, account: &ImapAccountConfig) {
+        self.bodystructure_incompatible_accounts
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(account.account_id.clone());
+    }
+
     async fn connect_budgeted_session(
         &self,
         account: &ImapAccountConfig,

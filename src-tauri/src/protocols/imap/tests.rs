@@ -698,11 +698,19 @@ mod worker_tests {
 
     impl WorkerHarness {
         fn context(&self) -> FolderSyncContext<'_> {
+            self.context_with_mode(BodystructureMode::Enabled)
+        }
+
+        fn context_with_mode(
+            &self,
+            bodystructure_mode: BodystructureMode,
+        ) -> FolderSyncContext<'_> {
             FolderSyncContext {
                 uid_validity: 7,
                 mailbox: &self.mailbox,
                 mailbox_name: "Inbox",
                 default_notification_enabled: false,
+                bodystructure_mode,
             }
         }
     }
@@ -955,10 +963,10 @@ mod worker_tests {
     }
 
     #[tokio::test]
-    async fn prefetch_requeues_tail_when_bodystructure_kills_a_session() {
+    async fn prefetch_requests_a_fresh_degraded_retry_after_bodystructure_poison() {
         // Session A serves UID 1 with a poison BODYSTRUCTURE (kills the
-        // session), session B serves everyone else. UIDs 2-3 must be
-        // re-dispatched to session B in the same run; UID 1 stays pending.
+        // session), while session B completes its own chunk. The caller must
+        // reconnect instead of trying a full fetch on the poisoned stream.
         let (client_a, server_a) = tokio::io::duplex(1 << 16);
         let (client_b, server_b) = tokio::io::duplex(1 << 16);
         let server_task_a = tokio::spawn(async move {
@@ -977,10 +985,6 @@ mod worker_tests {
             let mut out = qq_poison_bodystructure(1);
             out.push_str(&tagged_ok(&tag));
             write_all(lines.get_mut(), out.as_bytes()).await;
-            // The full-message fallback on the poisoned session is doomed;
-            // read the command and then close the connection.
-            line.clear();
-            let _ = lines.read_line(&mut line).await;
         });
         let server_task_b = tokio::spawn(async move {
             let mut lines = BufReader::new(server_b);
@@ -1041,7 +1045,7 @@ mod worker_tests {
             .await
             .unwrap();
         let mut sessions = vec![&mut session_a, &mut session_b];
-        fetch_missing_bodies(
+        let incompatible = fetch_missing_bodies(
             &mut sessions,
             &account,
             &sink,
@@ -1060,7 +1064,72 @@ mod worker_tests {
         server_task_b.await.unwrap();
         let mut upserts = sink.upsert_snapshot();
         upserts.sort_unstable();
-        assert_eq!(upserts, vec![(2, 0), (3, 0), (4, 0), (5, 0)]);
+        assert!(upserts.is_empty());
         assert!(sink.body_snapshot().is_empty());
+        assert!(incompatible);
+    }
+
+    #[tokio::test]
+    async fn degraded_prefetch_uses_full_message_without_bodystructure() {
+        let (client, server) = tokio::io::duplex(1 << 16);
+        let server_task = tokio::spawn(async move {
+            let mut lines = BufReader::new(server);
+            let mut line = String::new();
+            lines.read_line(&mut line).await.unwrap();
+            let tag = line.split_whitespace().next().unwrap().to_owned();
+            write_all(
+                lines.get_mut(),
+                format!("{tag} OK LOGIN completed\r\n").as_bytes(),
+            )
+            .await;
+            line.clear();
+            lines.read_line(&mut line).await.unwrap();
+            assert!(line.contains("BODY.PEEK[]"), "unexpected command: {line}");
+            assert!(!line.contains("BODYSTRUCTURE"));
+            let tokens = line.split_whitespace().collect::<Vec<_>>();
+            let (tag, uid) = (tokens[0], tokens[3].parse().unwrap());
+            write_all(lines.get_mut(), full_message_response(tag, uid).as_bytes()).await;
+        });
+
+        let sink = RecordingSink::new();
+        sink.set_pending(vec![StoredMessageLocation {
+            message_id: "m1".to_owned(),
+            uid: 1,
+            uid_validity: 7,
+        }]);
+        let observer = RecordingObserver::new();
+        let harness = WorkerHarness {
+            mailbox: StoredMailbox {
+                id: "mb".to_owned(),
+                last_uid: 0,
+                highest_modseq: None,
+                notification_baseline_required: true,
+            },
+        };
+        let account = test_account();
+        let context = harness.context_with_mode(BodystructureMode::Disabled);
+        let write_lock = Mutex::new(());
+        let remote_uids = HashSet::from([1]);
+        let mut session = async_imap::Client::new(client)
+            .login("user", "pass")
+            .await
+            .unwrap();
+        let mut sessions = vec![&mut session];
+
+        let incompatible = fetch_missing_bodies(
+            &mut sessions,
+            &account,
+            &sink,
+            &observer,
+            &context,
+            &write_lock,
+            &remote_uids,
+        )
+        .await
+        .unwrap();
+
+        server_task.await.unwrap();
+        assert!(!incompatible);
+        assert_eq!(sink.upsert_snapshot(), vec![(1, 0)]);
     }
 }

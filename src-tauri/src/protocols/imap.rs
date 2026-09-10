@@ -35,6 +35,18 @@ use tokio::{
 
 const FETCH_BATCH_SIZE: usize = 20;
 pub const SELECTIVE_FETCH_UNSUPPORTED: &str = "sync.message_selective_fetch_unsupported";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BodystructureMode {
+    Enabled,
+    Disabled,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SyncSessionOutcome {
+    Complete,
+    BodystructureIncompatible,
+}
 struct FetchedMessageSummary {
     uid: u32,
     received_at: i64,
@@ -50,6 +62,13 @@ struct FolderSyncContext<'a> {
     mailbox: &'a StoredMailbox,
     mailbox_name: &'a str,
     default_notification_enabled: bool,
+    bodystructure_mode: BodystructureMode,
+}
+
+struct FolderSyncOptions {
+    condstore: bool,
+    download_full_messages: bool,
+    bodystructure_mode: BodystructureMode,
 }
 
 struct FolderDescriptor {
@@ -66,7 +85,8 @@ async fn sync_session<T>(
     account: &ImapAccountConfig,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
-) -> CommandResult<()>
+    bodystructure_mode: BodystructureMode,
+) -> CommandResult<SyncSessionOutcome>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
@@ -115,16 +135,22 @@ where
             total: folder_total,
             mailbox_name: Some(folder.progress_name.clone()),
         });
-        sync_folder(
+        let bodystructure_incompatible = sync_folder(
             &mut pool,
             account,
             sink,
             observer,
-            condstore,
-            account.download_full_messages,
+            FolderSyncOptions {
+                condstore,
+                download_full_messages: account.download_full_messages,
+                bodystructure_mode,
+            },
             folder,
         )
         .await?;
+        if bodystructure_incompatible {
+            return Ok(SyncSessionOutcome::BodystructureIncompatible);
+        }
     }
     observer.notify(SyncNotice::Folders {
         completed: folder_total,
@@ -134,7 +160,7 @@ where
     for mut session in pool {
         let _ = session.logout().await;
     }
-    Ok(())
+    Ok(SyncSessionOutcome::Complete)
 }
 
 async fn precreate_folder_tree(
@@ -174,7 +200,8 @@ async fn sync_mailbox_session<T>(
     mailbox: &MailboxSyncTarget,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
-) -> CommandResult<()>
+    bodystructure_mode: BodystructureMode,
+) -> CommandResult<SyncSessionOutcome>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
@@ -189,8 +216,11 @@ where
         account,
         sink,
         observer,
-        condstore,
-        false,
+        FolderSyncOptions {
+            condstore,
+            download_full_messages: false,
+            bodystructure_mode,
+        },
         FolderDescriptor {
             name: mailbox.name.clone(),
             display_name: mailbox.display_name.clone(),
@@ -205,10 +235,18 @@ where
         },
     )
     .await;
-    if let Some(mut session) = sessions.pop() {
-        let _ = session.logout().await;
+    if result.as_ref().is_ok_and(|incompatible| !incompatible) {
+        if let Some(mut session) = sessions.pop() {
+            let _ = session.logout().await;
+        }
     }
-    result
+    result.map(|bodystructure_incompatible| {
+        if bodystructure_incompatible {
+            SyncSessionOutcome::BodystructureIncompatible
+        } else {
+            SyncSessionOutcome::Complete
+        }
+    })
 }
 
 async fn sync_folder<T>(
@@ -216,10 +254,9 @@ async fn sync_folder<T>(
     account: &ImapAccountConfig,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
-    condstore: bool,
-    download_full_messages: bool,
+    options: FolderSyncOptions,
     folder: FolderDescriptor,
-) -> CommandResult<()>
+) -> CommandResult<bool>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
@@ -242,14 +279,14 @@ where
             )
             .await?;
         notify_mailbox(observer, mailbox.id);
-        return Ok(());
+        return Ok(false);
     }
 
     // Enter the mailbox on every worker session so each can fetch from it.
     // Session 0 also supplies the selected metadata used below.
     let mut selected = None;
     for (index, session) in sessions.iter_mut().enumerate() {
-        let mailbox = if condstore {
+        let mailbox = if options.condstore {
             session.select_condstore(&folder.name).await
         } else {
             session.examine(&folder.name).await
@@ -295,6 +332,7 @@ where
         mailbox: &mailbox,
         mailbox_name: &mailbox_name,
         default_notification_enabled,
+        bodystructure_mode: options.bodystructure_mode,
     };
 
     // Resumable sync: fetch only UIDs we don't already have a stored location
@@ -337,7 +375,7 @@ where
             sink,
             observer,
             &context,
-            condstore,
+            options.condstore,
             &completed,
             total,
             &write_lock,
@@ -352,7 +390,8 @@ where
         sessions_usable.push(usable);
     }
 
-    if download_full_messages {
+    let mut bodystructure_incompatible = sessions_usable.iter().any(|usable| !usable);
+    if options.download_full_messages && !bodystructure_incompatible {
         let mut live_sessions = sessions
             .iter_mut()
             .zip(&sessions_usable)
@@ -364,7 +403,7 @@ where
                 "no usable session left for body prefetch; it will resume next sync"
             );
         } else {
-            fetch_missing_bodies(
+            bodystructure_incompatible = fetch_missing_bodies(
                 &mut live_sessions,
                 account,
                 sink,
@@ -381,7 +420,7 @@ where
         reconcile_flags(
             &mut sessions[0],
             sink,
-            condstore,
+            options.condstore,
             uid_validity,
             highest_modseq,
             &mailbox,
@@ -395,7 +434,7 @@ where
     }
     sink.complete_mailbox(&mailbox.id, highest_uid).await?;
     notify_mailbox(observer, mailbox.id);
-    Ok(())
+    Ok(bodystructure_incompatible)
 }
 
 fn split_uids(uids: &[u32], n: usize) -> Vec<Vec<u32>> {
@@ -529,9 +568,13 @@ where
         // that and poisons the whole response stream, which previously aborted
         // the folder sync forever on the same UID. A failed BODYSTRUCTURE
         // fetch breaks the session, so this worker stops after the current
-        // batch; committed headers keep the diff short and the next sync round
-        // picks up the rest. The error is not logged in full because it embeds
-        // the raw server response.
+        // batch; committed headers keep the immediate reconnect cheap. The
+        // retry disables BODYSTRUCTURE for this account for the rest of the
+        // process. The error is not logged in full because it embeds the raw
+        // server response.
+        if context.bodystructure_mode == BodystructureMode::Disabled {
+            continue;
+        }
         match fetch_bodystructure_attachments(session, batch).await {
             Ok(by_uid) => {
                 for (uid, message) in &mut batch_messages {
@@ -598,7 +641,7 @@ async fn fetch_missing_bodies<T>(
     context: &FolderSyncContext<'_>,
     write_lock: &Mutex<()>,
     remote_uids: &HashSet<u32>,
-) -> CommandResult<()>
+) -> CommandResult<bool>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
@@ -624,7 +667,7 @@ where
     }
     let total = locations.len() as u64;
     if total == 0 {
-        return Ok(());
+        return Ok(false);
     }
 
     let completed = AtomicU64::new(0);
@@ -636,11 +679,10 @@ where
         .iter()
         .map(|location| location.uid)
         .collect::<Vec<_>>();
-    // A worker whose session dies mid-chunk (e.g. a BODYSTRUCTURE response the
-    // parser rejects poisons the connection) hands its unprocessed UIDs back;
-    // re-dispatch them to the sessions that survived so one stubborn message
-    // can't starve the rest of the prefetch queue. The offending message
-    // itself stays pending and is retried next round.
+    // Ordinary connection failures hand unprocessed UIDs back to surviving
+    // workers. A parser-rejected BODYSTRUCTURE is different: the caller drops
+    // the whole pool, reconnects once, and restarts in full-message mode so the
+    // malformed response cannot poison each worker in turn.
     let mut queue = uids;
     let mut usable = sessions.iter_mut().collect::<Vec<_>>();
     while !queue.is_empty() && !usable.is_empty() {
@@ -662,12 +704,17 @@ where
         .await;
         let mut remaining = Vec::new();
         let mut surviving = Vec::new();
+        let mut bodystructure_incompatible = false;
         for (index, result) in results.into_iter().enumerate() {
-            let (session_usable, unprocessed) = result?;
+            let (session_usable, unprocessed, worker_incompatible) = result?;
             remaining.extend(unprocessed);
+            bodystructure_incompatible |= worker_incompatible;
             if session_usable {
                 surviving.push(index);
             }
+        }
+        if bodystructure_incompatible {
+            return Ok(true);
         }
         if remaining.is_empty() {
             break;
@@ -686,7 +733,7 @@ where
             "no usable session left for body prefetch; remaining messages stay pending for the next sync"
         );
     }
-    Ok(())
+    Ok(false)
 }
 
 fn pending_body_locations(
@@ -710,11 +757,49 @@ async fn fetch_bodies_worker<T>(
     completed: &AtomicU64,
     total: u64,
     write_lock: &Mutex<()>,
-) -> CommandResult<(bool, Vec<u32>)>
+) -> CommandResult<(bool, Vec<u32>, bool)>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
     for (index, uid) in uids.iter().enumerate() {
+        if context.bodystructure_mode == BodystructureMode::Disabled {
+            match session::fetch_remote_messages(
+                session,
+                std::slice::from_ref(uid),
+                context.uid_validity,
+            )
+            .await
+            {
+                Ok(messages) => {
+                    for message in messages {
+                        let _write_guard = write_lock.lock().await;
+                        sink.upsert_message(
+                            &account.account_slot_id,
+                            &context.mailbox.id,
+                            &message,
+                        )
+                        .await?;
+                    }
+                    let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                    observer.notify(SyncNotice::Bodies {
+                        completed: done,
+                        total,
+                        mailbox_name: context.mailbox_name.to_owned(),
+                    });
+                    continue;
+                }
+                Err(error) if is_message_unavailable_error(&error.code) => {
+                    let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                    observer.notify(SyncNotice::Bodies {
+                        completed: done,
+                        total,
+                        mailbox_name: context.mailbox_name.to_owned(),
+                    });
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        }
         match session::fetch_remote_message_body(session, *uid).await {
             Ok(body) => {
                 let message_id = message_ids
@@ -733,48 +818,7 @@ where
                 });
             }
             Err(error) if error.code == SELECTIVE_FETCH_UNSUPPORTED => {
-                match session::fetch_remote_messages(
-                    session,
-                    std::slice::from_ref(uid),
-                    context.uid_validity,
-                )
-                .await
-                {
-                    Ok(messages) => {
-                        for message in messages {
-                            {
-                                let _write_guard = write_lock.lock().await;
-                                sink.upsert_message(
-                                    &account.account_slot_id,
-                                    &context.mailbox.id,
-                                    &message,
-                                )
-                                .await?;
-                            }
-                            let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
-                            observer.notify(SyncNotice::Bodies {
-                                completed: done,
-                                total,
-                                mailbox_name: context.mailbox_name.to_owned(),
-                            });
-                        }
-                    }
-                    Err(fallback_error) => {
-                        // The structure fetch can kill the session outright
-                        // (a BODYSTRUCTURE the parser rejects poisons the
-                        // stream), so the full-message fallback on this
-                        // session has no chance. Leave this message pending
-                        // for the next sync and hand the rest of the chunk
-                        // back to the caller for re-dispatch.
-                        tracing::warn!(
-                            uid,
-                            mailbox_name = %context.mailbox_name,
-                            code = %fallback_error.code,
-                            "full-message fallback failed; leaving body pending for the next sync"
-                        );
-                        return Ok((false, uids[index + 1..].to_vec()));
-                    }
-                }
+                return Ok((false, uids[index..].to_vec(), true));
             }
             Err(error) if is_message_unavailable_error(&error.code) => {
                 // Message vanished on the server after we stored its header;
@@ -796,7 +840,7 @@ where
             Err(error) => return Err(error),
         }
     }
-    Ok((true, Vec::new()))
+    Ok((true, Vec::new(), false))
 }
 
 async fn reconcile_flags<T>(
