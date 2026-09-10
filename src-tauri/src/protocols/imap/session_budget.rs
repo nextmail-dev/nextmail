@@ -7,16 +7,15 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 use crate::core::{CommandError, CommandResult};
 
-pub(super) const ACCOUNT_SESSION_LIMIT: usize = 3;
-pub(super) const SYNC_SESSION_COUNT: usize = 2;
+pub(super) const ACCOUNT_SESSION_LIMIT: usize = 4;
+pub(super) const SYNC_SESSION_COUNT: usize = 3;
 
 /// Per-account concurrency budget for active IMAP sessions.
 ///
-/// Sessions themselves remain owned by the concrete protocol operation and
-/// are logged out/closed when that operation finishes. The registry stores
-/// weak references only, so an inactive account budget disappears without a
-/// cleanup worker. Keeping the budget in the adapter prevents async-imap types
-/// from crossing the existing core port.
+/// Permits cover open connections, including idle reusable sync sessions, so
+/// the provider never exceeds the server-facing account limit. The registry
+/// stores weak references only; when the provider releases the final permit an
+/// inactive account budget disappears without a cleanup worker.
 #[derive(Default)]
 pub(super) struct SessionBudgetRegistry {
     budgets: Mutex<HashMap<String, Weak<Semaphore>>>,
@@ -62,8 +61,8 @@ mod tests {
 
     #[tokio::test]
     async fn keeps_interactive_slots_while_sync_workers_are_active() {
-        assert_eq!(ACCOUNT_SESSION_LIMIT, 3);
-        assert_eq!(SYNC_SESSION_COUNT, 2);
+        assert_eq!(ACCOUNT_SESSION_LIMIT, 4);
+        assert_eq!(SYNC_SESSION_COUNT, 3);
         let interactive_slots = ACCOUNT_SESSION_LIMIT - SYNC_SESSION_COUNT;
         assert_eq!(interactive_slots, 1);
         let registry = Arc::new(SessionBudgetRegistry::default());

@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
   type UIEvent as ReactUIEvent,
 } from "react";
 
@@ -20,6 +21,7 @@ interface OverlayScrollAreaProps {
   style?: CSSProperties;
   trackClassName?: string;
   viewportClassName?: string;
+  viewportRef?: RefObject<HTMLDivElement | null>;
 }
 
 interface ScrollbarMetrics {
@@ -46,6 +48,7 @@ export function OverlayScrollArea({
   style,
   trackClassName,
   viewportClassName,
+  viewportRef: externalViewportRef,
 }: OverlayScrollAreaProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -68,12 +71,22 @@ export function OverlayScrollArea({
     const thumbOffset = scrollable && viewport.scrollHeight > viewport.clientHeight
       ? availableOffset * viewport.scrollTop / (viewport.scrollHeight - viewport.clientHeight)
       : 0;
-    setScrollbar({
-      scrollable,
-      thumbHeight,
-      thumbOffset,
+    setScrollbar((current) => {
+      if (
+        current.scrollable === scrollable
+        && current.thumbHeight === thumbHeight
+        && current.thumbOffset === thumbOffset
+      ) {
+        return current;
+      }
+      return { scrollable, thumbHeight, thumbOffset };
     });
   }, []);
+
+  const setViewportRef = useCallback((node: HTMLDivElement | null) => {
+    viewportRef.current = node;
+    if (externalViewportRef) externalViewportRef.current = node;
+  }, [externalViewportRef]);
 
   useLayoutEffect(() => {
     measure();
@@ -135,7 +148,7 @@ export function OverlayScrollArea({
       style={style}
     >
       <div
-        ref={viewportRef}
+        ref={setViewportRef}
         className={cn(
           "native-scrollbar-hidden overflow-y-auto",
           intrinsic ? "relative max-h-[inherit]" : "absolute inset-0",

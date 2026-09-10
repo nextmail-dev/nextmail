@@ -804,13 +804,14 @@ mod worker_tests {
         let context = harness.context();
         let completed = AtomicU64::new(0);
         let write_lock = Mutex::new(());
+        let batches = Mutex::new(VecDeque::from([vec![1, 2, 3]]));
         let mut session = async_imap::Client::new(client_stream)
             .login("user", "pass")
             .await
             .unwrap();
         let result = fetch_summaries_worker(
             &mut session,
-            &[1, 2, 3],
+            &batches,
             &account,
             &sink,
             &observer,
@@ -880,13 +881,14 @@ mod worker_tests {
         let context = harness.context();
         let completed = AtomicU64::new(0);
         let write_lock = Mutex::new(());
+        let batches = Mutex::new(VecDeque::from([vec![1, 2, 3]]));
         let mut session = async_imap::Client::new(client_stream)
             .login("user", "pass")
             .await
             .unwrap();
         let result = fetch_summaries_worker(
             &mut session,
-            &[1, 2, 3],
+            &batches,
             &account,
             &sink,
             &observer,

@@ -25,7 +25,7 @@ interface UseMailRuntimeEventsOptions {
 }
 
 interface MailboxRefreshQueue {
-  pending: number;
+  dirty: boolean;
   running: boolean;
 }
 
@@ -35,6 +35,7 @@ interface MessageListData {
 }
 
 const MESSAGE_PAGE_SIZE = 50;
+const MAX_ARRIVED_QUEUE = 256;
 
 // Inserts a freshly synced message into the first page of the infinite query
 // cache in the same order the server returns (receivedAt desc, then id desc),
@@ -60,18 +61,11 @@ function applyArrivedMessage(
       (message.receivedAt === item.receivedAt && message.id < item.id),
   );
   if (insertAt === -1) insertAt = items.length;
-  // The message belongs beyond the first page's window; leave it for a refetch
-  // or "load more" so cursors stay consistent.
   if (insertAt >= MESSAGE_PAGE_SIZE && firstPage.nextCursor !== null) {
     return data;
   }
   let nextItems = [...items.slice(0, insertAt), item, ...items.slice(insertAt)];
   let nextCursor = firstPage.nextCursor;
-  // Cap the first page at the page size. Without this, a long sync grows the
-  // first page without bound (thousands of rows) and every arriving message
-  // re-renders the whole list - the UI freezes once a folder has a few hundred
-  // messages. Items pushed past the boundary are re-fetched via "load more"
-  // using the new cursor.
   if (nextItems.length > MESSAGE_PAGE_SIZE) {
     nextItems = nextItems.slice(0, MESSAGE_PAGE_SIZE);
     const last = nextItems[nextItems.length - 1];
@@ -113,31 +107,44 @@ export function useMailRuntimeEvents({
         .catch((error) => reportCaughtError(`event.listen.${eventName}`, error))
     );
 
-    // Coalesce rapid message-arrived events (a sync with several workers fires
-    // many per second) into one cache update per mailbox per ~100ms. The
-    // selected mailbox gets a merged first-page insert; others get a single
-    // invalidation. Each cache write re-renders its subscribers, so applying
-    // events one-by-one would re-render dozens of times per second.
+    // Preserve one-message-at-a-time arrival semantics without letting Tauri
+    // events drive React synchronously. The selected mailbox consumes one
+    // committed item per animation frame; background mailboxes only need one
+    // snapshot invalidation. The bounded overflow path falls back to the DB
+    // snapshot instead of retaining an unbounded in-memory event backlog.
     const arrivedBuffer = new Map<string, MessageListItem[]>();
-    let arrivedTimer: ReturnType<typeof setTimeout> | null = null;
+    const arrivedOverflow = new Set<string>();
+    let arrivedFrame: number | null = null;
+    const scheduleFrame = (callback: FrameRequestCallback) => (
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame(callback)
+        : window.setTimeout(() => callback(performance.now()), 16)
+    );
     const flushArrived = () => {
-      arrivedTimer = null;
+      arrivedFrame = null;
       if (arrivedBuffer.size === 0) return;
-      for (const [key, items] of arrivedBuffer) {
+      let remaining = false;
+      for (const [key, items] of [...arrivedBuffer]) {
         const [accountId, mailboxId] = key.split("\0");
         const queryKey = mailQueryKeys.messagesForMailbox(accountId, mailboxId);
-        if (accountId === selectedAccountIdRef.current
-          && mailboxId === selectedMailboxIdRef.current) {
+        const selected = accountId === selectedAccountIdRef.current
+          && mailboxId === selectedMailboxIdRef.current;
+        if (arrivedOverflow.delete(key)) {
+          arrivedBuffer.delete(key);
+          void queryClient.refetchQueries({ queryKey, exact: true, type: "active" });
+        } else if (selected && items.length > 0) {
+          const item = items.shift();
           queryClient.setQueryData<MessageListData>(queryKey, (old) => {
-            let data = old;
-            for (const item of items) data = applyArrivedMessage(data, item);
-            return data;
+            return item ? applyArrivedMessage(old, item) : old;
           });
+          if (items.length === 0) arrivedBuffer.delete(key);
+          else remaining = true;
         } else {
+          arrivedBuffer.delete(key);
           void queryClient.invalidateQueries({ queryKey });
         }
       }
-      arrivedBuffer.clear();
+      if (remaining || arrivedBuffer.size > 0) arrivedFrame = scheduleFrame(flushArrived);
     };
     // Coalesce sync-progress the same way: keep only the latest payload per
     // account and write it once per ~100ms. A sync commits many messages per
@@ -162,14 +169,14 @@ export function useMailRuntimeEvents({
       if (payload.accountId === selectedAccountIdRef.current
         && payload.mailboxId === selectedMailboxIdRef.current) {
         const queueId = `${payload.accountId}\0${payload.mailboxId}`;
-        const queue = mailboxRefreshQueuesRef.current.get(queueId) ?? { pending: 0, running: false };
-        queue.pending += 1;
+        const queue = mailboxRefreshQueuesRef.current.get(queueId) ?? { dirty: false, running: false };
+        queue.dirty = true;
         mailboxRefreshQueuesRef.current.set(queueId, queue);
         if (!queue.running) {
           queue.running = true;
           void (async () => {
-            while (queue.pending > 0) {
-              queue.pending -= 1;
+            while (queue.dirty) {
+              queue.dirty = false;
               await queryClient
                 .refetchQueries({ queryKey, exact: true, type: "active" })
                 .catch((error) => reportCaughtError("mailbox.active-refetch", error));
@@ -186,10 +193,12 @@ export function useMailRuntimeEvents({
       const key = `${payload.accountId}\0${payload.mailboxId}`;
       const items = arrivedBuffer.get(key) ?? [];
       items.push(payload.item);
-      arrivedBuffer.set(key, items);
-      if (arrivedTimer === null) {
-        arrivedTimer = setTimeout(flushArrived, 100);
+      if (items.length > MAX_ARRIVED_QUEUE) {
+        items.length = 0;
+        arrivedOverflow.add(key);
       }
+      arrivedBuffer.set(key, items);
+      if (arrivedFrame === null) arrivedFrame = scheduleFrame(flushArrived);
     });
     void register<SyncProgress>("sync-progress", (payload) => {
       progressBuffer.set(payload.accountId, payload);
@@ -203,10 +212,26 @@ export function useMailRuntimeEvents({
     void register<{ accountId: string; messageId: string }>("message-content-changed", (payload) => {
       void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(payload.accountId) });
     });
+    const contactAccounts = new Set<string>();
+    let contactsTimer: ReturnType<typeof setTimeout> | null = null;
     void register<{ accountId: string }>("contacts-changed", (payload) => {
-      void queryClient.invalidateQueries({ queryKey: mailQueryKeys.contactsForAccount(payload.accountId) });
-      void queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(payload.accountId) });
-      void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(payload.accountId) });
+      contactAccounts.add(payload.accountId);
+      if (contactsTimer !== null) return;
+      contactsTimer = setTimeout(() => {
+        contactsTimer = null;
+        for (const accountId of contactAccounts) {
+          void queryClient.invalidateQueries({ queryKey: mailQueryKeys.contactsForAccount(accountId) });
+          void queryClient.invalidateQueries({
+            queryKey: mailQueryKeys.messagesForAccount(accountId),
+            refetchType: "none",
+          });
+          void queryClient.invalidateQueries({
+            queryKey: messageQueryKeys.account(accountId),
+            refetchType: "none",
+          });
+        }
+        contactAccounts.clear();
+      }, 300);
     });
     void register<{ accountId: string; jobId: string; status: string; subject: string }>("send-job-changed", (payload) => {
       if (payload.accountId !== selectedAccountIdRef.current || payload.status !== "sent") return;
@@ -225,8 +250,12 @@ export function useMailRuntimeEvents({
 
     return () => {
       disposed = true;
-      if (arrivedTimer !== null) clearTimeout(arrivedTimer);
+      if (arrivedFrame !== null) {
+        if (typeof window.cancelAnimationFrame === "function") window.cancelAnimationFrame(arrivedFrame);
+        else clearTimeout(arrivedFrame);
+      }
       if (progressTimer !== null) clearTimeout(progressTimer);
+      if (contactsTimer !== null) clearTimeout(contactsTimer);
       unlisteners.forEach((unlisten) => unlisten());
     };
   }, [queryClient]);

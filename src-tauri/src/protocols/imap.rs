@@ -8,7 +8,7 @@ mod session_budget;
 mod structure;
 mod timeout;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub use encoding::decode_modified_utf7;
@@ -81,7 +81,7 @@ struct FolderDescriptor {
 }
 
 async fn sync_session<T>(
-    mut pool: Vec<Session<T>>,
+    pool: &mut [Session<T>],
     account: &ImapAccountConfig,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
@@ -136,7 +136,7 @@ where
             mailbox_name: Some(folder.progress_name.clone()),
         });
         let bodystructure_incompatible = sync_folder(
-            &mut pool,
+            pool,
             account,
             sink,
             observer,
@@ -157,9 +157,6 @@ where
         total: folder_total,
         mailbox_name: None,
     });
-    for mut session in pool {
-        let _ = session.logout().await;
-    }
     Ok(SyncSessionOutcome::Complete)
 }
 
@@ -359,7 +356,11 @@ where
     uids.sort_unstable();
     let total = uids.len() as u64;
     let completed = AtomicU64::new(0);
-    let chunks = split_uids(&uids, sessions.len());
+    let batches = Mutex::new(
+        uids.chunks(FETCH_BATCH_SIZE)
+            .map(<[u32]>::to_vec)
+            .collect::<VecDeque<_>>(),
+    );
     // SQLite serializes all writers through a single lock even in WAL mode.
     // Three worker sessions each opening a write transaction contend on that
     // lock and surface "database is locked"; this mutex serializes only the
@@ -367,10 +368,10 @@ where
     // over their own IMAP connections - the network-bound part stays
     // concurrent, the write-bound part does not.
     let write_lock = Mutex::new(());
-    let results = join_all(sessions.iter_mut().enumerate().map(|(i, session)| {
+    let results = join_all(sessions.iter_mut().map(|session| {
         fetch_summaries_worker(
             session,
-            &chunks[i],
+            &batches,
             account,
             sink,
             observer,
@@ -451,7 +452,7 @@ fn split_uids(uids: &[u32], n: usize) -> Vec<Vec<u32>> {
 #[allow(clippy::too_many_arguments)]
 async fn fetch_summaries_worker<T>(
     session: &mut Session<T>,
-    uids: &[u32],
+    batches: &Mutex<VecDeque<Vec<u32>>>,
     account: &ImapAccountConfig,
     sink: &(dyn MailSyncSink + Send + Sync),
     observer: &(dyn SyncObserver + Send + Sync),
@@ -466,14 +467,17 @@ where
 {
     let mut highest_uid = context.mailbox.last_uid;
     let mut session_usable = true;
-    for batch in uids.chunks(FETCH_BATCH_SIZE) {
+    loop {
+        let Some(batch) = batches.lock().await.pop_front() else {
+            break;
+        };
         let query = if condstore {
             "(UID FLAGS MODSEQ INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
         } else {
             "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER])"
         };
         let mut summaries = session
-            .uid_fetch(format_uid_set(batch), query)
+            .uid_fetch(format_uid_set(&batch), query)
             .await
             .map_err(map_imap_err("sync.message_fetch_failed", true))?;
 
@@ -575,7 +579,7 @@ where
         if context.bodystructure_mode == BodystructureMode::Disabled {
             continue;
         }
-        match fetch_bodystructure_attachments(session, batch).await {
+        match fetch_bodystructure_attachments(session, &batch).await {
             Ok(by_uid) => {
                 for (uid, message) in &mut batch_messages {
                     let Some(attachments) = by_uid.get(uid) else {

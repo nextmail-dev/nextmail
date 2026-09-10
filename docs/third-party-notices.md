@@ -4,6 +4,14 @@ NextMail 当前不再随安装包分发 Roboto、Droid Sans Fallback 或其他�
 
 若未来重新引入随包字体或其他独立资源，必须在本文件记录来源、版本和许可证，并把对应许可证文本加入发布资源。
 
+## @tanstack/react-virtual
+
+- 版本：3.14.11
+- 用途：虚拟化邮件长列表，只挂载当前可视行及少量 overscan，限制同步期间的 DOM 与组件内存。
+- 许可证：MIT
+- Copyright (c) 2021-present Tanner Linsley
+- 许可证正文与下方 `react-markdown` 所列 MIT 文本相同。
+
 ## react-markdown
 
 - 版本：10.1.0

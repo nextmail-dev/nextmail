@@ -106,8 +106,8 @@ describe("useMailRuntimeEvents", () => {
     act(() => handlers.get("message-arrived")?.({
       payload: { accountId: "account-one", mailboxId: "inbox", item: arrivedItem } as never,
     }));
-    // message-arrived for the selected mailbox is buffered and flushed on a
-    // short timer to coalesce rapid arrivals into a single cache update.
+    // The selected mailbox consumes committed messages on animation frames so
+    // each arrival remains individually visible without synchronous renders.
     await waitFor(() => expect(setQueryData).toHaveBeenCalledWith(messagesKey, expect.any(Function)));
     await waitFor(() => expect(
       (client.getQueryData(messagesKey) as { pages: { items: unknown[] }[] } | undefined)
@@ -141,9 +141,17 @@ describe("useMailRuntimeEvents", () => {
     act(() => handlers.get("contacts-changed")?.({
       payload: { accountId: "account-two" } as never,
     }));
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.contactsForAccount("account-two") });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: mailQueryKeys.messagesForAccount("account-two") });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: messageQueryKeys.account("account-two") });
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
+      queryKey: mailQueryKeys.contactsForAccount("account-two"),
+    }));
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: mailQueryKeys.messagesForAccount("account-two"),
+      refetchType: "none",
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: messageQueryKeys.account("account-two"),
+      refetchType: "none",
+    });
 
     setQueryData.mockClear();
     invalidate.mockClear();

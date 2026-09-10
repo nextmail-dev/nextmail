@@ -1,6 +1,5 @@
 import {
   Archive,
-  CloudUpload,
   Copy,
   ExternalLink,
   FilePenLine,
@@ -17,7 +16,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { forwardRef, memo, useEffect, useState, type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { forwardRef, memo, useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -143,6 +143,28 @@ function MessageListPaneBase({
       return next;
     }, allItems)
     : allItems;
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const getMessageKey = useCallback((index: number) => {
+    const message = itemsRef.current[index];
+    return message ? `${message.mailboxId}:${message.id}` : index;
+  }, []);
+  const virtualizationEnabled = typeof ResizeObserver !== "undefined";
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => viewportRef.current,
+    getItemKey: getMessageKey,
+    estimateSize: () => 88,
+    overscan: 8,
+    useFlushSync: false,
+    initialRect: { width: 360, height: 720 },
+    enabled: virtualizationEnabled,
+  });
+  const virtualRows = virtualizationEnabled
+    ? virtualizer.getVirtualItems()
+    : items.map((_, index) => ({ index, start: index * 88, key: getMessageKey(index) }));
+  const virtualHeight = virtualizationEnabled ? virtualizer.getTotalSize() : items.length * 88;
   const visibleMessageIds = items.map((message) => message.id);
   const visibleMessageKey = visibleMessageIds.join("\0");
   useEffect(() => {
@@ -233,16 +255,20 @@ function MessageListPaneBase({
   function handleMessageArrowKey(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
     event.preventDefault();
-    const nextRow = event.key === "ArrowDown"
-      ? event.currentTarget.nextElementSibling
-      : event.currentTarget.previousElementSibling;
-    if (!(nextRow instanceof HTMLElement)) return;
-    const messageId = nextRow.dataset.messageSelectionId;
-    const message = items.find((item) => item.id === messageId);
+    const currentIndex = items.findIndex((item) => item.id === event.currentTarget.dataset.messageSelectionId);
+    const nextIndex = currentIndex + (event.key === "ArrowDown" ? 1 : -1);
+    const message = items[nextIndex];
     if (!message) return;
     selection.select(message.id, { ctrlKey: false, metaKey: false, shiftKey: false });
     if (message.unread) operation.mutate({ messages: [message], reference: message, kind: "read" });
-    nextRow.querySelector<HTMLElement>("[data-message-select-button]")?.focus();
+    virtualizer.scrollToIndex(nextIndex, { align: "auto" });
+    const focusRow = () => {
+      const rows = viewportRef.current?.querySelectorAll<HTMLElement>("[data-message-selection-id]");
+      const nextRow = rows && [...rows].find((row) => row.dataset.messageSelectionId === message.id);
+      nextRow?.querySelector<HTMLElement>("[data-message-select-button]")?.focus();
+    };
+    if (virtualizationEnabled) requestAnimationFrame(focusRow);
+    else focusRow();
   }
 
   return (
@@ -316,8 +342,13 @@ function MessageListPaneBase({
           className="min-h-0 flex-1"
           trackClassName="right-[7px] w-2"
           onViewportScroll={loadNextPageNearEnd}
+          viewportRef={viewportRef}
+          contentClassName="block min-h-0"
         >
-          {items.map((message, index) => {
+          <div className="relative w-full" style={{ height: `${virtualHeight}px` }}>
+          {virtualRows.map((virtualRow) => {
+            const index = virtualRow.index;
+            const message = items[index];
             const operationMessages = selectedMessageIdSet.has(message.id) ? selectedMessages : [message];
             return (
               <MessageActionsContextMenu
@@ -336,6 +367,7 @@ function MessageListPaneBase({
                 onSaveAs={() => saveOperation.mutate(message)}
               >
                 <MessageRow
+                  ref={virtualizationEnabled ? virtualizer.measureElement : undefined}
                   message={message}
                   selected={selection.isSelected(message.id)}
                   divider={index < items.length - 1}
@@ -358,10 +390,19 @@ function MessageListPaneBase({
                   onToggleFlag={() => operation.mutate({ messages: [message], reference: message, kind: "flag" })}
                   onOpenContact={onOpenContact}
                   onEditContact={onEditContact}
+                  data-index={index}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
                 />
               </MessageActionsContextMenu>
             );
           })}
+          </div>
           {query.hasNextPage && !autoLoadMore ? (
             <Button variant="ghost" className="mx-auto my-3" loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>
               {t("mail.loadMore")}
@@ -494,7 +535,6 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
           <Inline className="w-full text-muted-foreground">
             <Text className="min-w-0 flex-1 truncate text-xs">{message.preview}</Text>
             {message.hasAttachments ? <Paperclip size={13} /> : null}
-            {message.pendingOperation ? <CloudUpload size={13} /> : null}
           </Inline>
         </Stack>
       </Button>
