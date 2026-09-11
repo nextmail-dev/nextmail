@@ -24,27 +24,7 @@
 
 ## Preview
 
-<table>
-  <tr>
-    <td colspan="2" align="center">
-        <img src="./assets/screenshots/workspace/en_US-combined.png" alt="Workspace" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <br />
-      <strong>Rich composer</strong><br />
-      <sub>Screenshot placeholder · compose and reply</sub>
-      <br /><br />
-    </td>
-    <td width="50%" align="center">
-      <br />
-      <strong>Light &amp; dark</strong><br />
-      <sub>Screenshot placeholder · themes and accent colors</sub>
-      <br /><br />
-    </td>
-  </tr>
-</table>
+![Preview](./assets/screenshots/workspace/en_US-combined.png)
 
 ## Highlights
 
