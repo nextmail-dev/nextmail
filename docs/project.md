@@ -312,6 +312,7 @@ HTML-only 邮件的派生纯文本与列表预览只从 `<body>` 内容提取，
 - `dist/` 和 `src-tauri/target/` 是正常增量缓存，默认保留。
 - Git 历史承担逐提交细节；`docs/iterations.md` 只按日期保留简短开发摘要。
 - 发布新版本时保持两个顺序提交：先提交已经验收的功能、测试与实现文档，再单独提交版本号、`CHANGELOG.md` 和发布记录；不得把整轮功能变更与发布准备压进同一个 commit。
+- `CHANGELOG.md` 面向最终用户，必须使用容易理解的非技术语言，描述用户能感知的改进、修复和新增能力，不写代码、模块、内部实现或提交层面的变动。例如大型文件夹同步的改动应写成“优化同步大型文件夹时的内存占用”。
 - 既有 iteration 作为历史保留，最后一份为 `2026-08-21-02-unread-view-and-sync-feedback.md`；此后不再新增计划文件。
 - 不重新建立会话 handoff、独立 changes 流水账或重复的 architecture/technical-reference/master-plan。
 
