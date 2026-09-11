@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { listen } from "@tauri-apps/api/event";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Pencil, Plus, Signature, Star, Trash2 } from "lucide-react";
@@ -186,7 +187,7 @@ export function CompositionDefinitionsSettings({ accounts }: CompositionDefiniti
       <Text>{accountId ? t("compositionLibrary.accountScopeDescription") : t("compositionLibrary.globalScopeDescription")}</Text>
       {error ? (
         <Alert tone="danger" title={t("errors.title")}>
-          {t(`errors.${normalizeCommandError(error).code}`, { defaultValue: t("common.unexpectedError") })}
+          {formatCommandError(t, normalizeCommandError(error))}
         </Alert>
       ) : null}
       <SceneRules

@@ -65,6 +65,23 @@ beforeEach(() => {
 });
 
 describe("useMailboxSelection", () => {
+  it("keeps selection usable and reports a repeated preference failure only once until recovery", async () => {
+    vi.mocked(api.setLastSelectedMailbox).mockRejectedValue({ code: "storage.accounts_write_failed", params: { reason: "file_busy" }, retryable: true });
+    const onError = vi.fn();
+    const { result, unmount } = renderHook(() => useMailboxSelection({ accounts, lastSelectedAccountId: "account-one", onError }), { wrapper: createWrapper() });
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    await act(async () => { result.current.selectMailbox(UNREAD_MAILBOX_ID); });
+    await act(async () => { result.current.selectMailbox("inbox-one"); });
+    expect(result.current.selectedMailboxId).toBe("inbox-one");
+    expect(onError).toHaveBeenCalledTimes(1);
+    vi.mocked(api.setLastSelectedMailbox).mockResolvedValue(UNREAD_MAILBOX_ID);
+    await act(async () => { result.current.selectMailbox(UNREAD_MAILBOX_ID); });
+    vi.mocked(api.setLastSelectedMailbox).mockRejectedValue({ code: "storage.accounts_write_failed", retryable: true });
+    await act(async () => { result.current.selectMailbox("inbox-one"); });
+    expect(onError).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+
   it("restores the last account and clears mailbox-local selection when accounts change", async () => {
     const onError = vi.fn();
     const { result } = renderHook(() => useMailboxSelection({

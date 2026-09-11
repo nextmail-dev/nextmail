@@ -106,7 +106,7 @@ impl ComposerRuntime {
                                 active_accounts.remove(&slot);
                             }
                             Some(Err(error)) => {
-                                tracing::error!(?error, "send worker task failed");
+                                tracing::error!(error_type = std::any::type_name_of_val(&error), "send worker task failed");
                             }
                             None => {}
                         }
@@ -356,20 +356,20 @@ impl ComposerRuntime {
             .service
             .account_password(&account.credential_ref)
             .await?;
-        let from: Address = account
-            .email
-            .parse()
-            .map_err(|_| CommandError::new("send.sender_invalid"))?;
+        let from: Address = account.email.parse().map_err(|error| {
+            crate::diagnostics::command_error("send.sender_invalid", false, &error)
+        })?;
         let to = recipients
             .iter()
             .map(|value| {
-                value
-                    .parse::<Address>()
-                    .map_err(|_| CommandError::new("send.recipient_invalid"))
+                value.parse::<Address>().map_err(|error| {
+                    crate::diagnostics::command_error("send.recipient_invalid", false, &error)
+                })
             })
             .collect::<CommandResult<Vec<_>>>()?;
-        let envelope = Envelope::new(Some(from), to)
-            .map_err(|_| CommandError::new("send.envelope_invalid"))?;
+        let envelope = Envelope::new(Some(from), to).map_err(|error| {
+            crate::diagnostics::command_error("send.envelope_invalid", false, &error)
+        })?;
         let raw = self
             .repository()
             .await?
@@ -410,7 +410,7 @@ impl ComposerRuntime {
                 revision: job.revision,
             },
         ) {
-            tracing::warn!(%job_id, %account_slot_id, ?error, "send job event failed");
+            tracing::warn!(%job_id, %account_slot_id, error_type = std::any::type_name_of_val(&error), "send job event failed");
         }
     }
 }

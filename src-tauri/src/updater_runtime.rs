@@ -23,13 +23,15 @@ pub async fn check(app: &AppHandle) -> CommandResult<UpdateCheckResult> {
         .updater_builder()
         .pubkey(public_key)
         .endpoints(endpoints)
-        .map_err(|_| CommandError::new("update.not_configured"))?
+        .map_err(|error| crate::diagnostics::command_error("update.not_configured", false, &error))?
         .build()
-        .map_err(|_| CommandError::new("update.not_configured"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("update.not_configured", false, &error)
+        })?;
     let update = updater
         .check()
         .await
-        .map_err(|_| CommandError::retryable("update.check_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("update.check_failed", true, &error))?;
     let current_version = env!("CARGO_PKG_VERSION").to_owned();
     Ok(match update {
         Some(update) => UpdateCheckResult {
@@ -66,18 +68,22 @@ pub async fn install(app: &AppHandle) -> CommandResult<()> {
         .updater_builder()
         .pubkey(public_key)
         .endpoints(endpoints)
-        .map_err(|_| CommandError::new("update.not_configured"))?
+        .map_err(|error| crate::diagnostics::command_error("update.not_configured", false, &error))?
         .build()
-        .map_err(|_| CommandError::new("update.not_configured"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("update.not_configured", false, &error)
+        })?;
     let update = updater
         .check()
         .await
-        .map_err(|_| CommandError::retryable("update.check_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("update.check_failed", true, &error))?
         .ok_or_else(|| CommandError::new("update.not_available"))?;
     update
         .download_and_install(|_, _| {}, || {})
         .await
-        .map_err(|_| CommandError::retryable("update.install_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("update.install_failed", true, &error)
+        })?;
     app.restart()
 }
 
@@ -90,7 +96,9 @@ async fn updater_configuration() -> CommandResult<(&'static str, Vec<Url>)> {
         .into_iter()
         .map(Url::parse)
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| CommandError::new("update.not_configured"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("update.not_configured", false, &error)
+        })?;
     Ok((public_key, endpoints))
 }
 

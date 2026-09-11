@@ -16,10 +16,13 @@ static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 impl MailRepository {
     pub async fn open(data_dir: &Path) -> CommandResult<Self> {
         let pool = open_pool(data_dir, false).await?;
-        MIGRATOR
-            .run(&pool)
-            .await
-            .map_err(|_| CommandError::new("data_directory.database_migration_failed"))?;
+        MIGRATOR.run(&pool).await.map_err(|error| {
+            crate::diagnostics::command_error(
+                "data_directory.database_migration_failed",
+                false,
+                &error,
+            )
+        })?;
         Ok(Self {
             pool,
             content: ContentStore::new(data_dir),
@@ -29,14 +32,19 @@ impl MailRepository {
 
 pub async fn initialize_content_database(data_dir: &Path) -> CommandResult<()> {
     let pool = open_pool(data_dir, true).await?;
-    MIGRATOR
-        .run(&pool)
-        .await
-        .map_err(|_| CommandError::new("data_directory.database_migration_failed"))?;
+    MIGRATOR.run(&pool).await.map_err(|error| {
+        crate::diagnostics::command_error("data_directory.database_migration_failed", false, &error)
+    })?;
     sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
         .execute(&pool)
         .await
-        .map_err(|_| CommandError::new("data_directory.database_checkpoint_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error(
+                "data_directory.database_checkpoint_failed",
+                false,
+                &error,
+            )
+        })?;
     pool.close().await;
     Ok(())
 }
@@ -47,16 +55,17 @@ pub async fn create_account_slot(
     created_at: i64,
 ) -> CommandResult<()> {
     let pool = open_pool(data_dir, false).await?;
-    MIGRATOR
-        .run(&pool)
-        .await
-        .map_err(|_| CommandError::new("data_directory.database_migration_failed"))?;
+    MIGRATOR.run(&pool).await.map_err(|error| {
+        crate::diagnostics::command_error("data_directory.database_migration_failed", false, &error)
+    })?;
     sqlx::query("INSERT INTO account_slots (id, created_at) VALUES (?, ?)")
         .bind(slot_id)
         .bind(created_at)
         .execute(&pool)
         .await
-        .map_err(|_| CommandError::new("account.slot_create_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("account.slot_create_failed", false, &error)
+        })?;
     pool.close().await;
     Ok(())
 }
@@ -77,7 +86,9 @@ pub(super) async fn open_pool(data_dir: &Path, create: bool) -> CommandResult<Sq
         return Err(CommandError::new("data_directory.database_missing"));
     }
     let options = SqliteConnectOptions::from_str(&format!("sqlite:{}", database_path.display()))
-        .map_err(|_| CommandError::new("data_directory.database_open_failed"))?
+        .map_err(|error| {
+            crate::diagnostics::command_error("data_directory.database_open_failed", false, &error)
+        })?
         .create_if_missing(create)
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
@@ -93,5 +104,7 @@ pub(super) async fn open_pool(data_dir: &Path, create: bool) -> CommandResult<Sq
         .max_connections(4)
         .connect_with(options)
         .await
-        .map_err(|_| CommandError::new("data_directory.database_open_failed"))
+        .map_err(|error| {
+            crate::diagnostics::command_error("data_directory.database_open_failed", false, &error)
+        })
 }

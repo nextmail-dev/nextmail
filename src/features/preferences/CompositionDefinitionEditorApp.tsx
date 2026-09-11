@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -70,7 +71,7 @@ export function CompositionDefinitionEditorApp({
         <Alert tone="danger" title={t("errors.title")}>
           {definitionId && !definitionQuery.isError
             ? t("compositionLibrary.definitionNotFound")
-            : t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+            : formatCommandError(t, error)}
         </Alert>
       </AppShell>
     );
@@ -357,7 +358,7 @@ function DefinitionEditorForm({
         <Stack className="shrink-0 border-t border-border/70 bg-muted/20 px-6 py-3" gap="sm">
           {error ? (
             <Alert tone="danger" title={t("errors.title")}>
-              {t(`errors.${normalizeCommandError(error).code}`, { defaultValue: t("common.unexpectedError") })}
+              {formatCommandError(t, normalizeCommandError(error))}
             </Alert>
           ) : null}
           <Inline className="flex-wrap justify-end">

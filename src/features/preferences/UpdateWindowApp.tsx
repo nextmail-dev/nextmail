@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
@@ -40,7 +41,7 @@ export function UpdateWindowApp() {
         <EmptyState
           icon={<Download size={24} />}
           title={t("errors.title")}
-          description={t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+          description={formatCommandError(t, error)}
           action={<Button onClick={closeWindow}>{t("common.close")}</Button>}
         />
       </AppShell>
@@ -75,7 +76,7 @@ export function UpdateWindowApp() {
         </Stack>
         {installError ? (
           <Alert tone="danger" title={t("errors.title")}>
-            {t(`errors.${installError.code}`, { defaultValue: t("common.unexpectedError") })}
+            {formatCommandError(t, installError)}
           </Alert>
         ) : null}
         <Inline className="flex-wrap justify-end">

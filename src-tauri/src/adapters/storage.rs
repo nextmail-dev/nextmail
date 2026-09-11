@@ -34,12 +34,16 @@ impl AppPaths {
         let config_dir = app
             .path()
             .app_config_dir()
-            .map_err(|_| CommandError::new("path.config_unavailable"))?
+            .map_err(|error| {
+                crate::diagnostics::command_error("path.config_unavailable", false, &error)
+            })?
             .join("config");
         let default_data_dir = app
             .path()
             .app_local_data_dir()
-            .map_err(|_| CommandError::new("path.local_data_unavailable"))?
+            .map_err(|error| {
+                crate::diagnostics::command_error("path.local_data_unavailable", false, &error)
+            })?
             .join("mail-data");
 
         Ok(Self {
@@ -309,36 +313,38 @@ pub fn write_data_marker(data_dir: &Path, marker: &DataDirectoryMarker) -> Comma
 }
 
 fn read_optional_json<T: DeserializeOwned>(path: &Path, code: &str) -> CommandResult<Option<T>> {
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let file = File::open(path).map_err(|_| CommandError::new(code))?;
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(crate::diagnostics::command_error(code, false, &error)),
+    };
     serde_json::from_reader(BufReader::new(file))
         .map(Some)
-        .map_err(|_| CommandError::new(code))
+        .map_err(|error| crate::diagnostics::command_error(code, false, &error))
 }
 
 fn write_json_atomic<T: Serialize>(path: &Path, value: &T, code: &str) -> CommandResult<()> {
     let parent = path
         .parent()
         .ok_or_else(|| CommandError::new("storage.invalid_path"))?;
-    fs::create_dir_all(parent).map_err(|_| CommandError::new(code))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| crate::diagnostics::command_error(code, false, &error))?;
 
-    let mut temporary = NamedTempFile::new_in(parent).map_err(|_| CommandError::new(code))?;
+    let mut temporary = NamedTempFile::new_in(parent)
+        .map_err(|error| crate::diagnostics::command_error(code, false, &error))?;
     serde_json::to_writer_pretty(temporary.as_file_mut(), value)
-        .map_err(|_| CommandError::new(code))?;
+        .map_err(|error| crate::diagnostics::command_error(code, false, &error))?;
     temporary
         .as_file_mut()
         .write_all(b"\n")
-        .map_err(|_| CommandError::new(code))?;
+        .map_err(|error| crate::diagnostics::command_error(code, false, &error))?;
     temporary
         .as_file_mut()
         .sync_all()
-        .map_err(|_| CommandError::new(code))?;
+        .map_err(|error| crate::diagnostics::command_error(code, false, &error))?;
     temporary
         .persist(path)
-        .map_err(|_| CommandError::new(code))?;
+        .map_err(|error| crate::diagnostics::command_error(code, false, &error))?;
 
     Ok(())
 }
@@ -346,6 +352,61 @@ fn write_json_atomic<T: Serialize>(path: &Path, value: &T, code: &str) -> Comman
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn damaged_configuration_reports_a_safe_reason_without_replacing_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("accounts.json");
+        let original = br#"{"secret-email":broken}"#;
+        fs::write(&path, original).unwrap();
+        let error =
+            read_optional_json::<AccountsFile>(&path, "storage.accounts_corrupt").unwrap_err();
+        assert_eq!(error.params["reason"], "invalid_data");
+        assert!(!serde_json::to_string(&error)
+            .unwrap()
+            .contains("secret-email"));
+        assert_eq!(fs::read(path).unwrap(), original);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn occupied_configuration_remains_intact_and_can_be_saved_after_release() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("accounts.json");
+        write_json_atomic(
+            &path,
+            &AccountsFile::default(),
+            "storage.accounts_write_failed",
+        )
+        .unwrap();
+        let original = fs::read(&path).unwrap();
+        let locked = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        let error = write_json_atomic(
+            &path,
+            &AccountsFile::default(),
+            "storage.accounts_write_failed",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "storage.accounts_write_failed");
+        assert!(matches!(
+            error.params["reason"].as_str(),
+            "file_busy" | "permission_denied"
+        ));
+        drop(locked);
+        assert_eq!(fs::read(&path).unwrap(), original);
+        write_json_atomic(
+            &path,
+            &AccountsFile::default(),
+            "storage.accounts_write_failed",
+        )
+        .unwrap();
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn json_store_round_trips_without_side_files() {

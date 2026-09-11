@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { api, normalizeCommandError } from "@/app/api";
-import type { AccountSummary, NotificationNavigationTarget } from "@/app/types";
+import type { AccountSummary, CommandError, NotificationNavigationTarget } from "@/app/types";
 import { mailQueryKeys, STARRED_MAILBOX_ID, UNREAD_MAILBOX_ID } from "../mail-query-keys";
 
 interface UseMailboxSelectionOptions {
   accounts: AccountSummary[];
   lastSelectedAccountId: string | null;
-  onError: (errorCode: string) => void;
+  onError: (error: CommandError) => void;
 }
 
 export function useMailboxSelection({
@@ -36,12 +36,21 @@ export function useMailboxSelection({
     queryFn: () => api.listMailboxes(selectedAccountId),
     enabled: Boolean(selectedAccountId),
   });
-  const rememberMailbox = useCallback((accountId: string, mailboxId: string) => {
-    rememberedMailboxIds.current.set(accountId, mailboxId);
-    void api.setLastSelectedMailbox(accountId, mailboxId).catch((error) => {
-      onError(normalizeCommandError(error).code);
-    });
+  const lastPreferenceError = useRef<string | null>(null);
+  const reportPreferenceError = useCallback((error: unknown) => {
+    const normalized = normalizeCommandError(error);
+    const key = `${normalized.code}:${normalized.params.reason ?? ""}`;
+    if (lastPreferenceError.current === key) return;
+    lastPreferenceError.current = key;
+    onError(normalized);
   }, [onError]);
+  const rememberMailbox = useCallback((accountId: string, mailboxId: string) => {
+    if (rememberedMailboxIds.current.get(accountId) === mailboxId) return;
+    rememberedMailboxIds.current.set(accountId, mailboxId);
+    void api.setLastSelectedMailbox(accountId, mailboxId)
+      .then(() => { lastPreferenceError.current = null; })
+      .catch(reportPreferenceError);
+  }, [reportPreferenceError]);
 
   useEffect(() => {
     if (selectedAccountId && accounts.some((account) => account.id === selectedAccountId)) return;
@@ -92,10 +101,10 @@ export function useMailboxSelection({
   const selectAccount = useCallback((accountId: string) => {
     setPendingNavigation(null);
     setSelectedAccountId(accountId);
-    void api.setLastSelectedAccount(accountId).catch((error) => {
-      onError(normalizeCommandError(error).code);
-    });
-  }, [onError]);
+    void api.setLastSelectedAccount(accountId)
+      .then(() => { lastPreferenceError.current = null; })
+      .catch(reportPreferenceError);
+  }, [reportPreferenceError]);
 
   const selectMailbox = useCallback((mailboxId: string) => {
     setPendingNavigation(null);
@@ -114,10 +123,10 @@ export function useMailboxSelection({
     setSubmittedSearchQuery("");
     setSelectedMessageId("");
     setSelectedAccountId(target.accountId);
-    void api.setLastSelectedAccount(target.accountId).catch((error) => {
-      onError(normalizeCommandError(error).code);
-    });
-  }, [accounts, onError]);
+    void api.setLastSelectedAccount(target.accountId)
+      .then(() => { lastPreferenceError.current = null; })
+      .catch(reportPreferenceError);
+  }, [accounts, reportPreferenceError]);
 
   return {
     mailboxesQuery,

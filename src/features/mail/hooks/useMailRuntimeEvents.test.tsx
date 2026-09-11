@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +23,52 @@ beforeEach(() => {
 });
 
 describe("useMailRuntimeEvents", () => {
+  it("refreshes only the changed message, leaving unrelated large bodies untouched", async () => {
+    const handlers = new Map<string, EventHandler>();
+    listenMock.mockImplementation((name, handler) => { handlers.set(name, handler); return Promise.resolve(() => undefined); });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    const changed = vi.fn().mockResolvedValue({ safeHtml: "changed" });
+    const unrelated = vi.fn().mockResolvedValue({ safeHtml: "large unchanged body" });
+    const first = new QueryObserver(client, { queryKey: messageQueryKeys.detail("account", "inbox", "one"), queryFn: changed });
+    const second = new QueryObserver(client, { queryKey: messageQueryKeys.detail("account", "inbox", "two"), queryFn: unrelated });
+    const stopFirst = first.subscribe(() => undefined);
+    const stopSecond = second.subscribe(() => undefined);
+    await Promise.all([first.refetch(), second.refetch()]);
+    changed.mockClear(); unrelated.mockClear();
+    const { unmount } = renderHook(() => useMailRuntimeEvents({ selectedAccountId: "account", selectedMailboxId: "inbox", onSent: vi.fn(), onNavigate: vi.fn() }), { wrapper: createWrapper(client) });
+    await act(async () => {
+      handlers.get("message-content-changed")?.({ payload: { accountId: "account", messageId: "one" } as never });
+    });
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(unrelated).not.toHaveBeenCalled();
+    unmount(); stopFirst(); stopSecond(); client.clear();
+  });
+
+  it("collapses a 10,000-arrival burst to one snapshot and cancels work after unmount", async () => {
+    vi.useFakeTimers();
+    const handlers = new Map<string, EventHandler>();
+    listenMock.mockImplementation((name, handler) => { handlers.set(name, handler); return Promise.resolve(() => undefined); });
+    const client = new QueryClient();
+    const key = mailQueryKeys.messagesForMailbox("account", "inbox");
+    client.setQueryData(key, { pages: [{ items: [], nextCursor: null }], pageParams: [null] });
+    const refetch = vi.spyOn(client, "refetchQueries").mockResolvedValue(undefined);
+    const { unmount } = renderHook(() => useMailRuntimeEvents({ selectedAccountId: "account", selectedMailboxId: "inbox", onSent: vi.fn(), onNavigate: vi.fn() }), { wrapper: createWrapper(client) });
+    try {
+      act(() => {
+        for (let index = 0; index < 10_000; index++) {
+          handlers.get("message-arrived")?.({ payload: { accountId: "account", mailboxId: "inbox", item: { id: String(index), receivedAt: index } } as never });
+        }
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+      expect(refetch).toHaveBeenCalledTimes(1);
+      expect(refetch).toHaveBeenCalledWith({ queryKey: key, exact: true, type: "active" }, { cancelRefetch: false });
+      unmount();
+      handlers.get("message-arrived")?.({ payload: { accountId: "account", mailboxId: "inbox", item: { id: "late" } } as never });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(refetch).toHaveBeenCalledTimes(1);
+    } finally { unmount(); client.clear(); vi.useRealTimers(); }
+  });
+
   it("maps runtime events to account-scoped invalidations with stable listeners", async () => {
     const handlers = new Map<string, EventHandler>();
     const disposers: Array<ReturnType<typeof vi.fn>> = [];
@@ -79,7 +125,7 @@ describe("useMailRuntimeEvents", () => {
       queryKey: mailQueryKeys.messagesForMailbox("account-one", "inbox"),
       exact: true,
       type: "active",
-    });
+    }, { cancelRefetch: false });
     act(() => finishFirstRefresh?.());
     await waitFor(() => expect(refetch.mock.calls.filter(([filters]) => filters?.exact)).toHaveLength(2));
 
@@ -126,7 +172,7 @@ describe("useMailRuntimeEvents", () => {
     act(() => handlers.get("message-content-changed")?.({
       payload: { accountId: "account-two", messageId: "message-one" } as never,
     }));
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: messageQueryKeys.account("account-two") });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: messageQueryKeys.account("account-two"), predicate: expect.any(Function) }, { cancelRefetch: false });
 
     invalidate.mockClear();
     act(() => handlers.get("pending-operation-changed")?.({

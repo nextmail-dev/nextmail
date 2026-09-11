@@ -27,7 +27,7 @@ pub fn get_preferences(state: State<'_, AppState>) -> CommandResult<AppearancePr
         .demo
         .0
         .lock()
-        .map_err(|_| crate::error::CommandError::new("demo.unavailable"))?
+        .map_err(|error| crate::diagnostics::lock_error("demo.unavailable", &error))?
         .clone()
     {
         return Ok(preferences);
@@ -46,7 +46,7 @@ pub fn set_appearance_preferences(
             .demo
             .0
             .lock()
-            .map_err(|_| crate::error::CommandError::new("demo.unavailable"))?;
+            .map_err(|error| crate::diagnostics::lock_error("demo.unavailable", &error))?;
         if demo.is_some() {
             *demo = Some(preferences.clone());
             preferences
@@ -113,9 +113,9 @@ pub fn resolve_main_close(
 #[tauri::command]
 pub fn get_autostart_enabled(app: AppHandle) -> CommandResult<bool> {
     use tauri_plugin_autostart::ManagerExt;
-    app.autolaunch()
-        .is_enabled()
-        .map_err(|_| crate::error::CommandError::new("autostart.state_read_failed"))
+    app.autolaunch().is_enabled().map_err(|error| {
+        crate::diagnostics::command_error("autostart.state_read_failed", false, &error)
+    })
 }
 
 #[tauri::command]
@@ -127,10 +127,12 @@ pub fn set_autostart_enabled(app: AppHandle, enabled: bool) -> CommandResult<boo
     } else {
         manager.disable()
     };
-    result.map_err(|_| crate::error::CommandError::new("autostart.update_failed"))?;
-    manager
-        .is_enabled()
-        .map_err(|_| crate::error::CommandError::new("autostart.state_read_failed"))
+    result.map_err(|error| {
+        crate::diagnostics::command_error("autostart.update_failed", false, &error)
+    })?;
+    manager.is_enabled().map_err(|error| {
+        crate::diagnostics::command_error("autostart.state_read_failed", false, &error)
+    })
 }
 
 #[tauri::command]
@@ -141,10 +143,9 @@ pub async fn check_for_update(
     let result = updater_runtime::check(&app).await?;
     if result.available {
         {
-            let mut available = state
-                .available_update
-                .lock()
-                .map_err(|_| crate::error::CommandError::new("update.window_create_failed"))?;
+            let mut available = state.available_update.lock().map_err(|error| {
+                crate::diagnostics::lock_error("update.window_create_failed", &error)
+            })?;
             *available = Some(result.clone());
         }
         open_update_window_inner(&state, &app)?;
@@ -163,7 +164,7 @@ pub fn get_available_update(
     state
         .available_update
         .lock()
-        .map_err(|_| crate::error::CommandError::new("update.not_available"))?
+        .map_err(|error| crate::diagnostics::lock_error("update.not_available", &error))?
         .clone()
         .ok_or_else(|| crate::error::CommandError::new("update.not_available"))
 }
@@ -179,7 +180,9 @@ fn open_update_window_inner(state: &AppState, app: &AppHandle) -> CommandResult<
             window
                 .show()
                 .and_then(|_| window.set_focus())
-                .map_err(|_| crate::error::CommandError::new("update.window_create_failed"))?;
+                .map_err(|error| {
+                    crate::diagnostics::command_error("update.window_create_failed", false, &error)
+                })?;
         }
         return Ok(());
     }
@@ -217,9 +220,9 @@ fn open_update_window_inner(state: &AppState, app: &AppHandle) -> CommandResult<
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    builder
-        .build()
-        .map_err(|_| crate::error::CommandError::new("update.window_create_failed"))?;
+    builder.build().map_err(|error| {
+        crate::diagnostics::command_error("update.window_create_failed", false, &error)
+    })?;
     Ok(())
 }
 
@@ -276,13 +279,22 @@ pub async fn activate_new_mail_notification(
         .take_for_window(&notification_id, window.label())?;
     if let Some(main) = app.get_webview_window("main") {
         if let Err(error) = main.show() {
-            tracing::warn!(?error, "main window show failed");
+            tracing::warn!(
+                error_type = std::any::type_name_of_val(&error),
+                "main window show failed"
+            );
         }
         if let Err(error) = main.unminimize() {
-            tracing::warn!(?error, "main window unminimize failed");
+            tracing::warn!(
+                error_type = std::any::type_name_of_val(&error),
+                "main window unminimize failed"
+            );
         }
         if let Err(error) = main.set_focus() {
-            tracing::warn!(?error, "main window focus failed");
+            tracing::warn!(
+                error_type = std::any::type_name_of_val(&error),
+                "main window focus failed"
+            );
         }
         if let Some(target) = state
             .mail
@@ -308,7 +320,10 @@ pub async fn activate_new_mail_notification(
                 }
             }
             if let Err(error) = app.emit_to("main", "open-mail-location", target) {
-                tracing::warn!(?error, "notification navigation event failed");
+                tracing::warn!(
+                    error_type = std::any::type_name_of_val(&error),
+                    "notification navigation event failed"
+                );
             }
         }
     }

@@ -3,8 +3,8 @@ use mail_parser::{Address, Message, MessageParser, MimeHeaders};
 
 use crate::{
     core::{
-        CommandError, CommandResult, ContactAddressRole, MessageAddress, RemoteAttachment,
-        RemoteContactAddress, RemoteMessage,
+        CommandResult, ContactAddressRole, MessageAddress, RemoteAttachment, RemoteContactAddress,
+        RemoteMessage,
     },
     protocols::{attachment_file_name, message_body_text, sanitize_mail_html_with_cid_images},
 };
@@ -57,7 +57,9 @@ pub(super) async fn parse_message_in_background(
 ) -> CommandResult<RemoteMessage> {
     tokio::task::spawn_blocking(move || parse_message_with_state(input))
         .await
-        .map_err(|_| CommandError::new("sync.message_parse_failed"))?
+        .map_err(|error| {
+            crate::diagnostics::command_error("sync.message_parse_failed", false, &error)
+        })?
 }
 
 fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMessage> {

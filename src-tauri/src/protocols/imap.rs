@@ -619,10 +619,14 @@ where
     let responses = session
         .uid_fetch(format_uid_set(batch), "(UID BODYSTRUCTURE)")
         .await
-        .map_err(|_| CommandError::retryable("sync.message_bodystructure_failed"))?
+        .map_err(|error| {
+            crate::diagnostics::command_error("sync.message_bodystructure_failed", true, &error)
+        })?
         .try_collect::<Vec<_>>()
         .await
-        .map_err(|_| CommandError::retryable("sync.message_bodystructure_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("sync.message_bodystructure_failed", true, &error)
+        })?;
     Ok(responses
         .iter()
         .filter_map(|fetched| {
@@ -929,21 +933,14 @@ pub(super) fn format_uid_set(uids: &[u32]) -> String {
         .join(",")
 }
 
-// Wraps a swallowed IMAP/storage error into a `CommandError` while preserving
-// the underlying cause in the log. Without this the original io/imap error is
-// discarded by `.map_err(|_| ...)` and "同步失败" carries no diagnostics.
-fn map_imap_err<E: std::fmt::Debug>(
+// Preserve only safe classifications, never raw IMAP responses or message data.
+#[track_caller]
+fn map_imap_err<E: std::any::Any>(
     code: &'static str,
     retryable: bool,
 ) -> impl FnOnce(E) -> CommandError {
-    move |error| {
-        tracing::warn!(%code, ?error, "imap operation failed");
-        if retryable {
-            CommandError::retryable(code)
-        } else {
-            CommandError::new(code)
-        }
-    }
+    let location = std::panic::Location::caller();
+    move |error| crate::diagnostics::command_error_at(code, retryable, &error, location)
 }
 
 // A single message whose body can't be fetched right now is a per-message

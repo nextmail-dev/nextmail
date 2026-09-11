@@ -53,7 +53,7 @@ fn emit_composition_definitions_changed(
 
 fn emit_or_log<S: Serialize + Clone>(app: &AppHandle, event: &'static str, payload: S) {
     if let Err(error) = app.emit(event, payload) {
-        tracing::warn!(%event, ?error, "application event emission failed");
+        tracing::warn!(%event, error_type = std::any::type_name_of_val(&error), "application event emission failed");
     }
 }
 

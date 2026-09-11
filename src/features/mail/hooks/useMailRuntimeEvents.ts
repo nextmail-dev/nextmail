@@ -99,7 +99,7 @@ export function useMailRuntimeEvents({
     let disposed = false;
     const unlisteners: Array<() => void> = [];
     const register = <T,>(eventName: string, handler: (payload: T) => void) => (
-      listen<T>(eventName, (event) => handler(event.payload))
+      listen<T>(eventName, (event) => { if (!disposed) handler(event.payload); })
         .then((unlisten) => {
           if (disposed) unlisten();
           else unlisteners.push(unlisten);
@@ -131,7 +131,7 @@ export function useMailRuntimeEvents({
           && mailboxId === selectedMailboxIdRef.current;
         if (arrivedOverflow.delete(key)) {
           arrivedBuffer.delete(key);
-          void queryClient.refetchQueries({ queryKey, exact: true, type: "active" });
+          void queryClient.refetchQueries({ queryKey, exact: true, type: "active" }, { cancelRefetch: false });
         } else if (selected && items.length > 0) {
           const item = items.shift();
           queryClient.setQueryData<MessageListData>(queryKey, (old) => {
@@ -175,10 +175,10 @@ export function useMailRuntimeEvents({
         if (!queue.running) {
           queue.running = true;
           void (async () => {
-            while (queue.dirty) {
+            while (queue.dirty && !disposed) {
               queue.dirty = false;
               await queryClient
-                .refetchQueries({ queryKey, exact: true, type: "active" })
+                .refetchQueries({ queryKey, exact: true, type: "active" }, { cancelRefetch: false })
                 .catch((error) => reportCaughtError("mailbox.active-refetch", error));
             }
             queue.running = false;
@@ -191,6 +191,14 @@ export function useMailRuntimeEvents({
     });
     void register<{ accountId: string; mailboxId: string; item: MessageListItem }>("message-arrived", (payload) => {
       const key = `${payload.accountId}\0${payload.mailboxId}`;
+      // Background mailboxes need only a dirty marker, never retained content.
+      if (payload.accountId !== selectedAccountIdRef.current
+        || payload.mailboxId !== selectedMailboxIdRef.current) {
+        arrivedBuffer.set(key, []);
+        if (arrivedFrame === null) arrivedFrame = scheduleFrame(flushArrived);
+        return;
+      }
+      if (arrivedOverflow.has(key)) return;
       const items = arrivedBuffer.get(key) ?? [];
       items.push(payload.item);
       if (items.length > MAX_ARRIVED_QUEUE) {
@@ -201,7 +209,8 @@ export function useMailRuntimeEvents({
       if (arrivedFrame === null) arrivedFrame = scheduleFrame(flushArrived);
     });
     void register<SyncProgress>("sync-progress", (payload) => {
-      progressBuffer.set(payload.accountId, payload);
+      const buffered = progressBuffer.get(payload.accountId);
+      if (!buffered || buffered.revision < payload.revision) progressBuffer.set(payload.accountId, payload);
       if (progressTimer === null) {
         progressTimer = setTimeout(flushProgress, 100);
       }
@@ -210,7 +219,10 @@ export function useMailRuntimeEvents({
       void queryClient.invalidateQueries({ queryKey: mailQueryKeys.accountRuntimes });
     });
     void register<{ accountId: string; messageId: string }>("message-content-changed", (payload) => {
-      void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(payload.accountId) });
+      void queryClient.invalidateQueries({
+        queryKey: messageQueryKeys.account(payload.accountId),
+        predicate: (query) => query.queryKey[3] === payload.messageId,
+      }, { cancelRefetch: false });
     });
     const contactAccounts = new Set<string>();
     let contactsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -256,6 +268,11 @@ export function useMailRuntimeEvents({
       }
       if (progressTimer !== null) clearTimeout(progressTimer);
       if (contactsTimer !== null) clearTimeout(contactsTimer);
+      arrivedBuffer.clear();
+      arrivedOverflow.clear();
+      progressBuffer.clear();
+      contactAccounts.clear();
+      mailboxRefreshQueuesRef.current.clear();
       unlisteners.forEach((unlisten) => unlisten());
     };
   }, [queryClient]);

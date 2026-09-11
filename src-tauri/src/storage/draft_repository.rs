@@ -84,7 +84,7 @@ impl DraftRepository {
         .bind(account_slot_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.list_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.list_failed", false, &error))?;
         rows.into_iter()
             .map(|row| {
                 Ok(DraftListItem {
@@ -163,7 +163,7 @@ impl DraftRepository {
         .bind(timestamp)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.create_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.create_failed", false, &error))?;
         self.get_draft(account_id, account_slot_id, &id).await
     }
 
@@ -180,7 +180,7 @@ impl DraftRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.create_from_message_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("draft.create_from_message_failed", false, &error))?
         .ok_or_else(|| CommandError::new("message.not_found"))?;
         let body = sqlx::query(
             "SELECT b.plain_text, b.safe_html FROM message_bodies b \
@@ -191,7 +191,9 @@ impl DraftRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("draft.create_from_message_failed", false, &error)
+        })?;
         let (plain_text, safe_html) = if let Some(row) = body {
             (
                 row.try_get::<Option<String>, _>("plain_text")
@@ -234,9 +236,9 @@ impl DraftRepository {
         } = request;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
-        let mut transaction = super::begin_write(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
+            crate::diagnostics::command_error("draft.create_from_message_failed", false, &error)
+        })?;
         sqlx::query(
             "INSERT INTO drafts(id, account_slot_id, related_message_id, in_reply_to, references_json, \
              to_json, cc_json, subject, editor_json, html, plain_text, discard_if_untouched, created_at, updated_at) \
@@ -257,7 +259,7 @@ impl DraftRepository {
         .bind(timestamp)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.create_from_message_failed", false, &error))?;
 
         if action == MessageComposeAction::Forward {
             let attachments = sqlx::query(
@@ -267,7 +269,7 @@ impl DraftRepository {
             .bind(message_id)
             .fetch_all(&mut *transaction)
             .await
-            .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+            .map_err(|error| crate::diagnostics::command_error("draft.create_from_message_failed", false, &error))?;
             for (index, attachment) in attachments.into_iter().enumerate() {
                 sqlx::query(
                     "INSERT INTO draft_attachments(id, draft_id, file_name, content_type, size, content_hash, sort_order, created_at) \
@@ -283,13 +285,12 @@ impl DraftRepository {
                 .bind(timestamp)
                 .execute(&mut *transaction)
                 .await
-                .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+                .map_err(|error| crate::diagnostics::command_error("draft.create_from_message_failed", false, &error))?;
             }
         }
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("draft.create_from_message_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("draft.create_from_message_failed", false, &error)
+        })?;
         self.get_draft(account_id, account_slot_id, &id).await
     }
 
@@ -305,7 +306,7 @@ impl DraftRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.read_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("draft.read_failed", false, &error))?
         .ok_or_else(|| CommandError::new("draft.not_found"))?;
         Ok(DraftThreadingHeaders {
             in_reply_to: row.try_get("in_reply_to").map_err(read_error)?,
@@ -330,7 +331,7 @@ impl DraftRepository {
         .bind(message_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.import_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("draft.import_failed", false, &error))?
         {
             return self
                 .get_draft(account_id, account_slot_id, &existing)
@@ -352,14 +353,16 @@ impl DraftRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.import_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("draft.import_failed", false, &error))?
         .ok_or_else(|| CommandError::new("message.not_found"))?;
         let body =
             sqlx::query("SELECT plain_text, safe_html FROM message_bodies WHERE message_id = ?")
                 .bind(message_id)
                 .fetch_optional(&self.pool)
                 .await
-                .map_err(|_| CommandError::new("draft.import_failed"))?;
+                .map_err(|error| {
+                    crate::diagnostics::command_error("draft.import_failed", false, &error)
+                })?;
         let plain_text = body
             .as_ref()
             .and_then(|row| row.try_get::<Option<String>, _>("plain_text").ok())
@@ -394,9 +397,9 @@ impl DraftRepository {
         } = request;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
-        let mut transaction = super::begin_write(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("draft.import_failed"))?;
+        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
+            crate::diagnostics::command_error("draft.import_failed", false, &error)
+        })?;
         sqlx::query(
             "INSERT INTO drafts(id, account_slot_id, source_message_id, to_json, cc_json, subject, \
              editor_json, html, plain_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -414,7 +417,7 @@ impl DraftRepository {
         .bind(timestamp)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("draft.import_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.import_failed", false, &error))?;
         let attachments = sqlx::query(
             "SELECT file_name, content_type, size, content_hash, content_id FROM attachments \
              WHERE message_id = ? AND content_hash IS NOT NULL ORDER BY part_index",
@@ -422,7 +425,7 @@ impl DraftRepository {
         .bind(message_id)
         .fetch_all(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("draft.import_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.import_failed", false, &error))?;
         for (index, attachment) in attachments.into_iter().enumerate() {
             sqlx::query(
                 "INSERT INTO draft_attachments(id, draft_id, file_name, content_type, size, content_hash, content_id, is_inline, sort_order, created_at) \
@@ -445,12 +448,11 @@ impl DraftRepository {
             .bind(timestamp)
             .execute(&mut *transaction)
             .await
-            .map_err(|_| CommandError::new("draft.import_failed"))?;
+            .map_err(|error| crate::diagnostics::command_error("draft.import_failed", false, &error))?;
         }
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("draft.import_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("draft.import_failed", false, &error)
+        })?;
         self.get_draft(account_id, account_slot_id, &id).await
     }
 
@@ -470,7 +472,9 @@ impl DraftRepository {
         .bind(account_slot_id)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.discard_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("draft.discard_failed", false, &error)
+        })?;
         Ok(result.rows_affected() == 1)
     }
 
@@ -486,7 +490,7 @@ impl DraftRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.read_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("draft.read_failed", false, &error))?
         .ok_or_else(|| CommandError::new("draft.not_found"))?;
         if status != "editing" {
             return Err(CommandError::new("draft.not_editable"));
@@ -498,7 +502,7 @@ impl DraftRepository {
         .bind(account_slot_id)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.delete_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.delete_failed", false, &error))?;
         if result.rows_affected() != 1 {
             return Err(CommandError::new("draft.delete_failed"));
         }
@@ -519,7 +523,7 @@ impl DraftRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.read_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("draft.read_failed", false, &error))?
         .ok_or_else(|| CommandError::new("draft.not_found"))?;
         let attachments = self.draft_attachments(account_slot_id, draft_id).await?;
         Ok(DraftDetail {
@@ -561,7 +565,7 @@ impl DraftRepository {
         .bind(request.expected_revision as i64)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.save_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.save_failed", false, &error))?;
         if result.rows_affected() != 1 {
             return Err(CommandError::new("draft.revision_conflict"));
         }
@@ -588,7 +592,7 @@ impl DraftRepository {
         .bind(account_slot_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.read_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.read_failed", false, &error))?;
         if editable != 1 {
             return Err(CommandError::new("draft.not_editable"));
         }
@@ -600,7 +604,9 @@ impl DraftRepository {
         .bind(draft_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.attachment_write_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("draft.attachment_write_failed", false, &error)
+        })?;
         sqlx::query(
             "INSERT INTO draft_attachments(id, draft_id, file_name, content_type, size, content_hash, sort_order, created_at) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -615,7 +621,7 @@ impl DraftRepository {
         .bind(now())
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.attachment_write_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.attachment_write_failed", false, &error))?;
         Ok(DraftAttachmentSummary {
             id,
             file_name: file_name.to_owned(),
@@ -643,7 +649,7 @@ impl DraftRepository {
         .bind(account_slot_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.read_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.read_failed", false, &error))?;
         if editable != 1 {
             return Err(CommandError::new("draft.not_editable"));
         }
@@ -668,7 +674,9 @@ impl DraftRepository {
         .bind(draft_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.attachment_write_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("draft.attachment_write_failed", false, &error)
+        })?;
         sqlx::query(
             "INSERT INTO draft_attachments(id, draft_id, file_name, content_type, size, content_hash, content_id, is_inline, sort_order, created_at) \
              VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
@@ -718,7 +726,7 @@ impl DraftRepository {
         .bind(account_slot_id)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.attachment_remove_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.attachment_remove_failed", false, &error))?;
         if result.rows_affected() != 1 {
             return Err(CommandError::new("draft.attachment_not_found"));
         }
@@ -739,7 +747,7 @@ impl DraftRepository {
         .bind(account_slot_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("draft.attachment_read_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("draft.attachment_read_failed", false, &error))?;
         rows.into_iter()
             .map(|row| {
                 Ok(StoredDraftAttachment {
@@ -788,12 +796,12 @@ fn send_status(value: String) -> SendJobStatus {
     }
 }
 
-fn read_error(_: sqlx::Error) -> CommandError {
-    CommandError::new("storage.read_failed")
+fn read_error(error: sqlx::Error) -> CommandError {
+    crate::diagnostics::command_error("storage.read_failed", false, &error)
 }
 
-fn json_error(_: serde_json::Error) -> CommandError {
-    CommandError::new("storage.json_failed")
+fn json_error(error: serde_json::Error) -> CommandError {
+    crate::diagnostics::command_error("storage.json_failed", false, &error)
 }
 
 #[cfg(test)]

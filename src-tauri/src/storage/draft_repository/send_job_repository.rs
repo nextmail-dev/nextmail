@@ -13,7 +13,9 @@ impl SendJobRepository {
     ) -> CommandResult<SendJobSummary> {
         let mut transaction = super::super::begin_write(&self.pool)
             .await
-            .map_err(|_| CommandError::new("send.queue_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("send.queue_failed", false, &error)
+            })?;
         let timestamp = now();
         let job_id = Uuid::new_v4().to_string();
         let draft_result = sqlx::query(
@@ -25,7 +27,7 @@ impl SendJobRepository {
         .bind(account_slot_id)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("send.queue_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("send.queue_failed", false, &error))?;
         if draft_result.rows_affected() != 1 {
             return Err(CommandError::new("draft.not_editable"));
         }
@@ -42,11 +44,10 @@ impl SendJobRepository {
         .bind(timestamp)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("send.queue_failed"))?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("send.queue_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("send.queue_failed", false, &error))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("send.queue_failed", false, &error)
+        })?;
         self.get_send_job(account_id, account_slot_id, &job_id)
             .await
     }
@@ -60,14 +61,18 @@ impl SendJobRepository {
         .bind(now())
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("send.recovery_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("send.recovery_failed", false, &error)
+        })?;
         Ok(())
     }
 
     pub async fn claim_next_send_job(&self) -> CommandResult<Option<ClaimedSendJob>> {
         let mut transaction = super::super::begin_write(&self.pool)
             .await
-            .map_err(|_| CommandError::new("send.claim_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("send.claim_failed", false, &error)
+            })?;
         let row = sqlx::query(
             "SELECT id, draft_id, account_slot_id, mime_hash, envelope_recipients_json, attempt_count, revision \
              FROM send_jobs WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) \
@@ -76,12 +81,11 @@ impl SendJobRepository {
         .bind(now())
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("send.claim_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("send.claim_failed", false, &error))?;
         let Some(row) = row else {
-            transaction
-                .commit()
-                .await
-                .map_err(|_| CommandError::new("send.claim_failed"))?;
+            transaction.commit().await.map_err(|error| {
+                crate::diagnostics::command_error("send.claim_failed", false, &error)
+            })?;
             return Ok(None);
         };
         let id: String = row.try_get("id").map_err(read_error)?;
@@ -95,15 +99,14 @@ impl SendJobRepository {
         .bind(revision as i64)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("send.claim_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("send.claim_failed", false, &error))?;
         if claimed.rows_affected() != 1 {
             transaction.rollback().await.ok();
             return Ok(None);
         }
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("send.claim_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("send.claim_failed", false, &error)
+        })?;
         Ok(Some(ClaimedSendJob {
             id,
             draft_id: row.try_get("draft_id").map_err(read_error)?,
@@ -128,7 +131,7 @@ impl SendJobRepository {
         .bind(now())
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("send.claim_failed"))
+        .map_err(|error| crate::diagnostics::command_error("send.claim_failed", false, &error))
     }
 
     pub async fn claim_next_send_job_for_account(
@@ -137,7 +140,9 @@ impl SendJobRepository {
     ) -> CommandResult<Option<ClaimedSendJob>> {
         let mut transaction = super::super::begin_write(&self.pool)
             .await
-            .map_err(|_| CommandError::new("send.claim_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("send.claim_failed", false, &error)
+            })?;
         let row = sqlx::query(
             "SELECT id, draft_id, account_slot_id, mime_hash, envelope_recipients_json, attempt_count, revision \
              FROM send_jobs WHERE account_slot_id = ? AND status = 'queued' \
@@ -147,12 +152,11 @@ impl SendJobRepository {
         .bind(now())
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("send.claim_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("send.claim_failed", false, &error))?;
         let Some(row) = row else {
-            transaction
-                .commit()
-                .await
-                .map_err(|_| CommandError::new("send.claim_failed"))?;
+            transaction.commit().await.map_err(|error| {
+                crate::diagnostics::command_error("send.claim_failed", false, &error)
+            })?;
             return Ok(None);
         };
         let id: String = row.try_get("id").map_err(read_error)?;
@@ -167,15 +171,14 @@ impl SendJobRepository {
         .bind(revision as i64)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("send.claim_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("send.claim_failed", false, &error))?;
         if claimed.rows_affected() != 1 {
             transaction.rollback().await.ok();
             return Ok(None);
         }
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("send.claim_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("send.claim_failed", false, &error)
+        })?;
         Ok(Some(ClaimedSendJob {
             id,
             draft_id: row.try_get("draft_id").map_err(read_error)?,
@@ -203,7 +206,9 @@ impl SendJobRepository {
         let timestamp = now();
         let mut transaction = super::super::begin_write(&self.pool)
             .await
-            .map_err(|_| CommandError::new("send.status_write_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("send.status_write_failed", false, &error)
+            })?;
         sqlx::query(
             "UPDATE send_jobs SET status = 'sent', error_code = NULL, sent_at = ?, revision = revision + 1, updated_at = ? WHERE id = ?",
         )
@@ -212,7 +217,7 @@ impl SendJobRepository {
         .bind(job_id)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("send.status_write_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("send.status_write_failed", false, &error))?;
         sqlx::query(
             "UPDATE drafts SET status = 'sent', revision = revision + 1, updated_at = ? WHERE id = (SELECT draft_id FROM send_jobs WHERE id = ?)",
         )
@@ -220,13 +225,15 @@ impl SendJobRepository {
         .bind(job_id)
         .execute(&mut *transaction)
         .await
-            .map_err(|_| CommandError::new("send.status_write_failed"))?;
+            .map_err(|error| crate::diagnostics::command_error("send.status_write_failed", false, &error))?;
         if let Some(sent_mailbox_id) = sent_mailbox_id {
             let job = sqlx::query("SELECT account_slot_id, mime_hash FROM send_jobs WHERE id = ?")
                 .bind(job_id)
                 .fetch_one(&mut *transaction)
                 .await
-                .map_err(|_| CommandError::new("send.status_write_failed"))?;
+                .map_err(|error| {
+                    crate::diagnostics::command_error("send.status_write_failed", false, &error)
+                })?;
             let account_slot_id: String = job.try_get("account_slot_id").map_err(read_error)?;
             let mime_hash: String = job.try_get("mime_hash").map_err(read_error)?;
             sqlx::query(
@@ -241,12 +248,11 @@ impl SendJobRepository {
             .bind(timestamp)
             .execute(&mut *transaction)
             .await
-            .map_err(|_| CommandError::new("send.status_write_failed"))?;
+            .map_err(|error| crate::diagnostics::command_error("send.status_write_failed", false, &error))?;
         }
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("send.status_write_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("send.status_write_failed", false, &error)
+        })?;
         Ok(())
     }
 
@@ -259,7 +265,7 @@ impl SendJobRepository {
         .bind(job_id)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("send.status_write_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("send.status_write_failed", false, &error))?;
         Ok(())
     }
 
@@ -278,7 +284,7 @@ impl SendJobRepository {
         .bind(job_id)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("send.status_write_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("send.status_write_failed", false, &error))?;
         Ok(())
     }
 
@@ -293,7 +299,7 @@ impl SendJobRepository {
         .bind(account_slot_id)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("send.retry_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("send.retry_failed", false, &error))?;
         if result.rows_affected() != 1 {
             return Err(CommandError::new("send.not_retryable"));
         }
@@ -313,7 +319,7 @@ impl SendJobRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("send.read_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("send.read_failed", false, &error))?
         .ok_or_else(|| CommandError::new("send.not_found"))?;
         Ok(SendJobSummary {
             id: row.try_get("id").map_err(read_error)?,

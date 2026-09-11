@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { useMemo, useState } from "react";
 import { KeyRound, LockKeyhole, Search, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -51,7 +52,7 @@ export function PasswordAccountForm({
   const [discovered, setDiscovered] = useState<DiscoveredAccountConfig | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<import("@/app/types").CommandError | string | null>(null);
   const usesPlaintext = useMemo(
     () => draft.incoming.security === "none" || draft.outgoing.security === "none",
     [draft.incoming.security, draft.outgoing.security],
@@ -67,7 +68,7 @@ export function PasswordAccountForm({
       setDraft((current) => ({ ...current, incoming: result.incoming, outgoing: result.outgoing }));
       setManualVisible(true);
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
       setManualVisible(true);
       setDraft((current) => ({
         ...current,
@@ -85,7 +86,7 @@ export function PasswordAccountForm({
     try {
       await onSubmit(draft);
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
     } finally {
       setSaving(false);
     }
@@ -174,7 +175,7 @@ export function PasswordAccountForm({
           </Alert>
         ) : null}
 
-        {errorCode ? <Alert title={t("errors.title")} tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert> : null}
+        {errorCode ? <Alert title={t("errors.title")} tone="danger">{formatCommandError(t, errorCode)}</Alert> : null}
         <Inline className="flex-wrap justify-end">
           <Button type="submit" loading={saving} disabled={!manualVisible || !draft.email || (passwordRequired && !draft.password)}>
             <LockKeyhole size={17} />{saving ? t("onboarding.verifying") : submitLabel}

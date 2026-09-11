@@ -1,7 +1,9 @@
 mod content;
 mod operations;
+mod progress_emission;
 mod runtime_support;
 
+use progress_emission::ProgressEmission;
 use runtime_support::*;
 
 use std::{
@@ -36,6 +38,7 @@ pub struct MailRuntime {
     repository: OnceCell<Arc<MailRepository>>,
     recovery: OnceCell<()>,
     progress: RwLock<HashMap<String, SyncProgress>>,
+    progress_emissions: Mutex<HashMap<String, ProgressEmission>>,
     runtime_states: RwLock<HashMap<String, AccountRuntimeSummary>>,
     supervisors: RwLock<HashMap<String, Arc<AccountSupervisor>>>,
     provider: Arc<dyn ImapSyncProvider>,
@@ -64,6 +67,7 @@ impl MailRuntime {
             repository: OnceCell::new(),
             recovery: OnceCell::new(),
             progress: RwLock::new(HashMap::new()),
+            progress_emissions: Mutex::new(HashMap::new()),
             runtime_states: RwLock::new(HashMap::new()),
             supervisors: RwLock::new(HashMap::new()),
             provider,
@@ -103,6 +107,9 @@ impl MailRuntime {
             if !configured.contains(&account_id) {
                 self.stop_account(&account_id, AccountRuntimeState::Stopped);
             }
+        }
+        if let Ok(mut emissions) = self.progress_emissions.lock() {
+            emissions.retain(|id, _| configured.contains(id));
         }
         if !self.started.load(Ordering::Acquire) {
             return;
@@ -311,7 +318,7 @@ impl MailRuntime {
                 revision,
             },
         ) {
-            tracing::warn!(%account_id, ?error, "contacts changed event failed");
+            tracing::warn!(%account_id, error_type = std::any::type_name_of_val(&error), "contacts changed event failed");
         }
     }
 
@@ -881,11 +888,9 @@ impl MailRuntime {
         if !self.is_current_supervisor(account_id, generation) {
             return Err(CommandError::new("account.runtime_stopped"));
         }
-        let _permit = self
-            .network_limit
-            .acquire()
-            .await
-            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        let _permit = self.network_limit.acquire().await.map_err(|error| {
+            crate::diagnostics::command_error("account.network_unavailable", true, &error)
+        })?;
         let account = self.service.account_record(account_id)?;
         let repository = Arc::clone(self.repository().await?);
         let notification_baseline_ready = repository
@@ -959,7 +964,7 @@ impl MailRuntime {
                         retryable: error.retryable,
                     },
                 ) {
-                    tracing::warn!(%account_id, ?event_error, "sync failed event emission failed");
+                    tracing::warn!(%account_id, error_type = std::any::type_name_of_val(&event_error), "sync failed event emission failed");
                 }
                 if is_authentication_error(&error.code) {
                     self.update_runtime_state(
@@ -995,7 +1000,7 @@ impl MailRuntime {
                 tracing::warn!(
                     %account_id,
                     message_id = %candidate.message_id,
-                    ?error,
+                    error_type = std::any::type_name_of_val(&error),
                     "new mail candidate event failed"
                 );
             }
@@ -1059,7 +1064,7 @@ impl MailRuntime {
             return;
         };
         if let Err(error) = self.app.emit("account-runtime-status-changed", summary) {
-            tracing::warn!(%account_id, ?error, "account runtime event failed");
+            tracing::warn!(%account_id, error_type = std::any::type_name_of_val(&error), "account runtime event failed");
         }
     }
 
@@ -1090,8 +1095,17 @@ impl MailRuntime {
         } else {
             return;
         };
+        let emit = self.progress_emissions.lock().is_ok_and(|mut emissions| {
+            emissions
+                .entry(account_id.to_owned())
+                .or_default()
+                .should_emit(&progress, std::time::Instant::now())
+        });
+        if !emit {
+            return;
+        }
         if let Err(error) = self.app.emit("sync-progress", progress) {
-            tracing::warn!(%account_id, ?error, "sync progress event failed");
+            tracing::warn!(%account_id, error_type = std::any::type_name_of_val(&error), "sync progress event failed");
         }
     }
 }

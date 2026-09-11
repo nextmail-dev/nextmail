@@ -1,7 +1,9 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Component, lazy, Suspense, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
-import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createAppQueryClient } from "./queryClient";
 import { AlertTriangle, Mail } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import i18n from "./i18n";
@@ -57,11 +59,7 @@ const UpdateWindowApp = lazy(() =>
   import("@/features/preferences/UpdateWindowApp").then((module) => ({ default: module.UpdateWindowApp })),
 );
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { retry: 1, staleTime: 15_000 },
-  },
-});
+const queryClient = createAppQueryClient();
 
 export function App() {
   const params = new URLSearchParams(window.location.search);
@@ -239,7 +237,7 @@ function MainCloseDialog() {
   const [open, setOpen] = useState(false);
   const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [closeError, setCloseError] = useState<string | null>(null);
+  const [closeError, setCloseError] = useState<import("@/app/types").CommandError | string | null>(null);
 
   useEffect(() => {
     const unlisten = listen("main-close-confirmation-requested", () => {
@@ -258,7 +256,7 @@ function MainCloseDialog() {
       setOpen(false);
     } catch (error) {
       reportCaughtError("window.main-close-resolution", error);
-      setCloseError(normalizeCommandError(error).code);
+      setCloseError(normalizeCommandError(error));
     } finally {
       setBusy(false);
     }
@@ -280,7 +278,7 @@ function MainCloseDialog() {
         />
         {closeError ? (
           <Alert tone="danger" title={t("errors.title")}>
-            {t(`errors.${closeError}`, { defaultValue: t("common.unexpectedError") })}
+            {formatCommandError(t, closeError)}
           </Alert>
         ) : null}
         <div className="flex flex-wrap justify-end gap-2">
@@ -361,7 +359,7 @@ function AppContent() {
           <EmptyState
             icon={<AlertTriangle size={28} />}
             title={t("errors.title")}
-            description={t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+            description={formatCommandError(t, error)}
           />
           <Alert tone="danger">{t("common.unexpectedError")}</Alert>
           <Button onClick={() => void refreshBootstrap()}>{t("common.retry")}</Button>

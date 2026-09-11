@@ -158,7 +158,7 @@ impl SyncObserver for RuntimeObserver<'_> {
                     tracing::warn!(
                         account_id = %self.account_id,
                         %mailbox_id,
-                        ?error,
+                        error_type = std::any::type_name_of_val(&error),
                         "mailbox event failed"
                     );
                 }
@@ -175,7 +175,7 @@ impl SyncObserver for RuntimeObserver<'_> {
                     tracing::warn!(
                         account_id = %self.account_id,
                         %mailbox_id,
-                        ?error,
+                        error_type = std::any::type_name_of_val(&error),
                         "message arrived event failed"
                     );
                 }

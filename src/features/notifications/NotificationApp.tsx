@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { listen } from "@tauri-apps/api/event";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, X } from "lucide-react";
@@ -24,7 +25,7 @@ export function NotificationApp({ notificationId }: { notificationId: string }) 
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [bridgeReady, setBridgeReady] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<import("@/app/types").CommandError | string | null>(null);
   const [pending, setPending] = useState(false);
   const appearance = useAppearancePreferences();
 
@@ -70,7 +71,7 @@ export function NotificationApp({ notificationId }: { notificationId: string }) 
     setActionError(null);
     void api.activateNewMailNotification(notificationId).catch((error) => {
       setPending(false);
-      setActionError(normalizeCommandError(error).code);
+      setActionError(normalizeCommandError(error));
     });
   }
 
@@ -80,7 +81,7 @@ export function NotificationApp({ notificationId }: { notificationId: string }) 
     setActionError(null);
     void api.dismissNewMailNotification(notificationId).catch((error) => {
       setPending(false);
-      setActionError(normalizeCommandError(error).code);
+      setActionError(normalizeCommandError(error));
     });
   }
 
@@ -92,7 +93,7 @@ export function NotificationApp({ notificationId }: { notificationId: string }) 
     const error = normalizeCommandError(notificationQuery.error);
     return (
       <AppShell className="grid place-items-center bg-card p-3">
-        <Alert tone="danger">{t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
+        <Alert tone="danger">{formatCommandError(t, error)}</Alert>
       </AppShell>
     );
   }
@@ -130,7 +131,7 @@ export function NotificationApp({ notificationId }: { notificationId: string }) 
       </Button>
       {actionError ? (
         <Alert className="absolute right-2 bottom-2 left-2 z-20 py-2" tone="danger">
-          {t(`errors.${actionError}`, { defaultValue: t("common.unexpectedError") })}
+          {formatCommandError(t, actionError)}
         </Alert>
       ) : null}
     </AppShell>

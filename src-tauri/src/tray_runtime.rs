@@ -83,7 +83,10 @@ pub fn update_language(app: &AppHandle, language: &LanguagePreference) {
         (&items.quit, labels.quit),
     ] {
         if let Err(error) = item.set_text(text) {
-            tracing::warn!(?error, "tray menu localization failed");
+            tracing::warn!(
+                error_type = std::any::type_name_of_val(&error),
+                "tray menu localization failed"
+            );
         }
     }
 }
@@ -112,7 +115,10 @@ pub fn handle_main_window_event(window: &Window, event: &WindowEvent) {
                 }
             } else if let Err(error) = app.emit_to("main", "main-close-confirmation-requested", ())
             {
-                tracing::warn!(?error, "main close confirmation event failed");
+                tracing::warn!(
+                    error_type = std::any::type_name_of_val(&error),
+                    "main close confirmation event failed"
+                );
             }
         }
         Err(error) => {
@@ -122,7 +128,10 @@ pub fn handle_main_window_event(window: &Window, event: &WindowEvent) {
                 "desktop preferences loading failed during close"
             );
             if let Err(error) = app.emit_to("main", "main-close-confirmation-requested", ()) {
-                tracing::warn!(?error, "fallback close confirmation event failed");
+                tracing::warn!(
+                    error_type = std::any::type_name_of_val(&error),
+                    "fallback close confirmation event failed"
+                );
             }
         }
     }
@@ -154,7 +163,9 @@ pub fn apply_main_close_action(app: &AppHandle, action: MainCloseAction) -> Comm
             app.get_webview_window("main")
                 .ok_or_else(|| CommandError::new("window.main_unavailable"))?
                 .hide()
-                .map_err(|_| CommandError::new("window.main_hide_failed"))
+                .map_err(|error| {
+                    crate::diagnostics::command_error("window.main_hide_failed", false, &error)
+                })
         }
         MainCloseAction::Quit => {
             crate::exit_app(app);
@@ -172,7 +183,10 @@ fn show_main_window(app: &AppHandle) {
         .and_then(|_| window.unminimize())
         .and_then(|_| window.set_focus())
     {
-        tracing::warn!(?error, "tray main window activation failed");
+        tracing::warn!(
+            error_type = std::any::type_name_of_val(&error),
+            "tray main window activation failed"
+        );
     }
 }
 

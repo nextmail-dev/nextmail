@@ -35,20 +35,16 @@ pub(crate) fn now() -> i64 {
         .as_secs() as i64
 }
 
+#[track_caller]
 pub(crate) fn storage_read_error(error: sqlx::Error) -> CommandError {
-    tracing::warn!(?error, "storage read failed");
-    CommandError::new("storage.read_failed")
+    crate::diagnostics::command_error("storage.read_failed", false, &error)
 }
 
-// Mirrors `map_imap_err`: preserves the underlying storage error in the log
-// instead of discarding it via `.map_err(|_| ...)`. Without this every storage
-// write failure surfaces only a generic code (e.g. "storage.message_write_failed")
-// and the real cause - SQLITE_BUSY, disk I/O, a trigger fault - is lost.
-pub(crate) fn map_storage_err<E: std::fmt::Debug>(
+// Preserve safe classifications and the query's call site, never SQL/error text.
+#[track_caller]
+pub(crate) fn map_storage_err<E: std::any::Any>(
     code: &'static str,
 ) -> impl FnOnce(E) -> CommandError {
-    move |error| {
-        tracing::warn!(%code, ?error, "storage operation failed");
-        CommandError::new(code)
-    }
+    let location = std::panic::Location::caller();
+    move |error| crate::diagnostics::command_error_at(code, false, &error, location)
 }

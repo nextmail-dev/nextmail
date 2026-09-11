@@ -1,9 +1,6 @@
 use std::path::Path;
 
-use crate::{
-    core::{CommandError, CommandResult},
-    storage::PreparedAttachmentFile,
-};
+use crate::{core::CommandResult, storage::PreparedAttachmentFile};
 
 pub trait AttachmentOpener: Send + Sync {
     fn open(&self, path: &Path) -> CommandResult<()>;
@@ -14,13 +11,15 @@ pub struct SystemAttachmentOpener;
 
 impl AttachmentOpener for SystemAttachmentOpener {
     fn open(&self, path: &Path) -> CommandResult<()> {
-        tauri_plugin_opener::open_path(path, None::<&str>)
-            .map_err(|_| CommandError::new("attachment.open_failed"))
+        tauri_plugin_opener::open_path(path, None::<&str>).map_err(|error| {
+            crate::diagnostics::command_error("attachment.open_failed", false, &error)
+        })
     }
 
     fn reveal(&self, path: &Path) -> CommandResult<()> {
-        tauri_plugin_opener::reveal_item_in_dir(path)
-            .map_err(|_| CommandError::new("attachment.reveal_failed"))
+        tauri_plugin_opener::reveal_item_in_dir(path).map_err(|error| {
+            crate::diagnostics::command_error("attachment.reveal_failed", false, &error)
+        })
     }
 }
 

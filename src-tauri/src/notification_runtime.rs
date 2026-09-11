@@ -122,7 +122,7 @@ impl NotificationRuntime {
             ) {
                 tracing::warn!(
                     notification_id = %result.notification.id,
-                    ?error,
+                    error_type = std::any::type_name_of_val(&error),
                     "notification content event failed"
                 );
             }
@@ -235,7 +235,13 @@ impl NotificationRuntime {
             .visible(false)
             .build()
             .map(|_| ())
-            .map_err(|_| CommandError::new("notification.window_create_failed"))
+            .map_err(|error| {
+                crate::diagnostics::command_error(
+                    "notification.window_create_failed",
+                    false,
+                    &error,
+                )
+            })
     }
 
     fn reflow(&self) {
@@ -252,7 +258,7 @@ impl NotificationRuntime {
                 if let Err(error) = window.set_position(position) {
                     tracing::warn!(
                         notification_id = %id,
-                        ?error,
+                        error_type = std::any::type_name_of_val(&error),
                         "notification window positioning failed"
                     );
                 }
@@ -286,7 +292,7 @@ impl NotificationRuntime {
                 if let Err(error) = window.destroy() {
                     tracing::warn!(
                         notification_id = %id,
-                        ?error,
+                        error_type = std::any::type_name_of_val(&error),
                         "notification window destruction failed"
                     );
                 }

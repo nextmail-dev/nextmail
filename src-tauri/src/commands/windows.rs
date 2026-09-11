@@ -15,28 +15,9 @@ pub fn quit_app(app: AppHandle) {
 
 #[tauri::command]
 pub fn log_frontend_event(level: String, message: String, location: Option<String>) {
-    const MAX_FRONTEND_MESSAGE_BYTES: usize = 4_096;
-    const MAX_FRONTEND_LOCATION_BYTES: usize = 16_384;
-    let message = truncate_log_field(message, MAX_FRONTEND_MESSAGE_BYTES);
-    let location = location.map(|value| truncate_log_field(value, MAX_FRONTEND_LOCATION_BYTES));
-    match level.as_str() {
-        "error" => tracing::error!(%message, location, "frontend error"),
-        "warn" => tracing::warn!(%message, location, "frontend warning"),
-        _ => tracing::info!(%message, location, "frontend event"),
-    }
-}
-
-fn truncate_log_field(mut value: String, max_bytes: usize) -> String {
-    if value.len() <= max_bytes {
-        return value;
-    }
-    let mut boundary = max_bytes;
-    while !value.is_char_boundary(boundary) {
-        boundary -= 1;
-    }
-    value.truncate(boundary);
-    value.push('…');
-    value
+    // Legacy IPC shape is retained, but arbitrary text/stacks are never logged.
+    let _ = (level, location);
+    crate::logging::report_frontend_error(&message);
 }
 
 #[tauri::command]
@@ -64,7 +45,9 @@ async fn open_settings_window_inner(state: &AppState, app: &AppHandle) -> Comman
         window
             .show()
             .and_then(|_| window.set_focus())
-            .map_err(|_| crate::error::CommandError::new("settings.window_create_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("settings.window_create_failed", false, &error)
+            })?;
         return Ok(());
     }
 
@@ -88,9 +71,9 @@ async fn open_settings_window_inner(state: &AppState, app: &AppHandle) -> Comman
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    builder
-        .build()
-        .map_err(|_| crate::error::CommandError::new("settings.window_create_failed"))?;
+    builder.build().map_err(|error| {
+        crate::diagnostics::command_error("settings.window_create_failed", false, &error)
+    })?;
     Ok(())
 }
 
@@ -108,7 +91,9 @@ pub async fn open_account_management_window(
         window
             .show()
             .and_then(|_| window.set_focus())
-            .map_err(|_| crate::error::CommandError::new("accounts.window_create_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("accounts.window_create_failed", false, &error)
+            })?;
         return Ok(());
     }
 
@@ -132,9 +117,9 @@ pub async fn open_account_management_window(
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    builder
-        .build()
-        .map_err(|_| crate::error::CommandError::new("accounts.window_create_failed"))?;
+    builder.build().map_err(|error| {
+        crate::diagnostics::command_error("accounts.window_create_failed", false, &error)
+    })?;
     Ok(())
 }
 
@@ -147,9 +132,9 @@ pub async fn open_raw_message_window(
 ) -> CommandResult<()> {
     tokio::task::yield_now().await;
     uuid::Uuid::parse_str(&account_id)
-        .map_err(|_| crate::error::CommandError::new("account.not_found"))?;
+        .map_err(|error| crate::diagnostics::command_error("account.not_found", false, &error))?;
     uuid::Uuid::parse_str(&message_id)
-        .map_err(|_| crate::error::CommandError::new("message.not_found"))?;
+        .map_err(|error| crate::diagnostics::command_error("message.not_found", false, &error))?;
     state
         .mail
         .get_message_detail(&account_id, &message_id, None)
@@ -162,12 +147,20 @@ pub async fn open_raw_message_window(
     if let Some(window) = app.get_webview_window("raw-message") {
         window
             .emit("raw-message-location-changed", &location)
-            .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("message.raw_window_create_failed", false, &error)
+            })?;
         if window.is_visible().unwrap_or(false) {
             window
                 .show()
                 .and_then(|_| window.set_focus())
-                .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
+                .map_err(|error| {
+                    crate::diagnostics::command_error(
+                        "message.raw_window_create_failed",
+                        false,
+                        &error,
+                    )
+                })?;
         }
         return Ok(());
     }
@@ -192,9 +185,9 @@ pub async fn open_raw_message_window(
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
 
-    builder
-        .build()
-        .map_err(|_| crate::error::CommandError::new("message.raw_window_create_failed"))?;
+    builder.build().map_err(|error| {
+        crate::diagnostics::command_error("message.raw_window_create_failed", false, &error)
+    })?;
     Ok(())
 }
 
@@ -208,11 +201,11 @@ pub async fn open_message_preview_window(
 ) -> CommandResult<()> {
     tokio::task::yield_now().await;
     uuid::Uuid::parse_str(&account_id)
-        .map_err(|_| crate::error::CommandError::new("account.not_found"))?;
+        .map_err(|error| crate::diagnostics::command_error("account.not_found", false, &error))?;
     uuid::Uuid::parse_str(&message_id)
-        .map_err(|_| crate::error::CommandError::new("message.not_found"))?;
+        .map_err(|error| crate::diagnostics::command_error("message.not_found", false, &error))?;
     uuid::Uuid::parse_str(&mailbox_id)
-        .map_err(|_| crate::error::CommandError::new("mailbox.not_found"))?;
+        .map_err(|error| crate::diagnostics::command_error("mailbox.not_found", false, &error))?;
     let detail = state
         .mail
         .get_message_detail(&account_id, &message_id, Some(&mailbox_id))
@@ -248,13 +241,23 @@ pub async fn open_message_preview_window(
     if let Some(window) = app.get_webview_window(&label) {
         window
             .emit("message-preview-location-changed", &location)
-            .map_err(|_| crate::error::CommandError::new("message.preview_window_create_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error(
+                    "message.preview_window_create_failed",
+                    false,
+                    &error,
+                )
+            })?;
         if window.is_visible().unwrap_or(false) {
             window
                 .show()
                 .and_then(|_| window.set_focus())
-                .map_err(|_| {
-                    crate::error::CommandError::new("message.preview_window_create_failed")
+                .map_err(|error| {
+                    crate::diagnostics::command_error(
+                        "message.preview_window_create_failed",
+                        false,
+                        &error,
+                    )
                 })?;
         }
         return Ok(());
@@ -292,9 +295,9 @@ pub async fn open_message_preview_window(
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
-    builder
-        .build()
-        .map_err(|_| crate::error::CommandError::new("message.preview_window_create_failed"))?;
+    builder.build().map_err(|error| {
+        crate::diagnostics::command_error("message.preview_window_create_failed", false, &error)
+    })?;
     Ok(())
 }
 
@@ -308,12 +311,14 @@ pub async fn open_composition_definition_editor_window(
 ) -> CommandResult<()> {
     tokio::task::yield_now().await;
     if let Some(value) = account_id.as_deref() {
-        uuid::Uuid::parse_str(value)
-            .map_err(|_| crate::error::CommandError::new("account.not_found"))?;
+        uuid::Uuid::parse_str(value).map_err(|error| {
+            crate::diagnostics::command_error("account.not_found", false, &error)
+        })?;
     }
     if let Some(value) = definition_id.as_deref() {
-        uuid::Uuid::parse_str(value)
-            .map_err(|_| crate::error::CommandError::new("definition.not_found"))?;
+        uuid::Uuid::parse_str(value).map_err(|error| {
+            crate::diagnostics::command_error("definition.not_found", false, &error)
+        })?;
     }
     let exists = match kind.as_str() {
         "template" => state
@@ -341,7 +346,13 @@ pub async fn open_composition_definition_editor_window(
             window
                 .show()
                 .and_then(|_| window.set_focus())
-                .map_err(|_| crate::error::CommandError::new("definition.window_create_failed"))?;
+                .map_err(|error| {
+                    crate::diagnostics::command_error(
+                        "definition.window_create_failed",
+                        false,
+                        &error,
+                    )
+                })?;
         }
         return Ok(());
     }
@@ -374,8 +385,8 @@ pub async fn open_composition_definition_editor_window(
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true);
-    builder
-        .build()
-        .map_err(|_| crate::error::CommandError::new("definition.window_create_failed"))?;
+    builder.build().map_err(|error| {
+        crate::diagnostics::command_error("definition.window_create_failed", false, &error)
+    })?;
     Ok(())
 }

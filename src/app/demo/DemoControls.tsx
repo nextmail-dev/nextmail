@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useQueryClient } from "@tanstack/react-query";
@@ -18,7 +19,7 @@ export function DemoEntryTitle() {
   const clicks = useRef({ count: 0, time: 0 });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<import("@/app/types").CommandError | string | null>(null);
   useEffect(() => {
     const resetOutside = (event: MouseEvent) => {
       if (!title.current?.contains(event.target as Node)) clicks.current.count = 0;
@@ -40,7 +41,7 @@ export function DemoEntryTitle() {
     setBusy(true);
     setError(null);
     try { await api.enterDemoMode(); }
-    catch (cause) { setError(normalizeCommandError(cause).code); }
+    catch (cause) { setError(normalizeCommandError(cause)); }
     finally { setBusy(false); }
   }
   return <>
@@ -48,7 +49,7 @@ export function DemoEntryTitle() {
     <Modal open={open} onOpenChange={(value) => { if (!busy) setOpen(value); }} title={t("demo.enterTitle")} closeLabel={t("common.close")}>
       <Stack className="pt-4" gap="md">
         <Text>{t("demo.enterDescription")}</Text>
-        {error && <Alert tone="danger">{t(`errors.${error}`)}</Alert>}
+        {error && <Alert tone="danger">{formatCommandError(t, error)}</Alert>}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" disabled={busy} onClick={() => setOpen(false)}>{t("common.cancel")}</Button>
           <Button disabled={busy} onClick={() => void enter()}>{t("demo.enter")}</Button>

@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { useEffect, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, UsersRound } from "lucide-react";
@@ -73,7 +74,7 @@ export function ContactGroupManager({ accountId, onClose }: { accountId: string;
             <div className="grid place-items-center text-center text-sm text-muted-foreground"><p>{t("contactGroups.select")}</p></div>
           ) : selectedId && detail.isPending ? <div className="grid place-items-center"><Spinner /></div>
             : selectedId && detail.isError && !detail.data ? (
-              <Alert tone="danger">{t(`errors.${normalizeCommandError(detail.error).code}`, { defaultValue: t("common.unexpectedError") })}
+              <Alert tone="danger">{formatCommandError(t, normalizeCommandError(detail.error))}
                 <Button variant="ghost" size="sm" onClick={() => void detail.refetch()}>{t("common.retry")}</Button>
               </Alert>
             ) : (
@@ -168,7 +169,7 @@ function ContactGroupForm({ accountId, initial, onDirtyChange, onBusyChange, onF
           <Button type="button" variant="ghost" className="w-full" loading={contacts.isFetchingNextPage} onClick={() => void contacts.fetchNextPage()}>{t("contacts.loadMore")}</Button>
         ) : null}
       </OverlayScrollArea>
-      {error ? <Alert tone="danger" role="alert">{t(`errors.${normalizeCommandError(error).code}`, { defaultValue: t("common.unexpectedError") })}</Alert> : null}
+      {error ? <Alert tone="danger" role="alert">{formatCommandError(t, normalizeCommandError(error))}</Alert> : null}
       {confirmDelete ? (
         <div className="space-y-2 rounded-md bg-destructive/10 p-3 text-sm">
           <p>{t("contactGroups.deleteDescription", { name: original?.group.name })}</p>

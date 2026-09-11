@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import {
   Archive,
   Copy,
@@ -17,7 +18,8 @@ import {
 } from "lucide-react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { forwardRef, memo, useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
+import { forwardRef, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
+import { pruneMessageMeasurements } from "./message-virtualizer-cache";
 import { useTranslation } from "react-i18next";
 
 import { api, normalizeCommandError } from "@/app/api";
@@ -144,12 +146,11 @@ function MessageListPaneBase({
     }, allItems)
     : allItems;
   const viewportRef = useRef<HTMLDivElement>(null);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
+  const messageKey = items.map((message) => `${message.mailboxId}:${message.id}`).join("\0");
+  const messageKeys = useMemo(() => messageKey ? messageKey.split("\0") : [], [messageKey]);
   const getMessageKey = useCallback((index: number) => {
-    const message = itemsRef.current[index];
-    return message ? `${message.mailboxId}:${message.id}` : index;
-  }, []);
+    return messageKeys[index] ?? index;
+  }, [messageKeys]);
   const virtualizationEnabled = typeof ResizeObserver !== "undefined";
   const virtualizer = useVirtualizer({
     count: items.length,
@@ -161,6 +162,9 @@ function MessageListPaneBase({
     initialRect: { width: 360, height: 720 },
     enabled: virtualizationEnabled,
   });
+  useLayoutEffect(() => {
+    pruneMessageMeasurements(virtualizer, new Set(messageKeys));
+  }, [virtualizer, messageKeys]);
   const virtualRows = virtualizationEnabled
     ? virtualizer.getVirtualItems()
     : items.map((_, index) => ({ index, start: index * 88, key: getMessageKey(index) }));
@@ -676,5 +680,5 @@ function MailboxContextSubmenu({
 function MessageListError({ error }: { error: unknown }) {
   const { t } = useTranslation();
   const normalized = normalizeCommandError(error);
-  return <Alert className="m-4" tone="danger" title={t("errors.title")}>{t(`errors.${normalized.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>;
+  return <Alert className="m-4" tone="danger" title={t("errors.title")}>{formatCommandError(t, normalized)}</Alert>;
 }

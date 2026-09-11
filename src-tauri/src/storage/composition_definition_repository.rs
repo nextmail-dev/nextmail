@@ -71,7 +71,7 @@ impl CompositionDefinitionRepository {
         .bind(account_slot_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("template.list_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("template.list_failed", false, &error))?;
         rows.into_iter()
             .map(|row| template_from_row(row, scope, account_id))
             .collect()
@@ -86,8 +86,9 @@ impl CompositionDefinitionRepository {
         let scope = definition_scope(account_id, account_slot_id)?;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
-        let recipients_json = serde_json::to_string(&draft.recipients)
-            .map_err(|_| CommandError::new("template.create_failed"))?;
+        let recipients_json = serde_json::to_string(&draft.recipients).map_err(|error| {
+            crate::diagnostics::command_error("template.create_failed", false, &error)
+        })?;
         sqlx::query(
             "INSERT INTO mail_templates( \
                  id, account_slot_id, name, subject_template, recipients_json, editor_json, html, plain_text, created_at, updated_at \
@@ -105,7 +106,7 @@ impl CompositionDefinitionRepository {
         .bind(timestamp)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("template.create_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("template.create_failed", false, &error))?;
         self.mail_template(&id, account_id, account_slot_id, scope)
             .await
     }
@@ -119,8 +120,9 @@ impl CompositionDefinitionRepository {
         expected_revision: u64,
     ) -> CommandResult<MailTemplate> {
         let scope = definition_scope(account_id, account_slot_id)?;
-        let recipients_json = serde_json::to_string(&draft.recipients)
-            .map_err(|_| CommandError::new("template.update_failed"))?;
+        let recipients_json = serde_json::to_string(&draft.recipients).map_err(|error| {
+            crate::diagnostics::command_error("template.update_failed", false, &error)
+        })?;
         let result = sqlx::query(
             "UPDATE mail_templates SET \
                  name = ?, subject_template = ?, recipients_json = ?, editor_json = ?, html = ?, plain_text = ?, \
@@ -141,7 +143,7 @@ impl CompositionDefinitionRepository {
         .bind(expected_revision as i64)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("template.update_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("template.update_failed", false, &error))?;
         if result.rows_affected() != 1 {
             return Err(CommandError::new("template.revision_conflict"));
         }
@@ -163,7 +165,9 @@ impl CompositionDefinitionRepository {
         .bind(template_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| CommandError::new("template.delete_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("template.delete_failed", false, &error)
+        })?;
         if references > 0 {
             return Err(CommandError::new("template.in_use"));
         }
@@ -178,7 +182,9 @@ impl CompositionDefinitionRepository {
         .bind(expected_revision as i64)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("template.delete_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("template.delete_failed", false, &error)
+        })?;
         if result.rows_affected() != 1 {
             return Err(CommandError::new("template.revision_conflict"));
         }
@@ -201,7 +207,7 @@ impl CompositionDefinitionRepository {
         .bind(account_slot_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("signature.list_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("signature.list_failed", false, &error))?;
         Ok(rows
             .into_iter()
             .map(|row| signature_from_row(row, scope, account_id))
@@ -217,9 +223,9 @@ impl CompositionDefinitionRepository {
         let scope = definition_scope(account_id, account_slot_id)?;
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
-        let mut transaction = super::begin_write(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("signature.create_failed"))?;
+        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
+            crate::diagnostics::command_error("signature.create_failed", false, &error)
+        })?;
         sqlx::query(
             "INSERT INTO mail_signatures( \
                  id, account_slot_id, name, editor_json, html, plain_text, created_at, updated_at \
@@ -235,7 +241,9 @@ impl CompositionDefinitionRepository {
         .bind(timestamp)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("signature.create_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("signature.create_failed", false, &error)
+        })?;
         let assigned = sqlx::query(
             "UPDATE signature_preferences SET \
                  default_signature_id = ?, revision = revision + 1, updated_at = ? \
@@ -248,7 +256,9 @@ impl CompositionDefinitionRepository {
         .bind(account_slot_id)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("signature.create_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("signature.create_failed", false, &error)
+        })?;
         if assigned.rows_affected() == 0 {
             sqlx::query(
                 "INSERT INTO signature_preferences( \
@@ -268,12 +278,11 @@ impl CompositionDefinitionRepository {
             .bind(account_slot_id)
             .execute(&mut *transaction)
             .await
-            .map_err(|_| CommandError::new("signature.create_failed"))?;
+            .map_err(|error| crate::diagnostics::command_error("signature.create_failed", false, &error))?;
         }
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("signature.create_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("signature.create_failed", false, &error)
+        })?;
         self.mail_signature(&id, account_id, account_slot_id, scope)
             .await
     }
@@ -305,7 +314,9 @@ impl CompositionDefinitionRepository {
         .bind(expected_revision as i64)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("signature.update_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("signature.update_failed", false, &error)
+        })?;
         if result.rows_affected() != 1 {
             return Err(CommandError::new("signature.revision_conflict"));
         }
@@ -327,7 +338,9 @@ impl CompositionDefinitionRepository {
         .bind(signature_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| CommandError::new("signature.delete_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("signature.delete_failed", false, &error)
+        })?;
         if references > 0 {
             return Err(CommandError::new("signature.in_use"));
         }
@@ -342,7 +355,9 @@ impl CompositionDefinitionRepository {
         .bind(expected_revision as i64)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("signature.delete_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("signature.delete_failed", false, &error)
+        })?;
         if result.rows_affected() != 1 {
             return Err(CommandError::new("signature.revision_conflict"));
         }
@@ -362,7 +377,7 @@ impl CompositionDefinitionRepository {
         .bind(account_slot_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("template.list_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("template.list_failed", false, &error))?;
         rows.into_iter()
             .map(|row| {
                 let is_account = row.account_slot_id.is_some();
@@ -392,7 +407,7 @@ impl CompositionDefinitionRepository {
         .bind(account_slot_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("signature.list_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("signature.list_failed", false, &error))?;
         Ok(rows
             .into_iter()
             .map(|row| {
@@ -495,7 +510,13 @@ impl CompositionDefinitionRepository {
                 .bind(expected_revision as i64)
                 .execute(&self.pool)
                 .await
-                .map_err(|_| CommandError::new("signature_preferences.save_failed"))?;
+                .map_err(|error| {
+                    crate::diagnostics::command_error(
+                        "signature_preferences.save_failed",
+                        false,
+                        &error,
+                    )
+                })?;
                 if result.rows_affected() != 1 {
                     return Err(CommandError::new("signature_preferences.revision_conflict"));
                 }
@@ -511,7 +532,13 @@ impl CompositionDefinitionRepository {
                 signature_id,
             )
             .await
-            .map_err(|_| CommandError::new("signature_preferences.read_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error(
+                    "signature_preferences.read_failed",
+                    false,
+                    &error,
+                )
+            })?;
             if !available {
                 return Err(CommandError::new(
                     "signature_preferences.signature_unavailable",
@@ -534,7 +561,7 @@ impl CompositionDefinitionRepository {
             .bind(timestamp)
             .execute(&self.pool)
             .await
-            .map_err(|_| CommandError::new("signature_preferences.revision_conflict"))?;
+            .map_err(|error| crate::diagnostics::command_error("signature_preferences.revision_conflict", false, &error))?;
         } else {
             let result = sqlx::query(
                 "UPDATE signature_preferences SET \
@@ -551,7 +578,13 @@ impl CompositionDefinitionRepository {
             .bind(expected_revision as i64)
             .execute(&self.pool)
             .await
-            .map_err(|_| CommandError::new("signature_preferences.save_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error(
+                    "signature_preferences.save_failed",
+                    false,
+                    &error,
+                )
+            })?;
             if result.rows_affected() != 1 {
                 return Err(CommandError::new("signature_preferences.revision_conflict"));
             }
@@ -608,7 +641,7 @@ impl CompositionDefinitionRepository {
             .bind(expected_revision as i64)
             .execute(&self.pool)
             .await
-            .map_err(|_| CommandError::new("composition_rule.save_failed"))?;
+            .map_err(|error| crate::diagnostics::command_error("composition_rule.save_failed", false, &error))?;
             if expected_revision > 0 && result.rows_affected() != 1 {
                 return Err(CommandError::new("composition_rule.revision_conflict"));
             }
@@ -635,7 +668,7 @@ impl CompositionDefinitionRepository {
             .bind(timestamp)
             .execute(&self.pool)
             .await
-            .map_err(|_| CommandError::new("composition_rule.revision_conflict"))?;
+            .map_err(|error| crate::diagnostics::command_error("composition_rule.revision_conflict", false, &error))?;
         } else {
             let result = sqlx::query(
                 "UPDATE composition_scene_rules SET template_id = ?, signature_id = ?, revision = revision + 1, updated_at = ? \
@@ -650,7 +683,7 @@ impl CompositionDefinitionRepository {
             .bind(expected_revision as i64)
             .execute(&self.pool)
             .await
-            .map_err(|_| CommandError::new("composition_rule.save_failed"))?;
+            .map_err(|error| crate::diagnostics::command_error("composition_rule.save_failed", false, &error))?;
             if result.rows_affected() != 1 {
                 return Err(CommandError::new("composition_rule.revision_conflict"));
             }
@@ -723,7 +756,9 @@ impl CompositionDefinitionRepository {
         .bind(scene_name(scene))
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("composition_rule.read_failed"))
+        .map_err(|error| {
+            crate::diagnostics::command_error("composition_rule.read_failed", false, &error)
+        })
     }
 
     async fn exact_signature_preferences(
@@ -739,7 +774,9 @@ impl CompositionDefinitionRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("signature_preferences.read_failed"))
+        .map_err(|error| {
+            crate::diagnostics::command_error("signature_preferences.read_failed", false, &error)
+        })
     }
 
     async fn mail_template(
@@ -759,7 +796,7 @@ impl CompositionDefinitionRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("template.read_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("template.read_failed", false, &error))?
         .ok_or_else(|| CommandError::new("template.not_found"))?;
         template_from_row(row, scope, account_id)
     }
@@ -781,7 +818,7 @@ impl CompositionDefinitionRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("signature.read_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("signature.read_failed", false, &error))?
         .ok_or_else(|| CommandError::new("signature.not_found"))?;
         Ok(signature_from_row(row, scope, account_id))
     }
@@ -875,7 +912,9 @@ async fn definition_reference_exists(
         .bind(account_slot_id)
         .fetch_one(pool)
         .await
-        .map_err(|_| CommandError::new("composition_rule.read_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("composition_rule.read_failed", false, &error)
+        })?;
     Ok(count == 1)
 }
 
@@ -888,7 +927,9 @@ fn template_from_row(
         .recipients_json
         .map(|value| serde_json::from_str(&value))
         .transpose()
-        .map_err(|_| CommandError::new("template.read_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("template.read_failed", false, &error)
+        })?;
     Ok(MailTemplate {
         id: row.id,
         scope,

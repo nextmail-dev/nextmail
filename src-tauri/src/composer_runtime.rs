@@ -148,7 +148,7 @@ impl ComposerRuntime {
         for label in &labels {
             if let Some(window) = self.app.get_webview_window(label) {
                 if let Err(error) = window.close() {
-                    tracing::warn!(%label, ?error, "composer window close failed");
+                    tracing::warn!(%label, error_type = std::any::type_name_of_val(&error), "composer window close failed");
                 }
             }
         }
@@ -298,7 +298,9 @@ impl ComposerRuntime {
                 crate::protocols::sanitize_raw_message_for_composer(&raw)
             })
             .await
-            .map_err(|_| CommandError::new("message.mime_parse_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("message.mime_parse_failed", false, &error)
+            })?;
             if let Some(body) = body {
                 inline_images = body.inline_images;
                 if let Some(plain_text) = body.plain_text {
@@ -400,7 +402,13 @@ impl ComposerRuntime {
             window
                 .show()
                 .and_then(|_| window.set_focus())
-                .map_err(|_| CommandError::new("composer.window_create_failed"))?;
+                .map_err(|error| {
+                    crate::diagnostics::command_error(
+                        "composer.window_create_failed",
+                        false,
+                        &error,
+                    )
+                })?;
             return Ok(());
         }
         let url = format!(
@@ -423,9 +431,9 @@ impl ComposerRuntime {
         let builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true);
-        builder
-            .build()
-            .map_err(|_| CommandError::new("composer.window_create_failed"))?;
+        builder.build().map_err(|error| {
+            crate::diagnostics::command_error("composer.window_create_failed", false, &error)
+        })?;
         Ok(())
     }
 
@@ -552,9 +560,9 @@ impl ComposerRuntime {
         let mut added = Vec::new();
         for selected in selected_paths {
             let path = Path::new(&selected);
-            let metadata = tokio::fs::metadata(path)
-                .await
-                .map_err(|_| CommandError::new("attachment.read_failed"))?;
+            let metadata = tokio::fs::metadata(path).await.map_err(|error| {
+                crate::diagnostics::command_error("attachment.read_failed", false, &error)
+            })?;
             if !metadata.is_file() {
                 return Err(CommandError::new("attachment.file_required"));
             }
@@ -570,9 +578,9 @@ impl ComposerRuntime {
                 .and_then(|value| value.to_str())
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| CommandError::new("attachment.name_invalid"))?;
-            let bytes = tokio::fs::read(path)
-                .await
-                .map_err(|_| CommandError::new("attachment.read_failed"))?;
+            let bytes = tokio::fs::read(path).await.map_err(|error| {
+                crate::diagnostics::command_error("attachment.read_failed", false, &error)
+            })?;
             let content_type = mime_guess::from_path(path)
                 .first_or_octet_stream()
                 .essence_str()
@@ -611,9 +619,9 @@ impl ComposerRuntime {
         if content_base64.len() as u64 > (MAX_ATTACHMENT_BYTES * 4 / 3) + 8 {
             return Err(CommandError::new("attachment.too_large"));
         }
-        let bytes = STANDARD
-            .decode(content_base64.trim())
-            .map_err(|_| CommandError::new("attachment.image_invalid"))?;
+        let bytes = STANDARD.decode(content_base64.trim()).map_err(|error| {
+            crate::diagnostics::command_error("attachment.image_invalid", false, &error)
+        })?;
         if bytes.is_empty() {
             return Err(CommandError::new("attachment.image_invalid"));
         }
@@ -822,10 +830,9 @@ fn validate_recipient_fields(fields: &DraftRecipientFields, required: bool) -> C
         return Err(CommandError::new("send.recipient_required"));
     }
     for address in all {
-        address
-            .email
-            .parse::<Address>()
-            .map_err(|_| CommandError::new("send.recipient_invalid"))?;
+        address.email.parse::<Address>().map_err(|error| {
+            crate::diagnostics::command_error("send.recipient_invalid", false, &error)
+        })?;
     }
     Ok(())
 }
@@ -863,17 +870,21 @@ fn validate_content(content: &DraftContent) -> CommandResult<()> {
     {
         return Err(CommandError::new("draft.content_too_large"));
     }
-    serde_json::from_str::<serde_json::Value>(&content.editor_json)
-        .map_err(|_| CommandError::new("draft.editor_json_invalid"))?;
+    serde_json::from_str::<serde_json::Value>(&content.editor_json).map_err(|error| {
+        crate::diagnostics::command_error("draft.editor_json_invalid", false, &error)
+    })?;
     Ok(())
 }
 
 fn sanitize_draft_content(mut content: DraftContent) -> CommandResult<DraftContent> {
-    let mut editor_json = serde_json::from_str::<serde_json::Value>(&content.editor_json)
-        .map_err(|_| CommandError::new("draft.editor_json_invalid"))?;
+    let mut editor_json =
+        serde_json::from_str::<serde_json::Value>(&content.editor_json).map_err(|error| {
+            crate::diagnostics::command_error("draft.editor_json_invalid", false, &error)
+        })?;
     sanitize_original_source_nodes(&mut editor_json);
-    content.editor_json = serde_json::to_string(&editor_json)
-        .map_err(|_| CommandError::new("draft.editor_json_invalid"))?;
+    content.editor_json = serde_json::to_string(&editor_json).map_err(|error| {
+        crate::diagnostics::command_error("draft.editor_json_invalid", false, &error)
+    })?;
     content.html = crate::protocols::sanitize_composer_document(&content.html);
     Ok(content)
 }
@@ -898,9 +909,9 @@ fn prepare_definition_inline_image(
     if content_base64.len() as u64 > (MAX_DEFINITION_INLINE_IMAGE_BYTES * 4 / 3) + 8 {
         return Err(CommandError::new("definition.image_too_large"));
     }
-    let bytes = STANDARD
-        .decode(content_base64.trim())
-        .map_err(|_| CommandError::new("attachment.image_invalid"))?;
+    let bytes = STANDARD.decode(content_base64.trim()).map_err(|error| {
+        crate::diagnostics::command_error("attachment.image_invalid", false, &error)
+    })?;
     if bytes.is_empty() || !valid_image_signature(&content_type, &bytes) {
         return Err(CommandError::new("attachment.image_invalid"));
     }

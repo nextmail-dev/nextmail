@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -58,7 +59,7 @@ export function ComposerApp({ accountId, draftId }: ComposerAppProps) {
     return (
       <AppShell className="grid place-items-center p-8">
         <Alert tone="danger" title={t("errors.title")}>
-          {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+          {formatCommandError(t, error)}
         </Alert>
       </AppShell>
     );
@@ -84,7 +85,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   const [revision, setRevision] = useState(draft.revision);
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "failed">("idle");
-  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<import("@/app/types").CommandError | string | null>(null);
   const [sendJob, setSendJob] = useState<SendJobSummary | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmEmptySubject, setConfirmEmptySubject] = useState(false);
@@ -204,7 +205,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         try {
           await currentWindow.destroy();
         } catch (error) {
-          setErrorCode(normalizeCommandError(error).code);
+          setErrorCode(normalizeCommandError(error));
         }
         return;
       }
@@ -213,7 +214,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         try {
           await currentWindow.destroy();
         } catch (error) {
-          setErrorCode(normalizeCommandError(error).code);
+          setErrorCode(normalizeCommandError(error));
         }
         return;
       }
@@ -228,7 +229,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       await api.discardDraftSession(sender.id, draft.id);
       await getCurrentWindow().destroy();
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
       setClosing(false);
       setConfirmClose(false);
     }
@@ -246,7 +247,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       await api.queueRemoteDraft(sender.id, draft.id);
       await getCurrentWindow().destroy();
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
       setClosing(false);
       setConfirmClose(false);
     }
@@ -272,7 +273,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
     const timeout = window.setTimeout(() => {
       void getCurrentWindow()
         .destroy()
-        .catch((error) => setErrorCode(normalizeCommandError(error).code));
+        .catch((error) => setErrorCode(normalizeCommandError(error)));
     }, 80);
     return () => window.clearTimeout(timeout);
   }, [sendJob?.status]);
@@ -375,7 +376,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       }
       setErrorCode(null);
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
     } finally {
       setSwitchingDefinition(false);
     }
@@ -394,7 +395,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       }
       setErrorCode(null);
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
     } finally {
       setSwitchingDefinition(false);
     }
@@ -408,7 +409,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       markDirty();
       setErrorCode(null);
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
     }
   }, [draft.id, markDirty, sender.id]);
 
@@ -433,7 +434,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       setAttachments((current) => current.filter((item) => item.id !== attachment.id));
       markDirty();
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
     }
   }
 
@@ -450,7 +451,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       setErrorCode(null);
       return added;
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
       throw error;
     }
   }
@@ -461,7 +462,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       setErrorCode(null);
       return sanitized;
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
       throw error;
     }
   }
@@ -483,7 +484,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
       setSendJob(job);
       setErrorCode(null);
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
     } finally {
       setSubmitting(false);
     }
@@ -492,7 +493,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
   async function retrySend() {
     if (!sendJob) return;
     try { setSendJob(await api.retrySendJob(sender.id, sendJob.id)); }
-    catch (error) { setErrorCode(normalizeCommandError(error).code); }
+    catch (error) { setErrorCode(normalizeCommandError(error)); }
   }
 
   return (
@@ -601,7 +602,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
           />
         </Inline>
         {errorCode ? (
-          <Alert className="m-3 mb-0" tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert>
+          <Alert className="m-3 mb-0" tone="danger">{formatCommandError(t, errorCode)}</Alert>
         ) : null}
         {sendJob?.status === "failed" ? <SendFailure job={sendJob} onRetry={retrySend} /> : null}
         {attachments.some((attachment) => !attachment.isInline) ? (
@@ -672,7 +673,7 @@ function SendFailure({ job, onRetry }: { job: SendJobSummary; onRetry: () => voi
   const { t } = useTranslation();
   return (
     <Alert className="m-3 mb-0" tone="danger" title={t("composer.sendFailed")}>
-      <Inline><Text>{t(`errors.${job.errorCode}`, { defaultValue: t("composer.sendFailedDescription") })}</Text><Button size="sm" variant="secondary" onClick={onRetry}>{t("common.retry")}</Button></Inline>
+      <Inline><Text>{formatCommandError(t, job.errorCode)}</Text><Button size="sm" variant="secondary" onClick={onRetry}>{t("common.retry")}</Button></Inline>
     </Alert>
   );
 }

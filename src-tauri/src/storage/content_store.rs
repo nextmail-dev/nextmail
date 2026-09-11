@@ -36,14 +36,18 @@ impl ContentStore {
         validate_hash(hash)?;
         fs::read(self.content_path("raw", hash, Some("eml")))
             .await
-            .map_err(|_| CommandError::new("message.raw_read_failed"))
+            .map_err(|error| {
+                crate::diagnostics::command_error("message.raw_read_failed", false, &error)
+            })
     }
 
     pub async fn read_attachment(&self, hash: &str) -> CommandResult<Vec<u8>> {
         validate_hash(hash)?;
         fs::read(self.content_path("attachments", hash, None))
             .await
-            .map_err(|_| CommandError::new("attachment.content_read_failed"))
+            .map_err(|error| {
+                crate::diagnostics::command_error("attachment.content_read_failed", false, &error)
+            })
     }
 
     pub async fn materialize_attachment(
@@ -64,22 +68,30 @@ impl ContentStore {
             .join(hash);
         let target = directory.join(&file_name);
         if !target.is_file() {
-            fs::create_dir_all(&directory)
-                .await
-                .map_err(|_| CommandError::new("attachment.cache_directory_failed"))?;
+            fs::create_dir_all(&directory).await.map_err(|error| {
+                crate::diagnostics::command_error(
+                    "attachment.cache_directory_failed",
+                    false,
+                    &error,
+                )
+            })?;
             let source = self.content_path("attachments", hash, None);
             let temporary = directory.join(format!(".{}.tmp", Uuid::new_v4()));
-            fs::copy(&source, &temporary)
-                .await
-                .map_err(|_| CommandError::new("attachment.content_read_failed"))?;
+            fs::copy(&source, &temporary).await.map_err(|error| {
+                crate::diagnostics::command_error("attachment.content_read_failed", false, &error)
+            })?;
             match fs::rename(&temporary, &target).await {
                 Ok(()) => {}
                 Err(_) if target.is_file() => {
                     let _ = fs::remove_file(&temporary).await;
                 }
-                Err(_) => {
+                Err(error) => {
                     let _ = fs::remove_file(&temporary).await;
-                    return Err(CommandError::new("attachment.cache_write_failed"));
+                    return Err(crate::diagnostics::command_error(
+                        "attachment.cache_write_failed",
+                        false,
+                        &error,
+                    ));
                 }
             }
         }
@@ -105,23 +117,27 @@ impl ContentStore {
         let parent = target
             .parent()
             .ok_or_else(|| CommandError::new("storage.invalid_path"))?;
-        fs::create_dir_all(parent)
-            .await
-            .map_err(|_| CommandError::new("storage.content_directory_failed"))?;
+        fs::create_dir_all(parent).await.map_err(|error| {
+            crate::diagnostics::command_error("storage.content_directory_failed", false, &error)
+        })?;
 
         let temporary = parent.join(format!(".{}.tmp", Uuid::new_v4()));
-        fs::write(&temporary, content)
-            .await
-            .map_err(|_| CommandError::new("storage.content_write_failed"))?;
+        fs::write(&temporary, content).await.map_err(|error| {
+            crate::diagnostics::command_error("storage.content_write_failed", false, &error)
+        })?;
         match fs::rename(&temporary, &target).await {
             Ok(()) => Ok(hash),
             Err(_) if target.is_file() => {
                 let _ = fs::remove_file(&temporary).await;
                 Ok(hash)
             }
-            Err(_) => {
+            Err(error) => {
                 let _ = fs::remove_file(&temporary).await;
-                Err(CommandError::new("storage.content_commit_failed"))
+                Err(crate::diagnostics::command_error(
+                    "storage.content_commit_failed",
+                    false,
+                    &error,
+                ))
             }
         }
     }

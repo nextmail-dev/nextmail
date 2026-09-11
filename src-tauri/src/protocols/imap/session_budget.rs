@@ -28,10 +28,9 @@ impl SessionBudgetRegistry {
             Ok(permit) => Ok(permit),
             Err(TryAcquireError::NoPermits) => {
                 tracing::debug!(%account_id, "waiting for an IMAP session slot");
-                budget
-                    .acquire_owned()
-                    .await
-                    .map_err(|_| CommandError::retryable("account.network_unavailable"))
+                budget.acquire_owned().await.map_err(|error| {
+                    crate::diagnostics::command_error("account.network_unavailable", true, &error)
+                })
             }
             Err(TryAcquireError::Closed) => {
                 Err(CommandError::retryable("account.network_unavailable"))

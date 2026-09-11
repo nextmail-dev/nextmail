@@ -111,7 +111,7 @@ pub fn get_demo_status(state: State<'_, AppState>) -> CommandResult<Option<Appea
         .demo
         .0
         .lock()
-        .map_err(|_| CommandError::new("demo.unavailable"))?
+        .map_err(|error| crate::diagnostics::lock_error("demo.unavailable", &error))?
         .clone())
 }
 
@@ -134,15 +134,15 @@ pub async fn enter_demo_mode(state: State<'_, AppState>, app: AppHandle) -> Comm
         .ok_or_else(|| CommandError::new("demo.unavailable"))?;
     let preferences = state.service.get_preferences()?;
     install_shortcut(&app, &preferences.language)
-        .map_err(|_| CommandError::new("demo.unavailable"))?;
+        .map_err(|error| crate::diagnostics::command_error("demo.unavailable", false, &error))?;
     main.hide()
-        .map_err(|_| CommandError::new("demo.unavailable"))?;
+        .map_err(|error| crate::diagnostics::command_error("demo.unavailable", false, &error))?;
     {
         let mut session = state
             .demo
             .0
             .lock()
-            .map_err(|_| CommandError::new("demo.unavailable"))?;
+            .map_err(|error| crate::diagnostics::lock_error("demo.unavailable", &error))?;
         if session.is_none() {
             *session = Some(preferences);
         }
@@ -153,12 +153,12 @@ pub async fn enter_demo_mode(state: State<'_, AppState>, app: AppHandle) -> Comm
     // Reload disposes every old query, in-flight frontend callback and selection.
     // The new WebView boot reads process state before mounting any business UI.
     main.eval("window.location.reload()")
-        .map_err(|_| CommandError::new("demo.unavailable"))?;
+        .map_err(|error| crate::diagnostics::command_error("demo.unavailable", false, &error))?;
     for (label, window) in app.webview_windows() {
         if label != "main" {
-            window
-                .destroy()
-                .map_err(|_| CommandError::new("demo.unavailable"))?;
+            window.destroy().map_err(|error| {
+                crate::diagnostics::command_error("demo.unavailable", false, &error)
+            })?;
         }
     }
     Ok(())
@@ -166,7 +166,7 @@ pub async fn enter_demo_mode(state: State<'_, AppState>, app: AppHandle) -> Comm
 
 fn content() -> CommandResult<Value> {
     let mut data: Value = serde_json::from_str(include_str!("../../src/app/demo/messages.json"))
-        .map_err(|_| CommandError::new("demo.unavailable"))?;
+        .map_err(|error| crate::diagnostics::command_error("demo.unavailable", false, &error))?;
     for letters in data
         .as_object_mut()
         .into_iter()

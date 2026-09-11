@@ -414,6 +414,9 @@ mod tests {
         let mut changed = original.clone();
         changed.password = "new-secret".to_owned();
 
-        assert_ne!(account_fingerprint(&original), account_fingerprint(&changed));
+        assert_ne!(
+            account_fingerprint(&original),
+            account_fingerprint(&changed)
+        );
     }
 }

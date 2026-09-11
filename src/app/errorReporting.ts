@@ -1,55 +1,34 @@
-import { api } from "./api";
+import { invoke } from "@tauri-apps/api/core";
+import { normalizeCommandError } from "./commandErrors";
 
-interface FrontendErrorDescriptor {
-  message: string;
-  location: string | null;
-}
-
-function describeError(value: unknown): FrontendErrorDescriptor {
-  if (value instanceof Error) {
-    return { message: value.message, location: value.stack ?? null };
-  }
-  if (typeof value === "object" && value !== null && "code" in value) {
-    const commandError = value as { code?: unknown; retryable?: unknown };
-    return {
-      message: JSON.stringify({
-        code: String(commandError.code ?? "common.unexpected_error"),
-        retryable: commandError.retryable === true,
-      }),
-      location: null,
-    };
-  }
-  if (typeof value === "string") {
-    return { message: value, location: null };
-  }
-  try {
-    return { message: JSON.stringify(value), location: null };
-  } catch {
-    return { message: String(value), location: null };
-  }
-}
-
-function report(level: string, context: string, value: unknown) {
-  const { message, location } = describeError(value);
-  // eslint-disable-next-line no-console
-  console.error("[nextmail]", level, context, message, location ?? "");
-  void api.logFrontendEvent(level, `${context}: ${message}`, location).catch(() => undefined);
-}
+// Never retain Error objects, stacks, arbitrary strings, command arguments or
+// params: they may hold message bodies, passwords and native response payloads.
+const recent = new Map<string, number>();
+let installed = false;
+let inFlight = 0;
 
 export function reportCaughtError(context: string, value: unknown) {
-  report("error", context, value);
+  const error = normalizeCommandError(value);
+  const category = context === "ipc" ? "ipc"
+    : context === "window.error" ? "uncaught"
+    : context === "window.unhandledrejection" ? "rejection" : "caught";
+  const key = `${category}:${error.code}`;
+  const now = Date.now();
+  if (now - (recent.get(key) ?? -Infinity) < 60_000 || inFlight >= 4) return;
+  if (recent.size >= 128) recent.delete(recent.keys().next().value!);
+  recent.set(key, now);
+  if (!("__TAURI_INTERNALS__" in globalThis)) return;
+  inFlight += 1;
+  void invoke("log_frontend_event", {
+    level: "error",
+    message: JSON.stringify({ context: category, code: error.code, retryable: error.retryable }),
+    location: null,
+  }).catch(() => undefined).finally(() => { inFlight -= 1; });
 }
 
-/**
- * Captures uncaught errors and unhandled promise rejections at the window level
- * and forwards them to the backend log file, so frontend crashes leave a
- * diagnostic trail alongside the Rust-side sync/IMAP logs.
- */
 export function setupGlobalErrorReporting() {
-  window.addEventListener("error", (event) => {
-    report("error", "window.error", event.error ?? event.message);
-  });
-  window.addEventListener("unhandledrejection", (event) => {
-    report("error", "window.unhandledrejection", event.reason);
-  });
+  if (installed) return;
+  installed = true;
+  window.addEventListener("error", (event) => reportCaughtError("window.error", event.error));
+  window.addEventListener("unhandledrejection", (event) => reportCaughtError("window.unhandledrejection", event.reason));
 }

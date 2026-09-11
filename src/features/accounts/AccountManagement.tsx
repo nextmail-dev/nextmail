@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { CircleUserRound, KeyRound, Pencil, Plus, Server, ShieldCheck, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -199,7 +200,7 @@ export function AccountManagementPanel({
 
   return (
     <Stack className={className} gap="lg">
-      {normalizedError ? <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert> : null}
+      {normalizedError ? <Alert tone="danger" title={t("errors.title")}>{formatCommandError(t, normalizedError)}</Alert> : null}
       {detailQuery.isPending ? (
         <Stack className="items-center py-8"><Spinner size={22} /></Stack>
       ) : account ? (

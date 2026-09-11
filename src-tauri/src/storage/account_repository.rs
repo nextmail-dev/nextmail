@@ -1,4 +1,4 @@
-use crate::core::{AccountRemovalImpact, CommandError, CommandResult};
+use crate::core::{AccountRemovalImpact, CommandResult};
 use sqlx::Row;
 
 use super::MailRepository;
@@ -19,19 +19,18 @@ impl MailRepository {
         .bind(account_slot_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| CommandError::new("account.removal_impact_failed"))?;
-        let editing_drafts = row
-            .try_get::<i64, _>("editing_drafts")
-            .map_err(|_| CommandError::new("account.removal_impact_failed"))?
-            as u64;
-        let queued_send_jobs = row
-            .try_get::<i64, _>("queued_send_jobs")
-            .map_err(|_| CommandError::new("account.removal_impact_failed"))?
-            as u64;
+        .map_err(|error| crate::diagnostics::command_error("account.removal_impact_failed", false, &error))?;
+        let editing_drafts = row.try_get::<i64, _>("editing_drafts").map_err(|error| {
+            crate::diagnostics::command_error("account.removal_impact_failed", false, &error)
+        })? as u64;
+        let queued_send_jobs = row.try_get::<i64, _>("queued_send_jobs").map_err(|error| {
+            crate::diagnostics::command_error("account.removal_impact_failed", false, &error)
+        })? as u64;
         let pending_operations = row
             .try_get::<i64, _>("pending_operations")
-            .map_err(|_| CommandError::new("account.removal_impact_failed"))?
-            as u64;
+            .map_err(|error| {
+                crate::diagnostics::command_error("account.removal_impact_failed", false, &error)
+            })? as u64;
         Ok(AccountRemovalImpact {
             editing_drafts,
             queued_send_jobs,

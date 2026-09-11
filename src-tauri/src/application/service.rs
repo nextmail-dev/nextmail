@@ -150,12 +150,14 @@ impl AppService {
             return self.get_bootstrap_status();
         }
 
-        fs::create_dir_all(&data_dir)
-            .map_err(|_| CommandError::new("data_directory.create_failed"))?;
+        fs::create_dir_all(&data_dir).map_err(|error| {
+            crate::diagnostics::command_error("data_directory.create_failed", false, &error)
+        })?;
         let initialize_result = async {
             for name in ["raw", "attachments", "cache"] {
-                fs::create_dir(data_dir.join(name))
-                    .map_err(|_| CommandError::new("data_directory.create_failed"))?;
+                fs::create_dir(data_dir.join(name)).map_err(|error| {
+                    crate::diagnostics::command_error("data_directory.create_failed", false, &error)
+                })?;
             }
             write_data_marker(
                 &data_dir,

@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -27,7 +28,7 @@ export function ContactEditor({
 }: {
   state: ContactEditorState;
   busy: boolean;
-  errorCode: string | null;
+  errorCode: import("@/app/types").CommandError | string | null;
   onClose: () => void;
   onCreate?: (draft: ContactDraft) => void;
   onUpdate: (contact: ContactSummary, name: string) => void;
@@ -73,7 +74,7 @@ export function ContactEditor({
           onChange={(event) => setEmail(event.currentTarget.value)}
         />
         {errorCode ? (
-          <Alert tone="danger">{t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}</Alert>
+          <Alert tone="danger">{formatCommandError(t, errorCode)}</Alert>
         ) : null}
         <Inline className="flex-wrap justify-end pt-2">
           <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button>
@@ -97,7 +98,7 @@ export function DirectContactEditor({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<import("@/app/types").CommandError | string | null>(null);
   const contactQuery = useQuery({
     queryKey: mailQueryKeys.contactSummary(accountId, contactId),
     queryFn: () => api.getContactSummary(accountId, contactId),
@@ -115,7 +116,7 @@ export function DirectContactEditor({
       ]);
       onClose();
     },
-    onError: (error) => setErrorCode(normalizeCommandError(error).code),
+    onError: (error) => setErrorCode(normalizeCommandError(error)),
   });
 
   useEffect(() => setErrorCode(null), [accountId, contactId]);
@@ -129,11 +130,11 @@ export function DirectContactEditor({
     );
   }
   if (contactQuery.isError || !contactQuery.data) {
-    const code = contactQuery.error ? normalizeCommandError(contactQuery.error).code : "common.unexpected_error";
+    const code = contactQuery.error ?? "common.unexpected_error";
     return (
       <Modal open onOpenChange={(open) => { if (!open) onClose(); }} title={t("contacts.edit")} closeLabel={t("common.close")}>
         <div className="mt-5 space-y-4">
-          <Alert tone="danger">{t(`errors.${code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
+          <Alert tone="danger">{formatCommandError(t, code)}</Alert>
           <Inline className="justify-end">
             <Button variant="secondary" onClick={() => void contactQuery.refetch()}>{t("common.retry")}</Button>
           </Inline>

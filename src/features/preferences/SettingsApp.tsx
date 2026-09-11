@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import {
   Bell,
   BookOpen,
@@ -153,7 +154,7 @@ export function SettingsApp() {
     return (
       <AppShell className="grid place-items-center bg-card p-8">
         <Alert tone="danger" title={t("errors.title")}>
-          {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+          {formatCommandError(t, error)}
         </Alert>
       </AppShell>
     );
@@ -276,7 +277,7 @@ function SettingsContent({
         </SettingsGroup>
         {error ? (
           <Alert tone="danger" title={t("errors.title")}>
-            {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+            {formatCommandError(t, error)}
           </Alert>
         ) : null}
       </SettingsSection>
@@ -335,7 +336,7 @@ function SettingsContent({
         </SettingsGroup>
         {error ? (
           <Alert tone="danger" title={t("errors.title")}>
-            {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+            {formatCommandError(t, error)}
           </Alert>
         ) : null}
       </SettingsSection>
@@ -385,7 +386,7 @@ function SettingsContent({
         </SettingsGroup>
         {error ? (
           <Alert tone="danger" title={t("errors.title")}>
-            {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+            {formatCommandError(t, error)}
           </Alert>
         ) : null}
       </SettingsSection>

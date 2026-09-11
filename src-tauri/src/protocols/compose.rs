@@ -1,6 +1,4 @@
-use crate::core::{
-    CommandError, CommandResult, DraftContent, DraftRecipientFields, MessageAddress,
-};
+use crate::core::{CommandResult, DraftContent, DraftRecipientFields, MessageAddress};
 use chrono::Local;
 use mail_builder::{
     headers::{address::Address, raw::Raw},
@@ -83,9 +81,9 @@ pub fn build_outgoing_message(
     builder = builder.body(body);
 
     let mut output = Vec::new();
-    builder
-        .write_to(&mut output)
-        .map_err(|_| CommandError::new("send.mime_build_failed"))?;
+    builder.write_to(&mut output).map_err(|error| {
+        crate::diagnostics::command_error("send.mime_build_failed", false, &error)
+    })?;
     Ok(output)
 }
 

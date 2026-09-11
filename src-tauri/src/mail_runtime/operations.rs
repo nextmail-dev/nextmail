@@ -50,11 +50,9 @@ impl MailRuntime {
             leaf_name,
         };
         let config = self.imap_config(account_id).await?;
-        let _permit = self
-            .network_limit
-            .acquire()
-            .await
-            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        let _permit = self.network_limit.acquire().await.map_err(|error| {
+            crate::diagnostics::command_error("account.network_unavailable", true, &error)
+        })?;
         let outcome = self
             .provider
             .apply_mailbox_operation(&config, &operation)
@@ -192,11 +190,9 @@ impl MailRuntime {
             .await?;
         ensure_mailbox_structure_mutable(&source.remote_name)?;
         let config = self.imap_config(account_id).await?;
-        let _permit = self
-            .network_limit
-            .acquire()
-            .await
-            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        let _permit = self.network_limit.acquire().await.map_err(|error| {
+            crate::diagnostics::command_error("account.network_unavailable", true, &error)
+        })?;
         self.provider
             .apply_mailbox_operation(
                 &config,
@@ -228,11 +224,9 @@ impl MailRuntime {
             return Err(CommandError::new("mailbox.not_selectable"));
         }
         let config = self.imap_config(account_id).await?;
-        let _permit = self
-            .network_limit
-            .acquire()
-            .await
-            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        let _permit = self.network_limit.acquire().await.map_err(|error| {
+            crate::diagnostics::command_error("account.network_unavailable", true, &error)
+        })?;
         self.provider
             .apply_mailbox_operation(
                 &config,
@@ -289,11 +283,9 @@ impl MailRuntime {
         operation: RemoteMailboxOperation,
     ) -> CommandResult<()> {
         let config = self.imap_config(account_id).await?;
-        let _permit = self
-            .network_limit
-            .acquire()
-            .await
-            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        let _permit = self.network_limit.acquire().await.map_err(|error| {
+            crate::diagnostics::command_error("account.network_unavailable", true, &error)
+        })?;
         let outcome = self
             .provider
             .apply_mailbox_operation(&config, &operation)
@@ -504,11 +496,9 @@ impl MailRuntime {
         let account = self.service.account_record(account_id)?;
         let repository = Arc::clone(self.repository().await?);
         let config = self.imap_config(account_id).await?;
-        let _permit = self
-            .network_limit
-            .acquire()
-            .await
-            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        let _permit = self.network_limit.acquire().await.map_err(|error| {
+            crate::diagnostics::command_error("account.network_unavailable", true, &error)
+        })?;
         let mut processed = false;
         while let Some(work) = repository
             .operations()
@@ -689,7 +679,7 @@ impl MailRuntime {
                 tracing::warn!(
                     %account_id,
                     %message_id,
-                    ?error,
+                    error_type = std::any::type_name_of_val(&error),
                     "message content event failed"
                 );
             }
@@ -705,7 +695,7 @@ impl MailRuntime {
                 revision,
             },
         ) {
-            tracing::warn!(%account_id, %mailbox_id, ?error, "mailbox event failed");
+            tracing::warn!(%account_id, %mailbox_id, error_type = std::any::type_name_of_val(&error), "mailbox event failed");
         }
     }
 
@@ -722,7 +712,7 @@ impl MailRuntime {
                 %account_id,
                 %operation_id,
                 %status,
-                ?error,
+                error_type = std::any::type_name_of_val(&error),
                 "pending operation event failed"
             );
         }

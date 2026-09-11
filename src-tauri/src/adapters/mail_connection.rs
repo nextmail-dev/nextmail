@@ -45,7 +45,7 @@ pub async fn send_raw_smtp(
         .build();
     let result = timeout(CONNECTION_TIMEOUT, transport.send_raw(envelope, raw))
         .await
-        .map_err(|_| CommandError::retryable("send.smtp_timeout"))?
+        .map_err(|error| crate::diagnostics::command_error("send.smtp_timeout", true, &error))?
         .map_err(|error| {
             if error.is_transient() || error.is_timeout() {
                 CommandError::retryable("send.smtp_temporary_failure")
@@ -70,11 +70,15 @@ impl ConnectionTester for MailConnectionTester {
         let password = draft.password.clone();
         let imap = timeout(CONNECTION_TIMEOUT, test_imap(&draft.incoming, &password))
             .await
-            .map_err(|_| CommandError::retryable("account.imap_timeout"))??;
+            .map_err(|error| {
+                crate::diagnostics::command_error("account.imap_timeout", true, &error)
+            })??;
 
         timeout(CONNECTION_TIMEOUT, test_smtp(&draft.outgoing, &password))
             .await
-            .map_err(|_| CommandError::retryable("account.smtp_timeout"))??;
+            .map_err(|error| {
+                crate::diagnostics::command_error("account.smtp_timeout", true, &error)
+            })??;
 
         Ok(ConnectionTestResult {
             imap_capabilities: imap,
@@ -124,7 +128,9 @@ async fn test_imap(config: &ServerConfig, password: &str) -> CommandResult<Vec<S
             client
                 .run_command_and_check_ok("STARTTLS", None)
                 .await
-                .map_err(|_| CommandError::new("account.imap_starttls_failed"))?;
+                .map_err(|error| {
+                    crate::diagnostics::command_error("account.imap_starttls_failed", false, &error)
+                })?;
             let stream = client.into_inner();
             let tls = connect_tls(&config.host, stream, "account.imap_tls_failed").await?;
             authenticate_imap(async_imap::Client::new(tls), config, password).await
@@ -139,7 +145,9 @@ where
     client
         .read_response()
         .await
-        .map_err(|_| CommandError::new("account.imap_greeting_failed"))?
+        .map_err(|error| {
+            crate::diagnostics::command_error("account.imap_greeting_failed", false, &error)
+        })?
         .ok_or_else(|| CommandError::new("account.imap_greeting_failed"))?;
     Ok(())
 }
@@ -152,15 +160,21 @@ async fn authenticate_imap<T>(
 where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
-    let mut session = client
-        .login(&config.username, password)
-        .await
-        .map_err(|_| CommandError::new("account.imap_authentication_failed"))?;
+    let mut session =
+        client
+            .login(&config.username, password)
+            .await
+            .map_err(|(error, _client)| {
+                crate::diagnostics::command_error(
+                    "account.imap_authentication_failed",
+                    false,
+                    &error,
+                )
+            })?;
     crate::protocols::send_imap_id_if_supported(&mut session).await;
-    let capabilities = session
-        .capabilities()
-        .await
-        .map_err(|_| CommandError::new("account.imap_capability_failed"))?;
+    let capabilities = session.capabilities().await.map_err(|error| {
+        crate::diagnostics::command_error("account.imap_capability_failed", false, &error)
+    })?;
     let values = capabilities
         .iter()
         .map(|capability| format!("{capability:?}"))
@@ -183,10 +197,9 @@ async fn test_smtp(config: &ServerConfig, password: &str) -> CommandResult<()> {
             password.to_owned(),
         ))
         .build();
-    let authenticated = transport
-        .test_connection()
-        .await
-        .map_err(|_| CommandError::new("account.smtp_authentication_failed"))?;
+    let authenticated = transport.test_connection().await.map_err(|error| {
+        crate::diagnostics::command_error("account.smtp_authentication_failed", false, &error)
+    })?;
     transport.shutdown().await;
     if !authenticated {
         return Err(CommandError::new("account.smtp_authentication_failed"));
@@ -197,13 +210,19 @@ async fn test_smtp(config: &ServerConfig, password: &str) -> CommandResult<()> {
 fn smtp_tls_parameters(host: &str) -> CommandResult<TlsParameters> {
     TlsParameters::builder(host.to_owned())
         .build_rustls()
-        .map_err(|_| CommandError::new("account.smtp_tls_configuration_failed"))
+        .map_err(|error| {
+            crate::diagnostics::command_error(
+                "account.smtp_tls_configuration_failed",
+                false,
+                &error,
+            )
+        })
 }
 
 async fn connect_tcp(config: &ServerConfig, code: &str) -> CommandResult<TcpStream> {
     TcpStream::connect((config.host.as_str(), config.port))
         .await
-        .map_err(|_| CommandError::retryable(code))
+        .map_err(|error| crate::diagnostics::command_error(code, true, &error))
 }
 
 async fn connect_tls(
@@ -211,12 +230,13 @@ async fn connect_tls(
     stream: TcpStream,
     code: &str,
 ) -> CommandResult<tokio_rustls::client::TlsStream<TcpStream>> {
-    let server_name = ServerName::try_from(host.to_owned())
-        .map_err(|_| CommandError::new("account.server_name_invalid"))?;
+    let server_name = ServerName::try_from(host.to_owned()).map_err(|error| {
+        crate::diagnostics::command_error("account.server_name_invalid", false, &error)
+    })?;
     native_tls_connector("account.system_certificates_unavailable")?
         .connect(server_name, stream)
         .await
-        .map_err(|_| CommandError::new(code))
+        .map_err(|error| crate::diagnostics::command_error(code, false, &error))
 }
 
 #[cfg(test)]

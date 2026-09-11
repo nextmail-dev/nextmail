@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -42,7 +43,7 @@ export function AccountManagementApp() {
     return (
       <AppShell className="grid place-items-center bg-card p-8">
         <Alert tone="danger" title={t("errors.title")}>
-          {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+          {formatCommandError(t, error)}
         </Alert>
       </AppShell>
     );

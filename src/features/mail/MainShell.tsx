@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleUserRound, Plus, X } from "lucide-react";
@@ -103,7 +104,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     refetchInterval: 10_000,
   });
   const accounts = accountsQuery.data ?? EMPTY_ACCOUNTS;
-  const [composeError, setComposeError] = useState<string | null>(null);
+  const [composeError, setComposeError] = useState<import("@/app/types").CommandError | string | null>(null);
   const [manualSyncAccountId, setManualSyncAccountId] = useState<string | null>(null);
   const [selectedMessageMailboxId, setSelectedMessageMailboxId] = useState("");
   const [workspace, setWorkspace] = useState<"mail" | "contacts">("mail");
@@ -218,7 +219,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     return afterFirstPaint(() => {
       void api.startBackgroundServices()
         .then(() => queryClient.invalidateQueries({ queryKey: mailQueryKeys.syncProgress(selectedAccountId) }))
-        .catch((error) => setComposeError(normalizeCommandError(error).code));
+        .catch((error) => setComposeError(normalizeCommandError(error)));
     });
   }, [queryClient, selectedAccountId]);
 
@@ -244,14 +245,14 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
       })
       .catch((error) => {
         finishManualSyncProgress(selectedAccountId);
-        setComposeError(normalizeCommandError(error).code);
+        setComposeError(normalizeCommandError(error));
       });
   }, [finishManualSyncProgress, queryClient, selectedAccountId]);
 
   const openAccountManagement = useCallback(() => {
     setComposeError(null);
     void api.openAccountManagementWindow()
-      .catch((error) => setComposeError(normalizeCommandError(error).code));
+      .catch((error) => setComposeError(normalizeCommandError(error)));
   }, []);
 
   const handleSelectMailbox = useCallback((mailboxId: string) => {
@@ -263,7 +264,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
     if (!selectedAccountId) return;
     setComposeError(null);
     void api.openComposer(selectedAccountId)
-      .catch((error) => setComposeError(normalizeCommandError(error).code));
+      .catch((error) => setComposeError(normalizeCommandError(error)));
   }, [selectedAccountId]);
 
   const handleSelectContacts = useCallback(() => {
@@ -272,7 +273,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   }, []);
 
   const handleOpenSettings = useCallback(() => {
-    void api.openSettingsWindow().catch((error) => setComposeError(normalizeCommandError(error).code));
+    void api.openSettingsWindow().catch((error) => setComposeError(normalizeCommandError(error)));
   }, []);
 
   if (!accounts.length) {
@@ -386,7 +387,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
 
       {composeError ? (
         <Alert className="fixed right-4 bottom-4 z-40 max-w-sm bg-popover shadow-xl" tone="danger">
-          {t(`errors.${composeError}`, { defaultValue: t("common.unexpectedError") })}
+          {formatCommandError(t, composeError)}
           <Button variant="ghost" size="icon" aria-label={t("common.close")} onClick={() => setComposeError(null)}><X size={15} /></Button>
         </Alert>
       ) : null}
@@ -400,7 +401,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
         <Alert className="fixed right-4 bottom-20 z-40 max-w-sm bg-popover shadow-xl" tone="warning" title={t("mail.syncActionNeedsAttention")}>
           <Stack gap="sm">
             <Text className="text-xs text-current">
-              {pendingIssue.cleanupPending ? t("mail.serverCleanupPending") : t(`errors.${pendingIssue.errorCode}`, { defaultValue: t("mail.syncActionFailed") })}
+              {pendingIssue.cleanupPending ? t("mail.serverCleanupPending") : formatCommandError(t, pendingIssue.errorCode)}
             </Text>
             {!pendingIssue.cleanupPending ? (
               <Button variant="secondary" size="sm" onClick={() => void api.retryPendingOperation(selectedAccountId, pendingIssue.id).then(() => queryClient.invalidateQueries({ queryKey: mailQueryKeys.pendingOperations(selectedAccountId) }))}>{t("common.retry")}</Button>

@@ -242,16 +242,11 @@ where
     Ok(())
 }
 
-// Mirrors `map_imap_err`: preserves the underlying imap error in the log
-// instead of discarding it via `.map_err(|_| ...)`. Operation failures used to
-// surface only a generic code (e.g. "operation.store_failed") with no cause, so
-// a rejected STORE read as a generic "unable to update status" with nothing in
-// the log to diagnose it.
-fn map_operation_err<E: std::fmt::Debug>(code: &'static str) -> impl FnOnce(E) -> CommandError {
-    move |error| {
-        tracing::warn!(%code, ?error, "imap operation failed");
-        CommandError::retryable(code)
-    }
+// Preserve safe classifications and the original operation call site.
+#[track_caller]
+fn map_operation_err<E: std::any::Any>(code: &'static str) -> impl FnOnce(E) -> CommandError {
+    let location = std::panic::Location::caller();
+    move |error| crate::diagnostics::command_error_at(code, true, &error, location)
 }
 
 async fn mark_deleted<T>(session: &mut Session<T>, uid: &str) -> CommandResult<()>

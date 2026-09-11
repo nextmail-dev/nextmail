@@ -41,19 +41,19 @@ impl MailRuntime {
             .save_file(move |path| {
                 let _ = sender.send(path);
             });
-        let selected = receiver
-            .await
-            .map_err(|_| CommandError::new("message.save_dialog_failed"))?;
+        let selected = receiver.await.map_err(|error| {
+            crate::diagnostics::command_error("message.save_dialog_failed", false, &error)
+        })?;
         let Some(selected) = selected else {
             return Ok(false);
         };
-        let target = selected
-            .into_path()
-            .map_err(|_| CommandError::new("message.save_path_invalid"))?;
+        let target = selected.into_path().map_err(|error| {
+            crate::diagnostics::command_error("message.save_path_invalid", false, &error)
+        })?;
         let raw = self.ensure_raw_message(account_id, message_id).await?;
-        tokio::fs::write(target, raw)
-            .await
-            .map_err(|_| CommandError::new("message.save_failed"))?;
+        tokio::fs::write(target, raw).await.map_err(|error| {
+            crate::diagnostics::command_error("message.save_failed", false, &error)
+        })?;
         Ok(true)
     }
 
@@ -127,7 +127,9 @@ impl MailRuntime {
                 crate::protocols::sanitize_raw_message_body(&raw)
             })
             .await
-            .map_err(|_| CommandError::new("message.mime_parse_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("message.mime_parse_failed", false, &error)
+            })?;
             if let Some(body) = body {
                 let body = RemoteMessageBody {
                     plain_text: body.plain_text,
@@ -159,7 +161,7 @@ impl MailRuntime {
                     tracing::warn!(
                         %account_id,
                         %message_id,
-                        ?error,
+                        error_type = std::any::type_name_of_val(&error),
                         "message content event failed"
                     );
                 }
@@ -207,7 +209,7 @@ impl MailRuntime {
                 %message_id,
                 %stage,
                 progress,
-                ?error,
+                error_type = std::any::type_name_of_val(&error),
                 "message body progress event failed"
             );
         }
@@ -239,7 +241,7 @@ impl MailRuntime {
             tracing::warn!(
                 %account_id,
                 %attachment_id,
-                ?error,
+                error_type = std::any::type_name_of_val(&error),
                 "attachment download started event failed"
             );
         }
@@ -261,11 +263,13 @@ impl MailRuntime {
                         .remote_message_context(&account.data_slot_id, &message_id)
                         .await?;
                     let config = self.imap_config(&account.id).await?;
-                    let _permit = self
-                        .network_limit
-                        .acquire()
-                        .await
-                        .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+                    let _permit = self.network_limit.acquire().await.map_err(|error| {
+                        crate::diagnostics::command_error(
+                            "account.network_unavailable",
+                            true,
+                            &error,
+                        )
+                    })?;
                     match self
                         .provider
                         .fetch_attachment(
@@ -356,15 +360,15 @@ impl MailRuntime {
             .save_file(move |path| {
                 let _ = sender.send(path);
             });
-        let selected = receiver
-            .await
-            .map_err(|_| CommandError::new("attachment.save_dialog_failed"))?;
+        let selected = receiver.await.map_err(|error| {
+            crate::diagnostics::command_error("attachment.save_dialog_failed", false, &error)
+        })?;
         let Some(selected) = selected else {
             return Ok(false);
         };
-        let target = selected
-            .into_path()
-            .map_err(|_| CommandError::new("attachment.save_path_invalid"))?;
+        let target = selected.into_path().map_err(|error| {
+            crate::diagnostics::command_error("attachment.save_path_invalid", false, &error)
+        })?;
         let prepared = self
             .prepare_message_attachment(account_id, attachment_id)
             .await?;
@@ -373,7 +377,9 @@ impl MailRuntime {
         }
         tokio::fs::copy(&prepared.path, target)
             .await
-            .map_err(|_| CommandError::new("attachment.save_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("attachment.save_failed", false, &error)
+            })?;
         Ok(true)
     }
 
@@ -414,11 +420,9 @@ impl MailRuntime {
             .remote_message_context(&account.data_slot_id, message_id)
             .await?;
         let config = self.imap_config(&account.id).await?;
-        let _permit = self
-            .network_limit
-            .acquire()
-            .await
-            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        let _permit = self.network_limit.acquire().await.map_err(|error| {
+            crate::diagnostics::command_error("account.network_unavailable", true, &error)
+        })?;
         let message = self
             .provider
             .fetch_message(
@@ -445,7 +449,7 @@ impl MailRuntime {
                 revision,
             },
         ) {
-            tracing::warn!(%account_id, %message_id, ?error, "message content event failed");
+            tracing::warn!(%account_id, %message_id, error_type = std::any::type_name_of_val(&error), "message content event failed");
         }
         Ok(())
     }
@@ -463,11 +467,9 @@ impl MailRuntime {
             .remote_message_context(&account.data_slot_id, message_id)
             .await?;
         let config = self.imap_config(&account.id).await?;
-        let _permit = self
-            .network_limit
-            .acquire()
-            .await
-            .map_err(|_| CommandError::retryable("account.network_unavailable"))?;
+        let _permit = self.network_limit.acquire().await.map_err(|error| {
+            crate::diagnostics::command_error("account.network_unavailable", true, &error)
+        })?;
         match self
             .provider
             .fetch_message_body(
@@ -500,7 +502,7 @@ impl MailRuntime {
                         revision,
                     },
                 ) {
-                    tracing::warn!(%account_id, %message_id, ?error, "message content event failed");
+                    tracing::warn!(%account_id, %message_id, error_type = std::any::type_name_of_val(&error), "message content event failed");
                 }
                 Ok(())
             }

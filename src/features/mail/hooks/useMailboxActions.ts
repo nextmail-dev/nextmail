@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { api, normalizeCommandError } from "@/app/api";
+import type { CommandError } from "@/app/types";
 import { mailQueryKeys } from "../mail-query-keys";
 
 type MailboxAction =
@@ -16,7 +17,7 @@ type MailboxAction =
 
 interface UseMailboxActionsOptions {
   accountId: string;
-  onError: (code: string) => void;
+  onError: (error: CommandError) => void;
 }
 
 export function useMailboxActions({ accountId, onError }: UseMailboxActionsOptions) {
@@ -55,7 +56,7 @@ export function useMailboxActions({ accountId, onError }: UseMailboxActionsOptio
         queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(accountId) }),
       ]);
     },
-    onError: (error) => onError(normalizeCommandError(error).code),
+    onError: (error) => onError(normalizeCommandError(error)),
   });
 
   // mutateAsync is a stable reference, so these callbacks stay stable across

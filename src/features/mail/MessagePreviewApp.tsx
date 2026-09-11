@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useQuery } from "@tanstack/react-query";
@@ -47,7 +48,7 @@ export function MessagePreviewApp(initialLocation: MessagePreviewLocation) {
     return (
       <AppShell className="grid place-items-center bg-card p-8">
         <Alert tone="danger" title={t("errors.title")}>
-          {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+          {formatCommandError(t, error)}
         </Alert>
       </AppShell>
     );

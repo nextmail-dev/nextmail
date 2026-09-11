@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { memo, useEffect, useMemo, useState, type ReactElement, type UIEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock3, Copy, Mail, Pencil, Plus, Search, Send, Trash2, UserRound, UsersRound } from "lucide-react";
@@ -51,7 +52,7 @@ function ContactsWorkspaceBase({
   const [submittedSearch, setSubmittedSearch] = useState("");
   const [editor, setEditor] = useState<ContactEditorState>(null);
   const [groupsOpen, setGroupsOpen] = useState(false);
-  const [operationError, setOperationError] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<import("@/app/types").CommandError | string | null>(null);
 
   useEffect(() => {
     setSelectedContactId("");
@@ -121,7 +122,7 @@ function ContactsWorkspaceBase({
       setOperationError(null);
       await queryClient.invalidateQueries({ queryKey: mailQueryKeys.contactsForAccount(accountId) });
     },
-    onError: (error) => setOperationError(normalizeCommandError(error).code),
+    onError: (error) => setOperationError(normalizeCommandError(error)),
   });
   const updateMutation = useMutation({
     mutationFn: ({ contact, name }: { contact: ContactSummary; name: string }) =>
@@ -137,11 +138,11 @@ function ContactsWorkspaceBase({
       );
       await queryClient.invalidateQueries({ queryKey: mailQueryKeys.contactsForAccount(accountId) });
     },
-    onError: (error) => setOperationError(normalizeCommandError(error).code),
+    onError: (error) => setOperationError(normalizeCommandError(error)),
   });
   const composeMutation = useMutation({
     mutationFn: (contactId: string) => api.openContactComposer(accountId, contactId),
-    onError: (error) => setOperationError(normalizeCommandError(error).code),
+    onError: (error) => setOperationError(normalizeCommandError(error)),
   });
   const deleteMutation = useMutation({
     mutationFn: (contactIds: string[]) => api.deleteContacts(accountId, contactIds),
@@ -161,7 +162,7 @@ function ContactsWorkspaceBase({
         queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(accountId) }),
       ]);
     },
-    onError: (error) => setOperationError(normalizeCommandError(error).code),
+    onError: (error) => setOperationError(normalizeCommandError(error)),
   });
 
   return (
@@ -337,7 +338,7 @@ function ContactsWorkspaceBase({
 
       {operationError ? (
         <Alert className="fixed right-4 bottom-4 z-40 max-w-sm bg-popover shadow-xl" tone="danger">
-          {t(`errors.${operationError}`, { defaultValue: t("common.unexpectedError") })}
+          {formatCommandError(t, operationError)}
         </Alert>
       ) : null}
       <ContactEditor

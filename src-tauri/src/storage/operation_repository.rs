@@ -113,9 +113,9 @@ impl OperationRepository {
         if message_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let mut transaction = super::begin_write(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
+            crate::diagnostics::command_error("operation.queue_failed", false, &error)
+        })?;
         let mut ids = Vec::with_capacity(message_ids.len());
         for message_id in message_ids {
             let id = queue_flag_operation(
@@ -130,10 +130,9 @@ impl OperationRepository {
             ids.push(id);
         }
         refresh_mailbox_counts(&mut transaction, mailbox_id).await?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("operation.queue_failed", false, &error)
+        })?;
         Ok(ids)
     }
 
@@ -155,9 +154,9 @@ impl OperationRepository {
         } else {
             PendingOperationKind::Move
         };
-        let mut transaction = super::begin_write(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
+            crate::diagnostics::command_error("operation.queue_failed", false, &error)
+        })?;
         let mut ids = Vec::with_capacity(message_ids.len());
         for message_id in message_ids {
             let row = operation_location(
@@ -173,7 +172,7 @@ impl OperationRepository {
                     .bind(source_mailbox_id)
                     .execute(&mut *transaction)
                     .await
-                    .map_err(|_| CommandError::new("operation.queue_failed"))?;
+                    .map_err(|error| crate::diagnostics::command_error("operation.queue_failed", false, &error))?;
             }
             let id = Uuid::new_v4().to_string();
             let payload = json!({});
@@ -196,10 +195,9 @@ impl OperationRepository {
             ids.push(id);
         }
         refresh_mailbox_counts(&mut transaction, source_mailbox_id).await?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("operation.queue_failed", false, &error)
+        })?;
         Ok(ids)
     }
 
@@ -209,9 +207,9 @@ impl OperationRepository {
         mailbox_id: &str,
         message_ids: &[String],
     ) -> CommandResult<Vec<String>> {
-        let mut transaction = super::begin_write(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
+            crate::diagnostics::command_error("operation.queue_failed", false, &error)
+        })?;
         let mut ids = Vec::with_capacity(message_ids.len());
         for message_id in message_ids {
             let row = operation_location(&mut transaction, account_slot_id, mailbox_id, message_id)
@@ -221,7 +219,7 @@ impl OperationRepository {
                 .bind(mailbox_id)
                 .execute(&mut *transaction)
                 .await
-                .map_err(|_| CommandError::new("operation.queue_failed"))?;
+                .map_err(|error| crate::diagnostics::command_error("operation.queue_failed", false, &error))?;
             let id = Uuid::new_v4().to_string();
             let payload = json!({});
             insert_operation(
@@ -243,10 +241,9 @@ impl OperationRepository {
             ids.push(id);
         }
         refresh_mailbox_counts(&mut transaction, mailbox_id).await?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("operation.queue_failed", false, &error)
+        })?;
         Ok(ids)
     }
 
@@ -260,9 +257,9 @@ impl OperationRepository {
     ) -> CommandResult<()> {
         self.ensure_mailbox(account_slot_id, drafts_mailbox_id)
             .await?;
-        let mut transaction = super::begin_write(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
+            crate::diagnostics::command_error("operation.queue_failed", false, &error)
+        })?;
         sqlx::query(
             "DELETE FROM pending_operations WHERE account_slot_id = ? AND kind = 'append_draft' \
              AND json_extract(payload_json, '$.draftId') = ? AND status IN ('queued','retry_wait','failed')",
@@ -271,7 +268,7 @@ impl OperationRepository {
         .bind(draft_id)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("operation.queue_failed", false, &error))?;
         let id = Uuid::new_v4().to_string();
         let payload = json!({ "mimeHash": mime_hash, "draftId": draft_id, "revision": revision });
         insert_operation(
@@ -290,10 +287,9 @@ impl OperationRepository {
             },
         )
         .await?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("operation.queue_failed", false, &error)
+        })?;
         Ok(())
     }
 }
@@ -306,7 +302,7 @@ impl OperationRepository {
         .bind(now())
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("operation.recovery_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("operation.recovery_failed", false, &error))?;
         Ok(())
     }
 
@@ -314,9 +310,9 @@ impl OperationRepository {
         &self,
         account_slot_id: &str,
     ) -> CommandResult<Option<PendingOperationWork>> {
-        let mut transaction = super::begin_write(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("operation.claim_failed"))?;
+        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
+            crate::diagnostics::command_error("operation.claim_failed", false, &error)
+        })?;
         let row: Option<PendingOperationRow> = sqlx::query_as(
             "SELECT o.id, o.kind, o.message_id, o.source_mailbox_id, sb.remote_name AS source_name, \
                     o.destination_mailbox_id, \
@@ -333,26 +329,23 @@ impl OperationRepository {
         .bind(now())
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("operation.claim_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("operation.claim_failed", false, &error))?;
         let Some(row) = row else {
-            transaction
-                .commit()
-                .await
-                .map_err(|_| CommandError::new("operation.claim_failed"))?;
+            transaction.commit().await.map_err(|error| {
+                crate::diagnostics::command_error("operation.claim_failed", false, &error)
+            })?;
             return Ok(None);
         };
         if !mark_operation_running(&mut transaction, &row.id).await? {
-            transaction
-                .rollback()
-                .await
-                .map_err(|_| CommandError::new("operation.claim_failed"))?;
+            transaction.rollback().await.map_err(|error| {
+                crate::diagnostics::command_error("operation.claim_failed", false, &error)
+            })?;
             return Ok(None);
         }
         let work = pending_operation_work(row)?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("operation.claim_failed"))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("operation.claim_failed", false, &error)
+        })?;
         Ok(Some(work))
     }
 
@@ -361,9 +354,9 @@ impl OperationRepository {
         work: &PendingOperationWork,
         cleanup_pending: bool,
     ) -> CommandResult<()> {
-        let mut transaction = super::begin_write(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("operation.complete_failed"))?;
+        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
+            crate::diagnostics::command_error("operation.complete_failed", false, &error)
+        })?;
         if matches!(
             work.kind,
             PendingOperationKind::Move | PendingOperationKind::Delete
@@ -379,7 +372,9 @@ impl OperationRepository {
                 .bind(mailbox_id)
                 .execute(&mut *transaction)
                 .await
-                .map_err(|_| CommandError::new("operation.complete_failed"))?;
+                .map_err(|error| {
+                    crate::diagnostics::command_error("operation.complete_failed", false, &error)
+                })?;
                 refresh_mailbox_counts(&mut transaction, mailbox_id).await?;
             }
         }
@@ -392,11 +387,12 @@ impl OperationRepository {
         .bind(&work.id)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("operation.complete_failed"))?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("operation.complete_failed"))?;
+        .map_err(|error| {
+            crate::diagnostics::command_error("operation.complete_failed", false, &error)
+        })?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("operation.complete_failed", false, &error)
+        })?;
         Ok(())
     }
 
@@ -407,9 +403,9 @@ impl OperationRepository {
         retryable: bool,
     ) -> CommandResult<()> {
         let retry = retryable && work.attempt_count < 8;
-        let mut transaction = super::begin_write(&self.pool)
-            .await
-            .map_err(|_| CommandError::new("operation.fail_failed"))?;
+        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
+            crate::diagnostics::command_error("operation.fail_failed", false, &error)
+        })?;
         if !retry {
             self.rollback_projection(&mut transaction, work).await?;
         }
@@ -424,11 +420,10 @@ impl OperationRepository {
         .bind(&work.id)
         .execute(&mut *transaction)
         .await
-        .map_err(|_| CommandError::new("operation.fail_failed"))?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| CommandError::new("operation.fail_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("operation.fail_failed", false, &error))?;
+        transaction.commit().await.map_err(|error| {
+            crate::diagnostics::command_error("operation.fail_failed", false, &error)
+        })?;
         Ok(())
     }
 
@@ -452,7 +447,7 @@ impl OperationRepository {
                     .bind(mailbox_id)
                     .execute(&mut **transaction)
                     .await
-                    .map_err(|_| CommandError::new("operation.fail_failed"))?;
+                    .map_err(|error| crate::diagnostics::command_error("operation.fail_failed", false, &error))?;
             }
             PendingOperationKind::SetFlagged => {
                 let previous = work.payload["previous"].as_bool().unwrap_or(false);
@@ -462,7 +457,7 @@ impl OperationRepository {
                     .bind(mailbox_id)
                     .execute(&mut **transaction)
                     .await
-                    .map_err(|_| CommandError::new("operation.fail_failed"))?;
+                    .map_err(|error| crate::diagnostics::command_error("operation.fail_failed", false, &error))?;
             }
             PendingOperationKind::Move | PendingOperationKind::Delete => {
                 sqlx::query("UPDATE message_locations SET local_hidden = 0 WHERE message_id = ? AND mailbox_id = ?")
@@ -470,7 +465,7 @@ impl OperationRepository {
                     .bind(mailbox_id)
                     .execute(&mut **transaction)
                     .await
-                    .map_err(|_| CommandError::new("operation.fail_failed"))?;
+                    .map_err(|error| crate::diagnostics::command_error("operation.fail_failed", false, &error))?;
             }
             _ => {}
         }
@@ -490,7 +485,7 @@ impl OperationRepository {
         .bind(account_slot_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| CommandError::new("operation.status_read_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("operation.status_read_failed", false, &error))?;
         rows.into_iter()
             .map(|row| {
                 Ok(PendingOperationSummary {
@@ -528,7 +523,7 @@ impl OperationRepository {
         .bind(account_slot_id)
         .execute(&self.pool)
         .await
-        .map_err(|_| CommandError::new("operation.retry_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("operation.retry_failed", false, &error))?;
         if changed.rows_affected() == 1 {
             Ok(())
         } else {
@@ -553,7 +548,9 @@ async fn ensure_mailbox(
     .bind(account_slot_id)
     .fetch_one(pool)
     .await
-    .map_err(|_| CommandError::new("storage.mailboxes_read_failed"))?;
+    .map_err(|error| {
+        crate::diagnostics::command_error("storage.mailboxes_read_failed", false, &error)
+    })?;
     if exists == 1 {
         Ok(())
     } else {
@@ -573,7 +570,7 @@ async fn mark_operation_running(
     .bind(operation_id)
     .execute(&mut **transaction)
     .await
-    .map_err(|_| CommandError::new("operation.claim_failed"))?;
+    .map_err(|error| crate::diagnostics::command_error("operation.claim_failed", false, &error))?;
     Ok(changed.rows_affected() == 1)
 }
 
@@ -589,8 +586,9 @@ fn pending_operation_work(row: PendingOperationRow) -> CommandResult<PendingOper
         uid: row.uid.map(|value| value as u32),
         uid_validity: row.uid_validity.map(|value| value as u32),
         base_modseq: row.base_modseq.map(|value| value as u64),
-        payload: serde_json::from_str(&row.payload_json)
-            .map_err(|_| CommandError::new("storage.json_decode_failed"))?,
+        payload: serde_json::from_str(&row.payload_json).map_err(|error| {
+            crate::diagnostics::command_error("storage.json_decode_failed", false, &error)
+        })?,
         attempt_count: row.attempt_count as u32 + 1,
     })
 }
@@ -649,7 +647,7 @@ async fn flag_operation_row(
     .bind(account_slot_id)
     .fetch_optional(&mut **transaction)
     .await
-    .map_err(|_| CommandError::new("operation.queue_failed"))?
+    .map_err(|error| crate::diagnostics::command_error("operation.queue_failed", false, &error))?
     .ok_or_else(|| CommandError::new("message.remote_location_missing"))
 }
 
@@ -678,7 +676,9 @@ async fn apply_local_flag_value(
             .bind(mailbox_id)
             .execute(&mut **transaction)
             .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("operation.queue_failed", false, &error)
+            })?;
         }
         PendingOperationKind::SetFlagged => {
             sqlx::query(
@@ -689,7 +689,9 @@ async fn apply_local_flag_value(
             .bind(mailbox_id)
             .execute(&mut **transaction)
             .await
-            .map_err(|_| CommandError::new("operation.queue_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("operation.queue_failed", false, &error)
+            })?;
         }
         _ => unreachable!("only flag operations use this helper"),
     }
@@ -719,7 +721,7 @@ async fn insert_operation(
     .bind(now())
     .execute(&mut **transaction)
     .await
-    .map_err(|_| CommandError::new("operation.queue_failed"))?;
+    .map_err(|error| crate::diagnostics::command_error("operation.queue_failed", false, &error))?;
     Ok(())
 }
 
@@ -741,7 +743,7 @@ async fn operation_location(
     .bind(account_slot_id)
     .fetch_optional(&mut **transaction)
     .await
-    .map_err(|_| CommandError::new("operation.queue_failed"))?
+    .map_err(|error| crate::diagnostics::command_error("operation.queue_failed", false, &error))?
     .ok_or_else(|| CommandError::new("message.remote_location_missing"))
 }
 
@@ -760,7 +762,9 @@ async fn refresh_mailbox_counts(
     .bind(mailbox_id)
     .execute(&mut **transaction)
     .await
-    .map_err(|_| CommandError::new("storage.mailbox_write_failed"))?;
+    .map_err(|error| {
+        crate::diagnostics::command_error("storage.mailbox_write_failed", false, &error)
+    })?;
     Ok(())
 }
 

@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { useEffect, useState } from "react";
 import { FolderCheck, FolderOpen, HardDrive } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -34,7 +35,7 @@ export function DataDirectoryStep({
   const [validation, setValidation] = useState<DataDirectoryValidation | null>(null);
   const [checking, setChecking] = useState(false);
   const [initializing, setInitializing] = useState(false);
-  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<import("@/app/types").CommandError | string | null>(null);
   const recovering = status.stage === "data_directory_missing";
 
   useEffect(() => {
@@ -61,7 +62,7 @@ export function DataDirectoryStep({
       if (!result.valid) setErrorCode(result.messageCode);
       return result;
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
       return null;
     } finally {
       setChecking(false);
@@ -77,7 +78,7 @@ export function DataDirectoryStep({
       await api.initializeDataDirectory(path);
       onCompleted();
     } catch (error) {
-      setErrorCode(normalizeCommandError(error).code);
+      setErrorCode(normalizeCommandError(error));
     } finally {
       setInitializing(false);
     }
@@ -152,7 +153,7 @@ export function DataDirectoryStep({
           ) : null}
           {errorCode ? (
             <Alert title={t("errors.title")} tone="danger">
-              {t(`errors.${errorCode}`, { defaultValue: t("common.unexpectedError") })}
+              {formatCommandError(t, errorCode)}
             </Alert>
           ) : null}
         </Stack>

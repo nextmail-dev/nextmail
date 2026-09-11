@@ -27,7 +27,7 @@ impl MailboxRoleRepository {
         .bind(role)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.mailboxes_read_failed"))?;
+        .map_err(|error| crate::diagnostics::command_error("storage.mailboxes_read_failed", false, &error))?;
         row.map(|row| {
             Ok((
                 row.try_get("id").map_err(storage_read_error)?,
@@ -53,7 +53,7 @@ impl MailboxRoleRepository {
         .bind(account_slot_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| CommandError::new("storage.mailboxes_read_failed"))?
+        .map_err(|error| crate::diagnostics::command_error("storage.mailboxes_read_failed", false, &error))?
         .ok_or_else(|| CommandError::new("mailbox.not_found"))?;
         Ok(role_from_db(&value))
     }
@@ -80,7 +80,7 @@ impl MailboxRoleRepository {
             .bind(role_to_db(&role))
             .execute(&self.pool)
             .await
-            .map_err(|_| CommandError::new("mailbox.role_mapping_failed"))?;
+            .map_err(|error| crate::diagnostics::command_error("mailbox.role_mapping_failed", false, &error))?;
             sqlx::query(
                 "INSERT INTO mailbox_role_overrides(account_slot_id, role, mailbox_id, updated_at) \
                  VALUES (?, ?, ?, ?) ON CONFLICT(account_slot_id, role) DO UPDATE SET \
@@ -92,7 +92,7 @@ impl MailboxRoleRepository {
             .bind(now())
             .execute(&self.pool)
             .await
-            .map_err(|_| CommandError::new("mailbox.role_mapping_failed"))?;
+            .map_err(|error| crate::diagnostics::command_error("mailbox.role_mapping_failed", false, &error))?;
         } else {
             sqlx::query(
                 "DELETE FROM mailbox_role_overrides WHERE account_slot_id = ? AND role = ?",
@@ -101,7 +101,9 @@ impl MailboxRoleRepository {
             .bind(role_to_db(&role))
             .execute(&self.pool)
             .await
-            .map_err(|_| CommandError::new("mailbox.role_mapping_failed"))?;
+            .map_err(|error| {
+                crate::diagnostics::command_error("mailbox.role_mapping_failed", false, &error)
+            })?;
         }
         Ok(())
     }
@@ -119,7 +121,9 @@ async fn ensure_mailbox(
     .bind(account_slot_id)
     .fetch_one(pool)
     .await
-    .map_err(|_| CommandError::new("storage.mailboxes_read_failed"))?;
+    .map_err(|error| {
+        crate::diagnostics::command_error("storage.mailboxes_read_failed", false, &error)
+    })?;
     if exists == 1 {
         Ok(())
     } else {

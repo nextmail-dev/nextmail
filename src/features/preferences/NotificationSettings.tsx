@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
 import { useState } from "react";
@@ -50,14 +51,14 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
     return <Stack className="items-center py-8"><Spinner size={22} /></Stack>;
   }
   if (!preferences) {
-    return normalizedError ? <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert> : null;
+    return normalizedError ? <Alert tone="danger" title={t("errors.title")}>{formatCommandError(t, normalizedError)}</Alert> : null;
   }
 
   const folderAccount = accounts.find((account) => account.id === folderAccountId);
   const subordinateDisabled = mutation.isPending || !preferences.enabled;
   return (
     <Stack gap="lg">
-      {normalizedError ? <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert> : null}
+      {normalizedError ? <Alert tone="danger" title={t("errors.title")}>{formatCommandError(t, normalizedError)}</Alert> : null}
       <Surface className="bg-muted/60 p-5 shadow-none">
         <Inline className="justify-between">
           <Stack gap="xs">

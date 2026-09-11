@@ -33,7 +33,9 @@ pub(super) async fn connect_session(
         TcpStream::connect((account.host.as_str(), account.port)),
     )
     .await
-    .map_err(|_| CommandError::retryable("sync.imap_connection_failed"))?
+    .map_err(|error| {
+        crate::diagnostics::command_error("sync.imap_connection_failed", true, &error)
+    })?
     .map_err(map_imap_err("sync.imap_connection_failed", true))?;
     let transport: BoxedImapTransport = match account.security {
         ConnectionSecurity::None => Box::new(TimeoutStream::new(stream, IMAP_IO_TIMEOUT)),
@@ -83,7 +85,9 @@ where
     let mut session = client
         .login(&account.username, &account.password)
         .await
-        .map_err(map_imap_err("sync.imap_authentication_failed", false))?;
+        .map_err(|(error, _client)| {
+            crate::diagnostics::command_error("sync.imap_authentication_failed", false, &error)
+        })?;
     crate::protocols::send_imap_id_if_supported(&mut session).await;
     Ok(session)
 }

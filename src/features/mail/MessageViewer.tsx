@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import {
   Archive,
   ChevronDown,
@@ -178,7 +179,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
   if (query.isPending) return <Stack className="m-auto items-center"><Spinner size={24} /></Stack>;
   if (query.isError || !query.data) {
     const error = normalizeCommandError(query.error);
-    return <Alert className="m-5" tone="danger" title={t("errors.title")}>{t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>;
+    return <Alert className="m-5" tone="danger" title={t("errors.title")}>{formatCommandError(t, error)}</Alert>;
   }
 
   const message = query.data;
@@ -311,7 +312,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
           </Alert>
         ) : null}
         {normalizedOperationError ? (
-          <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedOperationError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
+          <Alert tone="danger" title={t("errors.title")}>{formatCommandError(t, normalizedOperationError)}</Alert>
         ) : null}
       </Stack>
 
@@ -337,7 +338,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
               icon={<MailOpen size={24} />}
               title={bodyMutation.isError ? t("errors.title") : t("mail.bodyUnavailable")}
               description={bodyMutation.isError
-                ? t(`errors.${normalizeCommandError(bodyMutation.error).code}`, { defaultValue: t("common.unexpectedError") })
+                ? formatCommandError(t, normalizeCommandError(bodyMutation.error))
                 : t("mail.bodyUnavailableDescription")}
               action={bodyMutation.isError
                 ? <Button loading={bodyMutation.isPending} onClick={() => bodyMutation.mutate()}><Download size={14} />{t("mail.downloadBody")}</Button>

@@ -30,7 +30,10 @@ where
     let capabilities = match session.capabilities().await {
         Ok(capabilities) => capabilities,
         Err(error) => {
-            tracing::warn!(%error, "imap capability refresh failed; skipping IMAP ID");
+            tracing::warn!(
+                error_type = std::any::type_name_of_val(&error),
+                "imap capability refresh failed; skipping IMAP ID"
+            );
             return;
         }
     };
@@ -46,7 +49,7 @@ where
         .await
     {
         tracing::warn!(
-            %error,
+            error_type = std::any::type_name_of_val(&error),
             "imap ID command failed; servers gating mailboxes on client identity will reject further operations"
         );
     }

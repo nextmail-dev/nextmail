@@ -4,6 +4,7 @@ mod commands;
 mod composer_runtime;
 pub mod core;
 mod demo;
+mod diagnostics;
 mod domain;
 mod error;
 mod logging;
@@ -72,7 +73,10 @@ pub fn run() {
             app.manage(state);
             create_main_window(app)?;
             if let Err(error) = tray_runtime::setup(app.handle()) {
-                tracing::warn!(%error, "system tray setup failed");
+                tracing::warn!(
+                    error_type = std::any::type_name_of_val(&error),
+                    "system tray setup failed"
+                );
             }
             Ok(())
         })
@@ -208,7 +212,12 @@ pub fn run() {
         ]))
         .build(tauri::generate_context!())
         .expect("error while running tauri application");
-    app.run(tray_runtime::handle_run_event);
+    app.run(|app, event| {
+        if matches!(&event, tauri::RunEvent::Exit) {
+            logging::shutdown();
+        }
+        tray_runtime::handle_run_event(app, event);
+    });
 }
 
 pub(crate) fn exit_app(app: &tauri::AppHandle) {
@@ -216,7 +225,7 @@ pub(crate) fn exit_app(app: &tauri::AppHandle) {
         if let Err(error) = window.destroy() {
             tracing::warn!(
                 label = window.label(),
-                ?error,
+                error_type = std::any::type_name_of_val(&error),
                 "webview window destruction failed during exit"
             );
         }

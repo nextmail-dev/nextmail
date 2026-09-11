@@ -42,7 +42,7 @@ pub fn update_open_window_titles(app: &AppHandle, language: &LanguagePreference)
     for (label, window) in app.webview_windows() {
         let kind = kind_for_label(&label);
         if let Err(error) = window.set_title(window_title(language, kind)) {
-            tracing::warn!(%label, ?error, "window title update failed");
+            tracing::warn!(%label, error_type = std::any::type_name_of_val(&error), "window title update failed");
         }
     }
 }

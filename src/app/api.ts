@@ -1,4 +1,17 @@
-import { invoke } from "./demo/session";
+import { invoke as invokeCommand } from "./demo/session";
+import { reportCaughtError } from "./errorReporting";
+import { normalizeCommandError } from "./commandErrors";
+export { normalizeCommandError } from "./commandErrors";
+
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  try { return await invokeCommand<T>(command, args); }
+  catch (error) {
+    const normalized = normalizeCommandError(error);
+    if (command !== "log_frontend_event") reportCaughtError("ipc", normalized);
+    throw normalized;
+  }
+}
+
 import type {
   AccountDraft,
   AccountConnectionDraft,
@@ -8,7 +21,6 @@ import type {
   AppearancePreferences,
   AddressPresentation,
   BootstrapStatus,
-  CommandError,
   ConnectionTestResult,
   ContactDetail,
   ContactDraft,
@@ -387,29 +399,3 @@ export const api = {
   getSendJob: (accountId: string, sendJobId: string) =>
     invoke<SendJobSummary>("get_send_job", { accountId, sendJobId }),
 };
-
-export function normalizeCommandError(error: unknown): CommandError {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    const candidate = error as Partial<CommandError>;
-    return {
-      code: String(candidate.code),
-      params: candidate.params ?? {},
-      retryable: candidate.retryable ?? false,
-    };
-  }
-  if (typeof error === "string") {
-    try {
-      const parsed = JSON.parse(error) as Partial<CommandError>;
-      if (parsed.code) {
-        return {
-          code: parsed.code,
-          params: parsed.params ?? {},
-          retryable: parsed.retryable ?? false,
-        };
-      }
-    } catch {
-      // Tauri can also reject with a plain string in development builds.
-    }
-  }
-  return { code: "common.unexpected_error", params: {}, retryable: false };
-}

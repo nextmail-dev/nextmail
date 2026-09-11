@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -55,12 +56,12 @@ export function UpdateSettings({
       </div>
       {error ? (
         <Alert tone="danger" title={t("errors.title")}>
-          {t(`errors.${error.code}`, { defaultValue: t("common.unexpectedError") })}
+          {formatCommandError(t, error)}
         </Alert>
       ) : null}
       {preferenceError ? (
         <Alert tone="danger" title={t("errors.title")}>
-          {t(`errors.${preferenceError.code}`, { defaultValue: t("common.unexpectedError") })}
+          {formatCommandError(t, preferenceError)}
         </Alert>
       ) : null}
     </Stack>

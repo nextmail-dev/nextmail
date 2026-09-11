@@ -1,3 +1,4 @@
+import { formatCommandError } from "@/app/commandErrors";
 import { isDemoMode } from "@/app/demo/session";
 import {
   Archive,
@@ -247,7 +248,7 @@ export function MailboxPane({
         </Stack>
       ) : null}
       {normalizedError && !collapsed ? (
-        <Alert tone="danger" title={t("errors.title")}>{t(`errors.${normalizedError.code}`, { defaultValue: t("common.unexpectedError") })}</Alert>
+        <Alert tone="danger" title={t("errors.title")}>{formatCommandError(t, normalizedError)}</Alert>
       ) : null}
       <OverlayScrollArea
         className={collapsed ? "-mr-1 min-h-0 flex-1 self-stretch" : "-mr-3 min-h-0 flex-1"}
