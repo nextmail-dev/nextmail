@@ -2,7 +2,7 @@
   <img src="./assets/app-icon.png" width="96" height="96" alt="NextMail icon" />
   <h1>NextMail</h1>
   <p><strong>A calm, local-first desktop email client.</strong></p>
-  <p>Fast offline reading, faithful mail rendering, and reliable delivery — without giving your inbox to another cloud.</p>
+  <p>Read mail locally, sync progressively, and download message content only when you ask for it.</p>
 
   <p>
     English
@@ -20,67 +20,60 @@
 </div>
 
 > [!IMPORTANT]
-> NextMail is currently an early-stage preview. Windows 10 22H2+ x64 and macOS 12+ are the primary hands-on validation platforms. Linux packages are built for early testing, but Linux is not yet deeply adapted or validated.
+> NextMail is currently a preview release. Windows 10 22H2+ and macOS 12+ are the primary supported platforms. Linux builds are available for early testing and have not received the same level of validation.
 
 ## Preview
 
-![Preview](./assets/screenshots/workspace/en_US-combined.png)
+![NextMail workspace preview](./assets/screenshots/workspace/en_US-combined.png)
+
+## Why NextMail?
+
+NextMail keeps your mailbox close to you. Mail that is already stored locally opens without waiting for a cloud service, while new mail arrives gradually in the background. Account passwords stay in your operating system's secure credential storage, and your mail data remains in a directory you choose.
+
+It is designed for people who want a desktop mail client that is quick to open, careful with network traffic, and comfortable to use even when the connection is unreliable.
+
+NextMail is built with **Tauri 2**, **React 19**, **TypeScript**, and **Rust**. The desktop shell and local mail services are Rust-powered, with a React interface for the main mail workspace.
+
+## Mail syncing, explained simply
+
+NextMail separates the information needed to show a mailbox from the larger content inside each message.
+
+1. **Syncing a folder does not download message bodies.** It first receives the useful list information: sender, subject, date, read state, flags, and basic attachment information such as name, type, and size.
+2. **If you do not open a message, its body is not downloaded from the server.** You can browse a large folder without silently pulling every message into the device.
+3. **If you do not open or save an attachment, its content is not downloaded.** Seeing an attachment listed does not download the file.
+4. **Opening a message fetches only the body needed for reading.** Opening or saving an attachment fetches only that attachment. The rest of the mailbox remains untouched.
+5. **Large folders appear progressively.** New messages become visible as they arrive, while the app keeps only the part of the list needed for the current view. A folder with thousands of messages does not become thousands of active screen elements.
+6. **Full-message syncing is optional.** If you explicitly enable it for an account, NextMail can download message bodies in the background. The default remains on-demand downloading.
+
+This gives you a mailbox that is useful quickly, while avoiding unnecessary downloads, storage use, and background work.
 
 ## Highlights
 
-| | |
-| --- | --- |
-| **📬 Multiple accounts**<br />Add, edit, re-authenticate, switch, and safely remove IMAP/SMTP password accounts. | **⚡ Local-first reading**<br />Open the local mailbox immediately, then let background synchronization bring it up to date. |
-| **✍️ Serious composing**<br />Rich text, HTML source, attachments, inline images, templates, signatures, drafts, replies, and forwarding. | **🛡️ Safe, faithful mail**<br />Keep common email layouts and inline images while scripts, forms, unsafe URLs, and remote content stay constrained. |
-| **🔎 Offline search**<br />Search the current account and folder across subjects, addresses, previews, downloaded bodies, and attachment names. | **🗂️ Real folder workflows**<br />Create, rename, move, delete, reorder, and mark IMAP folders read without leaving the desktop app. |
-| **🔁 Durable operations**<br />Reads, stars, moves, copies, deletes, drafts, and outgoing mail survive interruptions through persistent queues. | **🖥️ Desktop-native experience**<br />Dedicated windows, remembered geometry, native credential storage, notifications, bilingual UI, and flexible themes. |
+- **Local-first reading** — See existing mail immediately and continue reading when the network is unavailable.
+- **Multiple accounts** — Add, switch, edit, re-authenticate, and safely remove accounts.
+- **Full writing tools** — Compose rich messages with drafts, templates, signatures, replies, forwards, attachments, and inline images.
+- **Offline search** — Search the current account and folder using information already stored locally.
+- **Real folder workflows** — Create, rename, move, delete, sort, and mark folders as read from the desktop app.
+- **Reliable actions** — Reads, stars, moves, copies, deletes, drafts, and outgoing messages can recover after an interruption.
+- **Safe, faithful reading** — Preserve familiar mail layouts and inline images while scripts, forms, unsafe links, and remote content stay constrained.
+- **Desktop experience** — Dedicated windows, remembered positions, notifications, themes, bilingual UI, and signed update checks.
 
-## Designed around the inbox, not the cloud
+## Careful with message content
 
-### Local first, network second
+Email can contain active or misleading content. NextMail sanitizes HTML mail before displaying it, keeps remote images under your control, and checks downloaded attachments before opening or saving them.
 
-NextMail treats the local mailbox as the primary reading surface. Existing mail appears before a network round trip, and server work continues in the background. Your chosen data directory remains portable; account passwords stay in the operating system credential store.
-
-### Progressive by default
-
-Synchronization makes useful content visible as early as possible: headers arrive first and each message becomes readable in the list as it is committed. Bodies are fetched on demand unless full-message synchronization is explicitly enabled for an account.
-
-### Fidelity without surrendering safety
-
-Email is messy HTML, not a normal web page. NextMail preserves the layouts, tables, author styles, CID images, and common legacy attributes that real mail depends on, while Rust-side sanitization and a sandboxed reader keep active content and unapproved remote resources outside the trust boundary.
-
-### Failure is a state, not data loss
-
-Mail changes and outgoing messages are recorded before network execution. Retries reuse durable intent instead of reconstructing it from UI state, and SMTP success is separated from Sent-folder archival so a filing failure cannot send the same message twice.
-
-## What works today
-
-- Password-based IMAP and SMTP accounts with TLS, STARTTLS, auto-discovery, and explicit confirmation for plaintext connections.
-- Header-first synchronization across selectable folders, optional full-message synchronization, on-demand bodies, and offline raw EML recovery.
-- Read/unread, star, move, copy, archive, delete, mark-all-read, folder management, and local sibling ordering.
-- Safe HTML/CSS and plain-text reading, controlled remote images, CID/data images, original EML, attachment download, save, and system open.
-- Local FTS5 search scoped to the current account and folder.
-- Rich composing with Tiptap/ProseMirror and CodeMirror, explicit draft saving, Drafts/Sent synchronization, templates, signatures, and variables.
-- Reply, reply all, and forward with complete original HTML, inline images, attachments, and stable signature placement.
-- Account-scoped local contacts with contact suggestions, identity cards, and multi-select mail/contact actions.
-- Chinese and English UI, system/light/dark appearance, accent colors, dedicated business windows, and NextMail desktop notifications.
-
-For exact implementation details, engineering conventions, and current limitations, see the [project development guide](./docs/project.md).
-
-## Downloads
-
-Version tags build release assets for three desktop platforms on GitHub Actions:
-
-| Platform | Build | Current support status |
-| --- | --- | --- |
-| Windows 10 22H2+ | x64 installers | Primary validation target |
-| macOS 12+ | Separate Intel x64 and Apple Silicon arm64 apps | Target platform; ad-hoc signed, not notarized |
-| Linux | x64 bundles from Ubuntu 22.04 | Experimental; no deep adaptation guarantee |
+## Download
 
 Download available builds from [GitHub Releases](https://github.com/nextmail-dev/nextmail/releases).
 
+| Platform | Status |
+| --- | --- |
+| Windows 10 22H2+ x64 | Primary validation platform |
+| macOS 12+ Intel and Apple Silicon | Supported target; ad-hoc signed and not notarized |
+| Linux x64 | Experimental build for early testing |
+
 > [!WARNING]
-> Preview artifacts do not yet use production Windows code signing or Apple notarization. Your operating system may show an unverified-developer warning. Only download builds from this repository.
+> Preview builds do not use production Windows code signing or Apple notarization. Your operating system may show an unverified-developer warning. Only download NextMail from this repository.
 
 ## Development
 
@@ -91,24 +84,22 @@ pnpm install
 pnpm tauri dev
 ```
 
-Run the frontend checks from the repository root:
+Run frontend checks from the repository root:
 
 ```powershell
 pnpm test
 pnpm build
 ```
 
-Run Rust checks from the single Tauri package:
+Run Rust checks from `src-tauri`:
 
 ```powershell
-Push-Location src-tauri
 cargo fmt --all -- --check
 cargo test --offline --locked
 cargo clippy --offline --locked --all-targets -- -D warnings
-Pop-Location
 ```
 
-Node.js dependencies are managed only with pnpm. The project does not currently use Python; future Python tooling must use uv.
+For implementation details, engineering conventions, and current limitations, see the [project development guide](./docs/project.md).
 
 ## Documentation
 
@@ -118,9 +109,9 @@ Node.js dependencies are managed only with pnpm. The project does not currently 
 - [Architecture decisions](./docs/adr/)
 - [Third-party notices](./docs/third-party-notices.md)
 
-## Scope
+## Current limitations
 
-NextMail does not currently provide a unified inbox, conversation aggregation, cross-account search, a tray application, system notification-center integration, automatic updates, or production signing/notarization. These are not implied by the current preview or release workflow.
+NextMail does not currently provide a unified inbox, conversation aggregation, or cross-account search. Linux remains an experimental platform, and production code signing and notarization are not yet available.
 
 ## License
 
