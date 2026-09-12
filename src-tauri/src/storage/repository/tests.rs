@@ -5,7 +5,7 @@ use super::*;
 use crate::core::{
     ContactAddressRole, ContactDraft, ContactGroupDraft, ContentAvailability, MailSyncSink,
     MailboxRole, MessageAddress, RemoteContactAddress, RemoteMailbox, RemoteMessage, StoredMailbox,
-    SyncInterval,
+    SyncInterval, MISSING_MESSAGE_PREVIEW,
 };
 use crate::storage::{create_account_slot, initialize_content_database};
 use sqlx::sqlite::SqlitePoolOptions;
@@ -1494,6 +1494,58 @@ async fn notification_baseline_and_message_upsert_are_durable() {
         .await
         .unwrap();
     assert!(!existing_mailbox.notification_baseline_required);
+}
+
+#[tokio::test]
+async fn fallback_preview_does_not_replace_existing_text() {
+    let (_directory, repository, mailbox) = repository_with_mailbox(11).await;
+    let mut message = remote_message(1, 11, "Existing preview");
+    message.preview = "A real text preview".to_owned();
+    message.plain_text = None;
+    repository
+        .sync_sink()
+        .upsert_message("slot", &mailbox.id, &message)
+        .await
+        .unwrap();
+
+    message.preview = MISSING_MESSAGE_PREVIEW.to_owned();
+    repository
+        .sync_sink()
+        .upsert_message("slot", &mailbox.id, &message)
+        .await
+        .unwrap();
+
+    let mut missing = remote_message(2, 11, "Missing preview");
+    missing.preview = MISSING_MESSAGE_PREVIEW.to_owned();
+    missing.plain_text = None;
+    repository
+        .sync_sink()
+        .upsert_message("slot", &mailbox.id, &missing)
+        .await
+        .unwrap();
+
+    let messages = repository
+        .read()
+        .list_messages("slot", &mailbox.id, None, 20)
+        .await
+        .unwrap()
+        .items;
+    assert_eq!(
+        messages
+            .iter()
+            .find(|item| item.subject == "Existing preview")
+            .unwrap()
+            .preview,
+        "A real text preview"
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .find(|item| item.subject == "Missing preview")
+            .unwrap()
+            .preview,
+        MISSING_MESSAGE_PREVIEW
+    );
 }
 
 #[tokio::test]

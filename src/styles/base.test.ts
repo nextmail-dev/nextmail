@@ -28,6 +28,13 @@ describe("global pointer styles", () => {
   });
 });
 
+describe("global icon colors", () => {
+  it("uses the accessible theme color while allowing semantic contrast overrides", () => {
+    expect(baseStyles).toMatch(/:where\(\.lucide\)\s*\{[^}]*color:\s*var\(--primary\)/m);
+    expect(baseStyles).toMatch(/\[data-icon-tone="current"\] \.lucide,[^}]*color:\s*currentColor/m);
+  });
+});
+
 describe("global dialog layer", () => {
   it("stays above the draggable titlebar and takes over native drag hit testing", () => {
     expect(baseStyles).toMatch(/--layer-window-titlebar:\s*100/);
@@ -48,7 +55,7 @@ describe("desktop window chrome", () => {
     expect(themeStyles).toMatch(/--border-strong:/);
     expect(themeStyles).toMatch(/--titlebar:/);
     expect(themeStyles).toMatch(/--window-background:\s*linear-gradient\(180deg/);
-    expect(themeStyles).toMatch(/--titlebar-background:\s*linear-gradient\(180deg/);
+    expect(themeStyles).toMatch(/--titlebar-background:\s*color-mix\(/);
     expect(themeStyles).toMatch(/--surface-highlight:/);
     expect(themeStyles).toMatch(/--shadow-control:/);
     expect(themeStyles).toMatch(/--shadow-overlay:/);
@@ -60,6 +67,8 @@ describe("desktop window chrome", () => {
     expect(baseStyles).toMatch(/--titlebar-height:\s*42px/);
     expect(baseStyles).toMatch(/\.window-titlebar\s*\{[^}]*border-bottom:\s*1px solid var\(--titlebar-border\)/m);
     expect(baseStyles).toMatch(/\.window-titlebar\s*\{[^}]*background:\s*var\(--titlebar-background\)/m);
+    expect(baseStyles).toMatch(/\.window-titlebar\s*\{[^}]*backdrop-filter:\s*blur\(18px\)/m);
     expect(baseStyles).toMatch(/\.window-titlebar-title\s*\{[^}]*left:\s*50%/m);
+    expect(baseStyles).toMatch(/\.window-titlebar-controls\s*\{[^}]*gap:\s*3px/m);
   });
 });

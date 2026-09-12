@@ -49,7 +49,7 @@ export function ThemeModePicker({
               >
                 <ThemePreview mode={option.value} />
                 {checked ? (
-                  <span className="absolute top-3 right-3 grid size-5 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm">
+                  <span data-icon-tone="current" className="absolute top-3 right-3 grid size-5 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm">
                     <Check size={13} strokeWidth={3} />
                   </span>
                 ) : null}

@@ -1,0 +1,16 @@
+{
+  "contact.email_invalid": "Enter a valid email address.",
+  "contact.already_exists": "A contact with this email address already exists in this account.",
+  "contact.name_required": "Enter a contact name.",
+  "contact.name_invalid": "The contact name is too long or contains an unsupported character.",
+  "contact.not_found": "This contact no longer exists.",
+  "contact.conflict": "This contact changed elsewhere. Reload it and try again.",
+  "contact_group.name_required": "Enter a group name.",
+  "contact_group.name_invalid": "Group names can contain at most 80 characters and cannot contain control characters.",
+  "contact_group.already_exists": "A group with this name already exists in this account.",
+  "contact_group.not_found": "This group is no longer available.",
+  "contact_group.conflict": "This group changed elsewhere or was deleted. Cancel this edit and reopen it to load the latest version.",
+  "contact_group.member_unavailable": "Some members are no longer available in this account. Cancel this edit and select the members again.",
+  "contact_group.read_failed": "Contact groups could not be loaded.",
+  "contact_group.write_failed": "The contact group could not be saved."
+}

@@ -57,7 +57,7 @@ pub struct AppearancePreferences {
 impl Default for AppearancePreferences {
     fn default() -> Self {
         Self {
-            theme: ThemePreference::Light,
+            theme: ThemePreference::System,
             accent_color: "#2563eb".to_owned(),
             language: LanguagePreference::ZhCn,
         }
@@ -598,6 +598,8 @@ pub struct NotificationNavigationTarget {
     pub message_id: Option<String>,
 }
 
+pub const MISSING_MESSAGE_PREVIEW: &str = "—";
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageListItem {
@@ -972,10 +974,10 @@ mod tests {
     };
 
     #[test]
-    fn appearance_preferences_default_to_light() {
+    fn appearance_preferences_default_to_system() {
         assert_eq!(
             AppearancePreferences::default().theme,
-            ThemePreference::Light
+            ThemePreference::System
         );
     }
 

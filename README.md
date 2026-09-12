@@ -2,7 +2,7 @@
   <img src="./assets/app-icon.png" width="96" height="96" alt="NextMail icon" />
   <h1>NextMail</h1>
   <p><strong>A calm, local-first desktop email client.</strong></p>
-  <p>Read mail locally, sync progressively, and download message content only when you ask for it.</p>
+  <p>Read mail locally, sync progressively, and download full message content only when you ask for it.</p>
 
   <p>
     English
@@ -38,8 +38,8 @@ NextMail is built with **Tauri 2**, **React 19**, **TypeScript**, and **Rust**. 
 
 NextMail separates the information needed to show a mailbox from the larger content inside each message.
 
-1. **Syncing a folder does not download message bodies.** It first receives the useful list information: sender, subject, date, read state, flags, and basic attachment information such as name, type, and size.
-2. **If you do not open a message, its body is not downloaded from the server.** You can browse a large folder without silently pulling every message into the device.
+1. **Syncing a folder prepares a short text preview, without downloading the full message body.** It receives the sender, subject, date, read state, flags, basic attachment information, and a small amount of text so every new list item appears at a stable height.
+2. **If you do not open a message, its full body is not downloaded from the server.** Only the short list preview is received automatically, so a large folder does not silently pull every complete message into the device.
 3. **If you do not open or save an attachment, its content is not downloaded.** Seeing an attachment listed does not download the file.
 4. **Opening a message fetches only the body needed for reading.** Opening or saving an attachment fetches only that attachment. The rest of the mailbox remains untouched.
 5. **Large folders appear progressively.** New messages become visible as they arrive, while the app keeps only the part of the list needed for the current view. A folder with thousands of messages does not become thousands of active screen elements.

@@ -41,7 +41,7 @@ export function WindowTitlebar({ kind }: { kind: WindowKind }) {
       <span className="window-titlebar-drag-region min-w-0 flex-1" data-tauri-drag-region />
       <span className="window-titlebar-title" data-tauri-drag-region>{title}</span>
       {isWindows ? (
-        <nav className="ml-auto flex h-full" aria-label={t("common.windowControls")}>
+        <nav className="window-titlebar-controls ml-auto flex h-8 items-center" aria-label={t("common.windowControls")}>
           <WindowControl label={t("common.minimize")} onClick={() => void appWindow.minimize()}>
             <Minus size={15} strokeWidth={1.7} />
           </WindowControl>
@@ -89,8 +89,8 @@ function WindowControl({
     <button
       type="button"
       className={cn(
-        "grid h-full w-10 place-items-center border-0 bg-transparent text-muted-foreground outline-none transition-colors hover:bg-foreground/7 hover:text-foreground focus-visible:bg-foreground/7 focus-visible:text-foreground",
-        danger && "hover:bg-[#e5484d] hover:text-white focus-visible:bg-[#e5484d] focus-visible:text-white",
+        "grid h-7 w-9 place-items-center rounded-md border-0 bg-transparent text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:bg-primary/10",
+        danger && "window-titlebar-control--danger hover:bg-[#e5484d] hover:text-white focus-visible:bg-[#e5484d] focus-visible:text-white",
       )}
       aria-label={label}
       title={label}

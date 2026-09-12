@@ -1,0 +1,29 @@
+{
+  "errorReasons": {
+    "permission_denied": "权限不足，请检查目录或系统凭据库的访问权限。",
+    "file_busy": "文件正被其他程序占用，请稍后重试。",
+    "database_busy": "本地数据库繁忙，请稍后重试。",
+    "disk_full": "磁盘空间不足，请释放空间后重试。",
+    "read_only": "存储位置为只读，请检查写入权限。",
+    "not_found": "所需文件或记录不存在，请重新加载后重试。",
+    "invalid_data": "数据格式无效或已损坏，请检查数据来源。",
+    "timeout": "操作超时，请检查连接后重试。",
+    "connection_lost": "连接已中断，请检查网络后重试。",
+    "connection_refused": "服务器拒绝连接，请检查地址、端口和网络。",
+    "server_rejected": "服务器拒绝了请求，请检查账户授权和服务器设置。",
+    "protocol": "服务器响应格式无法处理，请检查服务器兼容性。",
+    "constraint": "数据约束冲突，请重新加载后再试。",
+    "database": "本地数据库操作失败，请使用错误码和日志排查。",
+    "io": "存储或连接读写失败，请检查可用空间、权限和连接。",
+    "network": "网络请求失败，请检查连接后重试。",
+    "credential_missing": "系统中未找到已保存的凭据，请重新认证。",
+    "credential_store": "系统凭据库不可用，请检查系统登录和凭据服务。",
+    "task_panicked": "后台任务异常终止，请重启应用并保留日志。",
+    "task_cancelled": "后台任务已取消，请重新执行操作。",
+    "unknown": "暂时无法判定底层原因，可使用错误码和日志定位。"
+  },
+  "errorDetails": {
+    "unknownVariable": "未知变量",
+    "code": "错误码：{{code}}"
+  }
+}

@@ -35,7 +35,7 @@ describe("WindowTitlebar", () => {
     platformState.value = "windows";
     const { container } = render(<WindowTitlebar kind="main" />);
 
-    expect(screen.getByRole("navigation", { name: "Window controls" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Window controls" })).toHaveClass("window-titlebar-controls");
     fireEvent.doubleClick(container.querySelector("header")!);
     expect(windowMock.toggleMaximize).toHaveBeenCalledOnce();
   });

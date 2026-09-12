@@ -1,0 +1,99 @@
+{
+  "settings": {
+    "title": "设置",
+    "description": "管理这台设备上的 NextMail",
+    "categories": "设置类别",
+    "noAccount": "尚未连接邮件账户",
+    "noOptions": "当前没有可调整的选项",
+    "noOptionsDescription": "此类别会在相关功能可配置时显示选项。",
+    "autoLoadRemoteImages": "自动加载远程图片",
+    "autoLoadRemoteImagesDescription": "远程图片可能让发件人得知邮件被打开的时间和位置。此偏好会应用于这台设备上的所有邮件。",
+    "autoLoadMoreMessages": "滚动到底时自动加载更多邮件",
+    "autoLoadMoreMessagesDescription": "开启后，邮件列表接近底部时会自动载入下一页；关闭后可使用列表底部的“加载更多”。",
+    "autoLoadMoreContacts": "滚动到底时自动加载更多联系人",
+    "autoLoadMoreContactsDescription": "开启后，联系人列表接近底部时会自动载入下一页；关闭后可使用列表底部的“加载更多联系人”。",
+    "minimizeToTray": "关闭主界面时最小化到托盘",
+    "minimizeToTrayDescription": "关闭退出询问后，此选项决定关闭主界面是隐藏到托盘还是退出应用。",
+    "askBeforeExit": "退出时询问",
+    "askBeforeExitDescription": "关闭主界面时询问要最小化到托盘还是退出。选择“不再询问”会关闭此选项并记住本次选择。",
+    "autoCheckUpdates": "启动时自动检测更新",
+    "autoCheckUpdatesDescription": "NextMail 启动完成后在后台检查新版本；发现更新时仍由您确认安装。",
+    "group": {
+      "interface": "界面语言",
+      "theme": "界面主题",
+      "contentPrivacy": "内容与隐私",
+      "listBehavior": "列表行为",
+      "tray": "托盘图标",
+      "application": "应用信息",
+      "updates": "软件更新",
+      "startup": "启动"
+    },
+    "category": {
+      "general": "通用",
+      "appearance": "外观",
+      "accounts": "账户",
+      "reading": "阅读",
+      "composer": "写信",
+      "notifications": "通知",
+      "advanced": "更多",
+      "about": "关于"
+    },
+    "categoryDescription": {
+      "general": "设置界面语言与通用使用偏好。",
+      "appearance": "调整界面模式和主题色。",
+      "accounts": "添加、切换并管理各邮件账户的连接和同步。",
+      "reading": "管理邮件正文与远程图片的阅读偏好。",
+      "composer": "管理默认写信行为和编辑器偏好。",
+      "notifications": "管理新邮件和系统通知行为。",
+      "advanced": "管理列表加载、存储、连接与其他运行选项。",
+      "about": "查看 NextMail 的版本和产品信息。"
+    },
+    "launchAtStartup": "开机自动启动",
+    "launchAtStartupDescription": "登录系统后自动在后台启动 NextMail；可在托盘图标或再次打开应用时显示主界面。"
+  },
+  "desktop": {
+    "closeTitle": "关闭 NextMail",
+    "closeDescription": "要将主界面最小化到托盘，还是退出 NextMail？",
+    "rememberCloseChoice": "不再询问并记住本次选择",
+    "minimizeToTrayAction": "最小化到托盘",
+    "quit": "退出"
+  },
+  "updates": {
+    "check": "检测更新",
+    "checking": "正在检测更新",
+    "upToDate": "当前已是最新版本（{{version}}）",
+    "available": "发现新版本 {{version}}",
+    "availableTitle": "NextMail {{version}} 已可用",
+    "availableDescription": "下载完成后 NextMail 将重启并安装更新。",
+    "releaseNotes": "版本说明",
+    "noReleaseNotes": "此版本没有提供额外说明。",
+    "install": "下载并安装",
+    "installing": "正在下载并安装",
+    "later": "稍后"
+  },
+  "notifications": {
+    "enabled": "新邮件通知",
+    "enabledDescription": "为新同步的未读邮件展示通知。首次同步和缓存重建不会打扰您。",
+    "displayMode": "多封邮件到达时",
+    "stacked": "层叠展示通知",
+    "replace": "覆盖当前通知",
+    "maxStacked": "最多层叠数量",
+    "displayDuration": "展示时间",
+    "seconds": "{{count}} 秒",
+    "accounts": "账户通知",
+    "accountsDescription": "每个账户都可以独立关闭。收件箱默认开启，其他文件夹需要主动开启。",
+    "accountToggle": "{{account}} 的通知",
+    "manageFolders": "管理 {{account}} 的通知文件夹",
+    "folderTitle": "通知文件夹 · {{account}}",
+    "folderDescription": "选择此账户中允许产生新邮件通知的文件夹。",
+    "folderToggle": "{{folder}} 的通知",
+    "newMailForAccount": "新邮件 · {{account}}",
+    "openMessage": "打开邮件：{{subject}}",
+    "dismiss": "关闭通知"
+  },
+  "about": {
+    "title": "关于 NextMail",
+    "version": "版本 {{version}}",
+    "description": "一款专注、安全且支持离线使用的桌面邮件客户端。"
+  }
+}

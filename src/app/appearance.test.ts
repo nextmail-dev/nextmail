@@ -21,8 +21,8 @@ describe("appearance preferences", () => {
     document.documentElement.removeAttribute("style");
   });
 
-  it("uses the light theme before persisted preferences are available", () => {
-    expect(defaultPreferences.theme).toBe("light");
+  it("follows the system theme before persisted preferences are available", () => {
+    expect(defaultPreferences.theme).toBe("system");
   });
 
   it("adapts a dark-theme accent for readable surfaces and controls", () => {

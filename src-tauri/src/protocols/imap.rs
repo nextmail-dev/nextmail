@@ -18,11 +18,12 @@ pub use provider::AsyncImapProvider;
 
 use crate::core::{
     AddressPresentation, CommandError, CommandResult, ContentAvailability, ImapAccountConfig,
-    MailSyncSink, MailboxRole, MailboxSyncTarget, MessageListItem, RemoteAttachment, RemoteMailbox,
-    RemoteMessage, RemoteMessageState, StoredMailbox, StoredMessageLocation, SyncNotice,
-    SyncObserver,
+    MailSyncSink, MailboxRole, MailboxSyncTarget, MessageListItem, MessageUpsertOutcome,
+    RemoteMailbox, RemoteMessage, RemoteMessageState, StoredMailbox, StoredMessageLocation,
+    SyncNotice, SyncObserver,
 };
 use async_imap::{
+    imap_proto::types::{MessageSection, SectionPath},
     types::{Flag, NameAttribute},
     Session,
 };
@@ -34,6 +35,7 @@ use tokio::{
 };
 
 const FETCH_BATCH_SIZE: usize = 20;
+const PREVIEW_TEXT_BYTES: usize = 8 * 1024;
 pub const SELECTIVE_FETCH_UNSUPPORTED: &str = "sync.message_selective_fetch_unsupported";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,6 +57,12 @@ struct FetchedMessageSummary {
     header: Vec<u8>,
     size: u64,
     modseq: Option<u64>,
+}
+
+struct CommittedSummary {
+    uid: u32,
+    message: RemoteMessage,
+    outcome: MessageUpsertOutcome,
 }
 
 struct FolderSyncContext<'a> {
@@ -481,12 +489,10 @@ where
             .await
             .map_err(map_imap_err("sync.message_fetch_failed", true))?;
 
-        // Header-only: store the summary now (subject/sender/date/flags) so the
-        // list appears immediately; the body — and with it the preview — is
-        // fetched on demand when the message is opened. Consume the FETCH
-        // response stream directly so every received header is committed even
-        // when the connection fails before the rest of the batch arrives.
-        let mut batch_messages: Vec<(u32, RemoteMessage)> = Vec::with_capacity(batch.len());
+        // Commit each header immediately so a later BODYSTRUCTURE or preview
+        // failure cannot lose already received messages. Arrival events wait
+        // until the bounded preview pass finishes, or use the fixed fallback.
+        let mut batch_messages = Vec::with_capacity(batch.len());
         while let Some(summary) = summaries
             .try_next()
             .await
@@ -533,28 +539,6 @@ where
             if outcome.contacts_changed {
                 observer.notify(SyncNotice::ContactsChanged);
             }
-            if outcome.is_new_location {
-                observer.notify(SyncNotice::MessageArrived {
-                    mailbox_id: context.mailbox.id.clone(),
-                    item: message_list_item_from_remote(
-                        context.mailbox.id.clone(),
-                        &message,
-                        outcome.message_id.clone(),
-                    ),
-                });
-                if message.unread && !context.mailbox.notification_baseline_required {
-                    let sender = message.from.first();
-                    observer.notify(SyncNotice::NewMessageCandidate {
-                        mailbox_id: context.mailbox.id.clone(),
-                        message_id: outcome.message_id,
-                        sender_name: sender.and_then(|address| address.name.clone()),
-                        sender_email: sender
-                            .map_or_else(String::new, |address| address.email.clone()),
-                        subject: message.subject.clone(),
-                        default_enabled: context.default_notification_enabled,
-                    });
-                }
-            }
             highest_uid = highest_uid.max(summary.uid);
             let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
             observer.notify(SyncNotice::Summaries {
@@ -562,7 +546,11 @@ where
                 total,
                 mailbox_name: context.mailbox_name.to_owned(),
             });
-            batch_messages.push((uid, message));
+            batch_messages.push(CommittedSummary {
+                uid,
+                message,
+                outcome,
+            });
         }
         drop(summaries);
 
@@ -577,24 +565,49 @@ where
         // process. The error is not logged in full because it embeds the raw
         // server response.
         if context.bodystructure_mode == BodystructureMode::Disabled {
+            notify_arrivals(observer, context, &batch_messages);
             continue;
         }
-        match fetch_bodystructure_attachments(session, &batch).await {
+        match fetch_bodystructures(session, &batch).await {
             Ok(by_uid) => {
-                for (uid, message) in &mut batch_messages {
-                    let Some(attachments) = by_uid.get(uid) else {
-                        continue;
-                    };
-                    if attachments.is_empty() {
+                let previews = match fetch_preview_samples(session, &by_uid).await {
+                    Ok(previews) => previews,
+                    Err(error) => {
+                        tracing::warn!(
+                            code = %error.code,
+                            mailbox_name = %context.mailbox_name,
+                            "preview section fetch failed; using the stable fallback for this batch"
+                        );
+                        HashMap::new()
+                    }
+                };
+                for committed in &mut batch_messages {
+                    let mut changed = false;
+                    if let Some(structure) = by_uid.get(&committed.uid) {
+                        if !structure.attachments.is_empty() {
+                            committed.message.attachments = structure.attachments.clone();
+                            changed = true;
+                        }
+                    }
+                    if let Some(preview) = previews.get(&committed.uid) {
+                        committed.message.preview = preview.clone();
+                        changed = true;
+                    }
+                    if !changed {
                         continue;
                     }
-                    message.attachments = attachments.clone();
                     let _write_guard = write_lock.lock().await;
-                    sink.upsert_message(&account.account_slot_id, &context.mailbox.id, message)
-                        .await?;
+                    sink.upsert_message(
+                        &account.account_slot_id,
+                        &context.mailbox.id,
+                        &committed.message,
+                    )
+                    .await?;
                 }
+                notify_arrivals(observer, context, &batch_messages);
             }
             Err(error) => {
+                notify_arrivals(observer, context, &batch_messages);
                 tracing::warn!(
                     code = %error.code,
                     mailbox_name = %context.mailbox_name,
@@ -609,10 +622,41 @@ where
     Ok((highest_uid, session_usable))
 }
 
-async fn fetch_bodystructure_attachments<T>(
+fn notify_arrivals(
+    observer: &(dyn SyncObserver + Send + Sync),
+    context: &FolderSyncContext<'_>,
+    messages: &[CommittedSummary],
+) {
+    for committed in messages {
+        if !committed.outcome.is_new_location {
+            continue;
+        }
+        observer.notify(SyncNotice::MessageArrived {
+            mailbox_id: context.mailbox.id.clone(),
+            item: message_list_item_from_remote(
+                context.mailbox.id.clone(),
+                &committed.message,
+                committed.outcome.message_id.clone(),
+            ),
+        });
+        if committed.message.unread && !context.mailbox.notification_baseline_required {
+            let sender = committed.message.from.first();
+            observer.notify(SyncNotice::NewMessageCandidate {
+                mailbox_id: context.mailbox.id.clone(),
+                message_id: committed.outcome.message_id.clone(),
+                sender_name: sender.and_then(|address| address.name.clone()),
+                sender_email: sender.map_or_else(String::new, |address| address.email.clone()),
+                subject: committed.message.subject.clone(),
+                default_enabled: context.default_notification_enabled,
+            });
+        }
+    }
+}
+
+async fn fetch_bodystructures<T>(
     session: &mut Session<T>,
     batch: &[u32],
-) -> CommandResult<HashMap<u32, Vec<RemoteAttachment>>>
+) -> CommandResult<HashMap<u32, structure::MessageStructure>>
 where
     T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
 {
@@ -631,14 +675,85 @@ where
         .iter()
         .filter_map(|fetched| {
             let uid = fetched.uid?;
-            let attachments = fetched
+            let structure = fetched
                 .bodystructure()
-                .map(structure::analyze_bodystructure)
-                .map(|structure| structure.attachments)
-                .unwrap_or_default();
-            Some((uid, attachments))
+                .map(structure::analyze_bodystructure)?;
+            Some((uid, structure))
         })
         .collect())
+}
+
+async fn fetch_preview_samples<T>(
+    session: &mut Session<T>,
+    structures: &HashMap<u32, structure::MessageStructure>,
+) -> CommandResult<HashMap<u32, String>>
+where
+    T: AsyncRead + AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
+    let mut grouped = HashMap::<String, Vec<(u32, structure::TextSectionKind)>>::new();
+    for (uid, structure) in structures {
+        let descriptor = structure
+            .text_sections
+            .iter()
+            .find(|section| section.text_kind == Some(structure::TextSectionKind::Plain));
+        if let Some(descriptor) = descriptor {
+            let Some(kind) = descriptor.text_kind else {
+                continue;
+            };
+            grouped
+                .entry(descriptor.section.clone())
+                .or_default()
+                .push((*uid, kind));
+        }
+    }
+
+    let mut previews = HashMap::new();
+    for (section, mut messages) in grouped {
+        messages.sort_unstable_by_key(|(uid, _)| *uid);
+        let Some(path) = structure::canonical_section_path(&section) else {
+            continue;
+        };
+        let uid_set = messages
+            .iter()
+            .map(|(uid, _)| uid.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = preview_fetch_query(&section);
+        let responses = session
+            .uid_fetch(uid_set, query)
+            .await
+            .map_err(map_imap_err("sync.message_fetch_failed", true))?
+            .try_collect::<Vec<_>>()
+            .await
+            .map_err(map_imap_err("sync.message_fetch_failed", true))?;
+        let mime_path = SectionPath::Part(path.clone(), Some(MessageSection::Mime));
+        let body_path = SectionPath::Part(path, None);
+        for fetched in responses {
+            let Some(uid) = fetched.uid else {
+                continue;
+            };
+            let Some((_, kind)) = messages.iter().find(|(candidate, _)| *candidate == uid) else {
+                continue;
+            };
+            let Some(mime) = fetched.section(&mime_path) else {
+                continue;
+            };
+            let Some(body) = fetched.section(&body_path) else {
+                continue;
+            };
+            let Some(parsed) = structure::parse_text_section(*kind, mime, body) else {
+                continue;
+            };
+            if !parsed.preview.trim().is_empty() {
+                previews.insert(uid, parsed.preview);
+            }
+        }
+    }
+    Ok(previews)
+}
+
+fn preview_fetch_query(section: &str) -> String {
+    format!("(UID BODY.PEEK[{section}.MIME] BODY.PEEK[{section}]<0.{PREVIEW_TEXT_BYTES}>)")
 }
 
 async fn fetch_missing_bodies<T>(

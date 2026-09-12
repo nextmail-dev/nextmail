@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::core::{
     CommandError, CommandResult, MailSyncSink, MailboxRole, MessageUpsertOutcome, RemoteMailbox,
     RemoteMessage, RemoteMessageBody, RemoteMessageState, StoredMailbox, StoredMessageLocation,
+    MISSING_MESSAGE_PREVIEW,
 };
 
 use super::{
@@ -192,7 +193,9 @@ impl MailSyncSink for SyncSinkRepository {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1) \
              ON CONFLICT(id) DO UPDATE SET subject = excluded.subject, from_json = excluded.from_json, \
              to_json = excluded.to_json, cc_json = excluded.cc_json, received_at = excluded.received_at, \
-             preview = CASE WHEN excluded.preview = '' THEN messages.preview ELSE excluded.preview END, \
+             preview = CASE WHEN excluded.preview = '' THEN messages.preview \
+                       WHEN excluded.preview = ? AND messages.preview != '' THEN messages.preview \
+                       ELSE excluded.preview END, \
              rfc822_size = excluded.rfc822_size, message_id = COALESCE(excluded.message_id, messages.message_id), \
              references_json = excluded.references_json, in_reply_to = excluded.in_reply_to, \
              has_attachments = MAX(messages.has_attachments, excluded.has_attachments), \
@@ -218,6 +221,7 @@ impl MailSyncSink for SyncSinkRepository {
         .bind(if body_available { "available" } else { "missing" })
         .bind(i64::from(message.remote_images_blocked))
         .bind(i64::from(message.high_priority))
+        .bind(MISSING_MESSAGE_PREVIEW)
         .execute(&mut *transaction)
         .await
         .map_err(map_storage_err("storage.message_write_failed"))?;

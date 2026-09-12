@@ -1,0 +1,57 @@
+{
+  "accounts": {
+    "accountList": "邮件账户",
+    "add": "添加账户",
+    "addTitle": "添加邮件账户",
+    "noAccount": "尚未连接邮件账户",
+    "noAccountDescription": "添加一个 IMAP/SMTP 密码账户即可继续使用本地邮件空间。",
+    "editConnection": "编辑连接",
+    "reauthenticate": "重新认证",
+    "reauthenticateDescription": "输入新的密码或应用专用密码。验证通过后，此账户会立即恢复后台同步。",
+    "newPassword": "新密码（可选）",
+    "newPasswordHint": "留空将使用系统凭据库中的现有密码验证连接。",
+    "remove": "移除账户",
+    "removeTitle": "移除此账户？",
+    "removeWarning": "本地邮件数据将保留",
+    "removeDescription": "账户配置和系统凭据会从这台设备移除；匿名邮件数据与 {{drafts}} 个本地草稿仍保留在数据目录中。",
+    "removeBlocked": "账户暂时无法移除",
+    "removeBlockedDescription": "请先处理 {{jobs}} 个待发送任务和 {{operations}} 个待同步操作。",
+    "confirmRemove": "确认移除",
+    "folderMappings": "系统文件夹映射",
+    "folderMappingsDescription": "NextMail 只在明确映射后归档已发送邮件、同步草稿、删除或归档，避免猜错服务器文件夹。",
+    "folderUnassigned": "未指定",
+    "folderRole": {
+      "sent": "已发送",
+      "drafts": "草稿",
+      "trash": "垃圾箱",
+      "archive": "归档"
+    },
+    "title": "账户管理",
+    "description": "查看当前账户的连接、运行和本地同步状态。",
+    "runtimeState": "运行状态：{{state}}",
+    "runtime": {
+      "starting": "正在启动",
+      "ready": "已连接",
+      "syncing": "正在同步",
+      "offline": "离线",
+      "retrying": "等待重试",
+      "reauth_required": "需要重新认证",
+      "removing": "正在移除",
+      "stopped": "未运行"
+    },
+    "syncPending": "等待首次邮件同步",
+    "syncState": "同步状态：{{state}}",
+    "syncInterval": "自动同步",
+    "syncIntervalManual": "仅手动",
+    "syncIntervalMinutes1": "每 1 分钟",
+    "syncIntervalMinutes5": "每 5 分钟",
+    "syncIntervalMinutes10": "每 10 分钟",
+    "downloadFullMessages": "自动下载邮件正文",
+    "downloadFullMessagesDescription": "开启后同步会自动下载正文，附件仍在打开或另存为时按需下载。关闭后，尚未打开的邮件正文无法被搜索到。",
+    "security": {
+      "none": "不加密",
+      "start_tls": "STARTTLS",
+      "tls": "SSL/TLS"
+    }
+  }
+}

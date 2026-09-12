@@ -24,7 +24,7 @@ type AlertProps = HTMLAttributes<HTMLElement> &
 
 export function Alert({ title, children, className, tone, ...props }: AlertProps) {
   return (
-    <aside className={cn(alertVariants({ tone }), className)} {...props}>
+    <aside data-icon-tone="current" className={cn(alertVariants({ tone }), className)} {...props}>
       <AlertCircle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
       <Stack gap="xs">
         {title ? <strong>{title}</strong> : null}

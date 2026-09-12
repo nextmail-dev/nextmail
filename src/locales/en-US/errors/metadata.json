@@ -1,0 +1,29 @@
+{
+  "errorReasons": {
+    "permission_denied": "Access was denied. Check folder or credential-store permissions.",
+    "file_busy": "Another program is using the file. Try again shortly.",
+    "database_busy": "The local database is busy. Try again shortly.",
+    "disk_full": "The disk is full. Free some space and try again.",
+    "read_only": "The storage location is read-only. Check write permissions.",
+    "not_found": "The required file or record is missing. Reload and try again.",
+    "invalid_data": "The data is invalid or damaged. Check its source.",
+    "timeout": "The operation timed out. Check the connection and try again.",
+    "connection_lost": "The connection was lost. Check your network and try again.",
+    "connection_refused": "The server refused the connection. Check its address, port, and your network.",
+    "server_rejected": "The server rejected the request. Check account authorization and server settings.",
+    "protocol": "The server response could not be processed. Check server compatibility.",
+    "constraint": "A data constraint conflicted. Reload and try again.",
+    "database": "A local database operation failed. Use the error code and logs to investigate.",
+    "io": "An I/O operation failed. Check available space, permissions, and connectivity.",
+    "network": "The network request failed. Check connectivity and try again.",
+    "credential_missing": "Saved credentials were not found. Authenticate again.",
+    "credential_store": "The credential store is unavailable. Check your system login and credential service.",
+    "task_panicked": "A background task stopped unexpectedly. Restart the app and keep the logs.",
+    "task_cancelled": "The background task was cancelled. Try the operation again.",
+    "unknown": "The underlying cause is not yet classified. Use the error code and logs to investigate."
+  },
+  "errorDetails": {
+    "unknownVariable": "unknown variable",
+    "code": "Error code: {{code}}"
+  }
+}

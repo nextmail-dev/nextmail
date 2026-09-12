@@ -11,13 +11,13 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary:
-          "bg-primary [background:var(--primary-gradient)] text-primary-foreground shadow-[var(--shadow-primary)] hover:brightness-[1.04] active:brightness-[0.98]",
+          "bg-primary [background:var(--primary-gradient)] text-primary-foreground shadow-[var(--shadow-primary)] hover:brightness-[1.04] active:brightness-[0.98] [&_.lucide]:text-primary-foreground",
         secondary:
           "border border-border/80 bg-secondary text-secondary-foreground shadow-[var(--shadow-control)] hover:bg-accent hover:text-accent-foreground",
         ghost: "bg-transparent text-muted-foreground hover:bg-foreground/6 hover:text-foreground",
         list: "bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
         danger:
-          "[background:var(--destructive-gradient)] text-white shadow-[var(--shadow-control)] hover:brightness-[1.04] active:brightness-[0.98]",
+          "[background:var(--destructive-gradient)] text-white shadow-[var(--shadow-control)] hover:brightness-[1.04] active:brightness-[0.98] [&_.lucide]:text-white",
       },
       size: {
         sm: "h-8 rounded-md px-2.5",

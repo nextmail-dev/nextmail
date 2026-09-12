@@ -1,0 +1,100 @@
+{
+  "settings": {
+    "title": "Settings",
+    "description": "Manage NextMail on this device",
+    "categories": "Settings categories",
+    "noAccount": "No email account is connected",
+    "noOptions": "No adjustable options yet",
+    "noOptionsDescription": "Options will appear here when the related feature can be configured.",
+    "autoLoadRemoteImages": "Automatically load remote images",
+    "autoLoadRemoteImagesDescription": "Remote images may tell senders when and where a message was opened. This preference applies to every message on this device.",
+    "autoLoadMoreMessages": "Load more messages at the end of the list",
+    "autoLoadMoreMessagesDescription": "When enabled, the next page loads automatically near the bottom of the message list. Turn it off to use the Load more button instead.",
+    "autoLoadMoreContacts": "Load more contacts at the end of the list",
+    "autoLoadMoreContactsDescription": "When enabled, the next page loads automatically near the bottom of the contact list. Turn it off to use the Load more contacts button instead.",
+    "minimizeToTray": "Minimize to tray when closing the main window",
+    "minimizeToTrayDescription": "When exit confirmation is disabled, this setting decides whether closing the main window hides it in the tray or exits the app.",
+    "askBeforeExit": "Ask before exiting",
+    "askBeforeExitDescription": "Ask whether to minimize to the tray or quit when closing the main window. Choosing Don't ask again disables this option and remembers that choice.",
+    "autoCheckUpdates": "Automatically check for updates at startup",
+    "autoCheckUpdatesDescription": "NextMail checks for a new version in the background after startup. Installation still requires your confirmation.",
+    "group": {
+      "interface": "Interface language",
+      "theme": "Interface theme",
+      "contentPrivacy": "Content and privacy",
+      "listBehavior": "List behavior",
+      "tray": "Tray icon",
+      "application": "Application information",
+      "updates": "Software updates",
+      "startup": "Startup"
+    },
+    "category": {
+      "general": "General",
+      "appearance": "Appearance",
+      "accounts": "Accounts",
+      "reading": "Reading",
+      "composer": "Composing",
+      "notifications": "Notifications",
+      "advanced": "More",
+      "about": "About"
+    },
+    "categoryDescription": {
+      "general": "Choose the interface language and general behavior.",
+      "appearance": "Adjust the interface mode and theme color.",
+      "accounts": "Add, switch, and manage account connections and synchronization.",
+      "reading": "Manage reading and remote-image preferences.",
+      "composer": "Manage default composing and editor preferences.",
+      "notifications": "Manage new-message and system notifications.",
+      "advanced": "Manage list loading, storage, connection, and other runtime options.",
+      "about": "View the NextMail version and product information."
+    },
+    "launchAtStartup": "Launch at startup",
+    "launchAtStartupDescription": "Start NextMail automatically when you sign in. The main window stays hidden in the tray until you open it."
+  },
+  "desktop": {
+    "closeTitle": "Close NextMail",
+    "closeDescription": "Would you like to minimize the main window to the tray or quit NextMail?",
+    "rememberCloseChoice": "Don't ask again and remember this choice",
+    "minimizeToTrayAction": "Minimize to tray",
+    "quit": "Quit"
+  },
+  "updates": {
+    "check": "Check for updates",
+    "checking": "Checking for updates",
+    "upToDate": "You're up to date ({{version}})",
+    "available": "Version {{version}} is available",
+    "availableTitle": "NextMail {{version}} is available",
+    "availableDescription": "NextMail will restart and install the update after the download completes.",
+    "releaseNotes": "Release notes",
+    "noReleaseNotes": "No additional notes were provided for this release.",
+    "install": "Download and install",
+    "installing": "Downloading and installing",
+    "later": "Later"
+  },
+  "notifications": {
+    "enabled": "New mail notifications",
+    "enabledDescription": "Show notifications for newly synchronized unread messages. Initial synchronization and cache rebuilds stay silent.",
+    "displayMode": "Multiple-message behavior",
+    "stacked": "Stack notifications",
+    "replace": "Replace the current notification",
+    "maxStacked": "Maximum stacked notifications",
+    "displayDuration": "Display duration",
+    "seconds_one": "{{count}} second",
+    "seconds_other": "{{count}} seconds",
+    "accounts": "Account notifications",
+    "accountsDescription": "Each account can be disabled independently. Inbox notifications are enabled by default; other folders are opt-in.",
+    "accountToggle": "Notifications for {{account}}",
+    "manageFolders": "Manage notification folders for {{account}}",
+    "folderTitle": "Notification folders · {{account}}",
+    "folderDescription": "Choose which folders may produce new mail notifications for this account.",
+    "folderToggle": "Notifications for {{folder}}",
+    "newMailForAccount": "New mail · {{account}}",
+    "openMessage": "Open message: {{subject}}",
+    "dismiss": "Dismiss notification"
+  },
+  "about": {
+    "title": "About NextMail",
+    "version": "Version {{version}}",
+    "description": "A focused, secure desktop mail client designed for offline use."
+  }
+}

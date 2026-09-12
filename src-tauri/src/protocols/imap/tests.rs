@@ -21,6 +21,14 @@ fn caps_header_fetch_commands_at_twenty_uids() {
 }
 
 #[test]
+fn preview_fetch_is_bounded_to_one_validated_mime_section() {
+    assert_eq!(
+        preview_fetch_query("1.2"),
+        "(UID BODY.PEEK[1.2.MIME] BODY.PEEK[1.2]<0.8192>)"
+    );
+}
+
+#[test]
 fn classifies_message_unavailable_errors() {
     assert!(is_message_unavailable_error("sync.message_not_found"));
     assert!(is_message_unavailable_error("sync.message_body_missing"));
@@ -531,7 +539,8 @@ mod worker_tests {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
     const TEST_HEADER: &str =
-        "From: Alice <alice@example.com>\r\nTo: Bob <bob@example.com>\r\nSubject: test\r\nMessage-ID: <m@example.com>\r\n";
+        "From: Alice <alice@example.com>\r\nTo: Bob <bob@example.com>\r\nSubject: test\r\nMessage-ID: <m@example.com>\r\nContent-Type: text/plain; charset=utf-8\r\n";
+    const TEST_PREVIEW: &str = "Stable preview body";
 
     struct RecordingSink {
         upserts: StdMutex<Vec<(u32, usize)>>,
@@ -670,24 +679,36 @@ mod worker_tests {
 
     struct RecordingObserver {
         mailbox_changes: StdMutex<Vec<String>>,
+        arrivals: StdMutex<Vec<String>>,
     }
 
     impl RecordingObserver {
         fn new() -> Self {
             Self {
                 mailbox_changes: StdMutex::new(Vec::new()),
+                arrivals: StdMutex::new(Vec::new()),
             }
         }
 
         fn mailbox_changes_snapshot(&self) -> Vec<String> {
             self.mailbox_changes.lock().unwrap().clone()
         }
+
+        fn arrival_previews_snapshot(&self) -> Vec<String> {
+            self.arrivals.lock().unwrap().clone()
+        }
     }
 
     impl SyncObserver for RecordingObserver {
         fn notify(&self, notice: SyncNotice) {
-            if let SyncNotice::MailboxChanged { mailbox_id, .. } = notice {
-                self.mailbox_changes.lock().unwrap().push(mailbox_id);
+            match notice {
+                SyncNotice::MailboxChanged { mailbox_id, .. } => {
+                    self.mailbox_changes.lock().unwrap().push(mailbox_id);
+                }
+                SyncNotice::MessageArrived { item, .. } => {
+                    self.arrivals.lock().unwrap().push(item.preview);
+                }
+                _ => {}
             }
         }
     }
@@ -735,6 +756,16 @@ mod worker_tests {
         )
     }
 
+    fn preview_response(uid: u32) -> String {
+        const MIME: &str =
+            "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 7bit\r\n\r\n";
+        format!(
+            "* {uid} FETCH (UID {uid} BODY[1.MIME] {{{}}}\r\n{MIME} BODY[1]<0> {{{}}}\r\n{TEST_PREVIEW})\r\n",
+            MIME.len(),
+            TEST_PREVIEW.len(),
+        )
+    }
+
     fn tagged_ok(tag: &str) -> String {
         format!("{tag} OK UID FETCH Completed\r\n")
     }
@@ -745,6 +776,10 @@ mod worker_tests {
 
     fn plain_bodystructure(uid: u32) -> String {
         format!("* {uid} FETCH (UID {uid} BODYSTRUCTURE (\"TEXT\" \"PLAIN\" (\"charset\" \"utf-8\") NIL NIL \"7BIT\" 5 1 NIL NIL NIL))\r\n")
+    }
+
+    fn html_bodystructure(uid: u32) -> String {
+        format!("* {uid} FETCH (UID {uid} BODYSTRUCTURE (\"TEXT\" \"HTML\" (\"charset\" \"utf-8\") NIL NIL \"7BIT\" 20 1 NIL NIL NIL))\r\n")
     }
 
     // Delivery-status report shape observed from QQ Mail: the HTML part's
@@ -771,6 +806,7 @@ mod worker_tests {
             // header batch
             line.clear();
             lines.read_line(&mut line).await.unwrap();
+            assert!(!line.contains("BODY.PEEK[TEXT]"));
             let tag = line.split_whitespace().next().unwrap().to_owned();
             let mut out = String::new();
             for uid in 1..=3u32 {
@@ -829,6 +865,10 @@ mod worker_tests {
         assert!(!session_usable);
         let upserts = sink.upsert_snapshot();
         assert_eq!(upserts, vec![(1, 0), (2, 0), (3, 0)]);
+        assert_eq!(
+            observer.arrival_previews_snapshot(),
+            vec![crate::core::MISSING_MESSAGE_PREVIEW; 3]
+        );
     }
 
     #[tokio::test]
@@ -848,9 +888,10 @@ mod worker_tests {
             // header batch
             line.clear();
             lines.read_line(&mut line).await.unwrap();
+            assert!(!line.contains("BODY.PEEK[TEXT]"));
             let tag = line.split_whitespace().next().unwrap().to_owned();
             let mut out = String::new();
-            for uid in 1..=3u32 {
+            for uid in 1..=4u32 {
                 out.push_str(&header_response(uid));
             }
             out.push_str(&tagged_ok(&tag));
@@ -863,6 +904,20 @@ mod worker_tests {
             out.push_str(&plain_bodystructure(1));
             out.push_str(&attachment_bodystructure(2));
             out.push_str(&plain_bodystructure(3));
+            out.push_str(&html_bodystructure(4));
+            out.push_str(&tagged_ok(&tag));
+            write_all(lines.get_mut(), out.as_bytes()).await;
+            // One grouped preview command covers both messages whose validated
+            // plain-text part is section 1. Attachment-only UID 2 and HTML-only
+            // UID 4 are skipped without requesting their content.
+            line.clear();
+            lines.read_line(&mut line).await.unwrap();
+            assert!(line.contains("UID FETCH 1,3"), "unexpected command: {line}");
+            assert!(line.contains("BODY.PEEK[1.MIME]"));
+            assert!(line.contains("BODY.PEEK[1]<0.8192>"));
+            let tag = line.split_whitespace().next().unwrap().to_owned();
+            let mut out = preview_response(1);
+            out.push_str(&preview_response(3));
             out.push_str(&tagged_ok(&tag));
             write_all(lines.get_mut(), out.as_bytes()).await;
         });
@@ -881,7 +936,7 @@ mod worker_tests {
         let context = harness.context();
         let completed = AtomicU64::new(0);
         let write_lock = Mutex::new(());
-        let batches = Mutex::new(VecDeque::from([vec![1, 2, 3]]));
+        let batches = Mutex::new(VecDeque::from([vec![1, 2, 3, 4]]));
         let mut session = async_imap::Client::new(client_stream)
             .login("user", "pass")
             .await
@@ -895,19 +950,28 @@ mod worker_tests {
             &context,
             false,
             &completed,
-            3,
+            4,
             &write_lock,
         )
         .await;
 
         server_task.await.unwrap();
         let (highest_uid, session_usable) = result.unwrap();
-        assert_eq!(highest_uid, 3);
+        assert_eq!(highest_uid, 4);
         assert!(session_usable);
         let upserts = sink.upsert_snapshot();
-        assert_eq!(upserts.len(), 4);
-        assert_eq!(&upserts[..3], &[(1, 0), (2, 0), (3, 0)]);
-        assert_eq!(upserts[3], (2, 1));
+        assert_eq!(upserts.len(), 7);
+        assert_eq!(&upserts[..4], &[(1, 0), (2, 0), (3, 0), (4, 0)]);
+        assert_eq!(&upserts[4..], &[(1, 0), (2, 1), (3, 0)]);
+        assert_eq!(
+            observer.arrival_previews_snapshot(),
+            vec![
+                TEST_PREVIEW,
+                crate::core::MISSING_MESSAGE_PREVIEW,
+                TEST_PREVIEW,
+                crate::core::MISSING_MESSAGE_PREVIEW,
+            ]
+        );
     }
 
     async fn write_all(stream: &mut DuplexStream, bytes: &[u8]) {

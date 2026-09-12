@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     panic::Location,
     sync::{Mutex, OnceLock},
     time::{Duration, Instant},
@@ -154,17 +154,28 @@ fn install_panic_hook() {
 }
 
 fn frontend_descriptor(message: &str) -> Option<(String, &'static str, bool)> {
-    static CATALOG: OnceLock<serde_json::Value> = OnceLock::new();
+    static CATALOG: OnceLock<HashSet<String>> = OnceLock::new();
     if message.len() > 1024 {
         return None;
     }
     let value: serde_json::Value = serde_json::from_str(message).ok()?;
     let code = value.get("code")?.as_str()?;
     let catalog = CATALOG.get_or_init(|| {
-        serde_json::from_str(include_str!("../../src/locales/en-US/common.json"))
-            .expect("bundled error catalog")
+        let mut codes = HashSet::new();
+        for source in [
+            include_str!("../../src/locales/en-US/errors/accounts.json"),
+            include_str!("../../src/locales/en-US/errors/mail.json"),
+            include_str!("../../src/locales/en-US/errors/composer.json"),
+            include_str!("../../src/locales/en-US/errors/contacts.json"),
+            include_str!("../../src/locales/en-US/errors/system.json"),
+        ] {
+            let entries: HashMap<String, serde_json::Value> =
+                serde_json::from_str(source).expect("bundled error catalog");
+            codes.extend(entries.into_keys());
+        }
+        codes
     });
-    let code = if catalog["errors"].get(code).is_some() {
+    let code = if catalog.contains(code) {
         code
     } else {
         "common.unexpected_error"

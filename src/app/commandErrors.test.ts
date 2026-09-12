@@ -3,8 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import i18n from "./i18n";
 import { formatCommandError, normalizeCommandError } from "./commandErrors";
-import enUS from "@/locales/en-US/common.json";
-import zhCN from "@/locales/zh-CN/common.json";
+import enUS from "@/locales/en-US/errors";
+import zhCN from "@/locales/zh-CN/errors";
 
 describe("public errors", () => {
   it("preserves safe reasons in object and serialized IPC errors", () => {

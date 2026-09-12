@@ -1,0 +1,16 @@
+{
+  "contact.email_invalid": "请输入有效的邮箱地址。",
+  "contact.already_exists": "当前账户中已存在使用该邮箱地址的联系人。",
+  "contact.name_required": "请输入联系人姓名。",
+  "contact.name_invalid": "联系人姓名过长或包含不支持的字符。",
+  "contact.not_found": "该联系人已不存在。",
+  "contact.conflict": "该联系人已在其他位置发生变更，请重新加载后再试。",
+  "contact_group.name_required": "请输入分组名称。",
+  "contact_group.name_invalid": "分组名称最多 80 个字符，且不能包含控制字符。",
+  "contact_group.already_exists": "当前账户已存在同名分组。",
+  "contact_group.not_found": "此分组已不存在。",
+  "contact_group.conflict": "此分组已在其他位置修改或删除，请取消编辑并重新打开以载入最新内容。",
+  "contact_group.member_unavailable": "部分成员已不在当前账户中，请取消编辑后重新选择成员。",
+  "contact_group.read_failed": "无法读取联系人分组。",
+  "contact_group.write_failed": "无法保存联系人分组。"
+}

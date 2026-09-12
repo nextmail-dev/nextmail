@@ -4,7 +4,7 @@ use mail_parser::{Address, Message, MessageParser, MimeHeaders};
 use crate::{
     core::{
         CommandResult, ContactAddressRole, MessageAddress, RemoteAttachment, RemoteContactAddress,
-        RemoteMessage,
+        RemoteMessage, MISSING_MESSAGE_PREVIEW,
     },
     protocols::{attachment_file_name, message_body_text, sanitize_mail_html_with_cid_images},
 };
@@ -95,8 +95,10 @@ fn parse_message_with_state(input: MessageParseInput) -> CommandResult<RemoteMes
         .unwrap_or_default();
     let preview = plain_text
         .as_deref()
+        .filter(|value| !value.trim().is_empty())
         .map(|value| preview_text(value.into(), 180).into_owned())
-        .unwrap_or_default();
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| MISSING_MESSAGE_PREVIEW.to_owned());
     Ok(RemoteMessage {
         uid: input.uid,
         uid_validity: input.uid_validity,
