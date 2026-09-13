@@ -19,7 +19,7 @@ static LOG_GUARD: OnceLock<Mutex<Option<WorkerGuard>>> = OnceLock::new();
 /// Initialises process-wide structured logging to a rolling file under the
 /// app's local data directory, and installs a panic hook that records panics.
 ///
-/// Logs are written to `<app_local_data_dir>/logs/nextmail.log.YYYY-MM-DD`.
+/// Logs are written to `<app_local_data_dir>/logs/nextmail.YYYY-MM-DD.log`.
 /// The level is `info` by default and can be overridden with `RUST_LOG`.
 pub fn init(app: &AppHandle) {
     let log_dir = app
@@ -29,7 +29,8 @@ pub fn init(app: &AppHandle) {
         .unwrap_or_else(|_| std::env::temp_dir().join("nextmail").join("logs"));
     let file_appender = tracing_appender::rolling::Builder::new()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
-        .filename_prefix("nextmail.log")
+        .filename_prefix("nextmail")
+        .filename_suffix("log")
         .max_log_files(14)
         .build(&log_dir);
     let output: Box<dyn std::io::Write + Send> = match file_appender {
