@@ -82,6 +82,7 @@ pub fn run() {
         })
         .on_window_event(tray_runtime::handle_main_window_event)
         .invoke_handler(demo::guard(tauri::generate_handler![
+            commands::list_system_fonts,
             demo::get_demo_status,
             demo::enter_demo_mode,
             demo::get_demo_content,

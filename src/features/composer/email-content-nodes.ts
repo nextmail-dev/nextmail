@@ -170,7 +170,7 @@ export const EmailSpan = Mark.create({
     };
   },
   parseHTML() {
-    return [{ tag: "span[style]" }, { tag: "span[class]" }, { tag: "span[id]" }];
+    return [{ tag: "span[style]", consuming: false }, { tag: "span[class]", consuming: false }, { tag: "span[id]", consuming: false }];
   },
   renderHTML({ HTMLAttributes }) {
     return ["span", HTMLAttributes, 0];

@@ -4,6 +4,53 @@ NextMail 当前不再随安装包分发 Roboto、Droid Sans Fallback 或其他�
 
 若未来重新引入随包字体或其他独立资源，必须在本文件记录来源、版本和许可证，并把对应许可证文本加入发布资源。
 
+## @radix-ui/react-popover
+
+- 版本：1.1.19
+- 用途：编辑器字体、字号和颜色选择浮层，提供焦点管理和键盘交互。
+- 来源：https://github.com/radix-ui/primitives
+- 许可证：MIT
+- Copyright (c) 2022 WorkOS
+- 许可证正文与下方 `react-markdown` 所列 MIT 文本相同。
+
+## fontdb
+
+- 版本：0.23.0
+- 用途：在后台读取系统安装字体的名称；不分发字体文件。
+- 来源：https://github.com/RazrFalcon/fontdb
+- 许可证：MIT
+- Copyright (c) 2020 Yevhenii Reizner
+- 许可证正文与下方 `react-markdown` 所列 MIT 文本相同。
+- 新增间接依赖 fontconfig-parser、core_maths、libm 为 MIT；ttf-parser、memmap2、roxmltree 为 MIT OR Apache-2.0；slotmap 为 Zlib，见下节。
+
+## slotmap
+
+- 版本：1.1.1（fontdb 的间接依赖）
+- 来源：https://github.com/orlp/slotmap
+- 许可证：Zlib；已于 2026-10-27 经用户确认引入。
+
+```text
+Copyright (c) 2021 Orson Peters <orsonpeters@gmail.com>
+
+This software is provided 'as-is', without any express or implied warranty. In
+no event will the authors be held liable for any damages arising from the use of
+this software.
+
+Permission is granted to anyone to use this software for any purpose, including
+commercial applications, and to alter it and redistribute it freely, subject to
+the following restrictions:
+
+ 1. The origin of this software must not be misrepresented; you must not claim
+    that you wrote the original software. If you use this software in a product,
+    an acknowledgment in the product documentation would be appreciated but is
+    not required.
+
+ 2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+
+ 3. This notice may not be removed or altered from any source distribution.
+```
+
 ## @tanstack/react-virtual
 
 - 版本：3.14.11

@@ -10,6 +10,7 @@ import type {
 import { invoke } from "./invoke";
 
 export const preferencesApi = {
+  listSystemFonts: () => invoke<string[]>("list_system_fonts"),
   getPreferences: () => invoke<AppearancePreferences>("get_preferences"),
   setAppearancePreferences: (preferences: AppearancePreferences) =>
     invoke<AppearancePreferences>("set_appearance_preferences", { preferences }),

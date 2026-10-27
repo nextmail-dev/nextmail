@@ -396,3 +396,7 @@ pub trait ImapSyncProvider: Send + Sync {
         raw: &[u8],
     ) -> CommandResult<RemoteOperationOutcome>;
 }
+/// Lists installed font family names without exposing font files or paths.
+pub trait SystemFontProvider: Send + Sync {
+    fn families(&self) -> Vec<String>;
+}

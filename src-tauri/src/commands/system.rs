@@ -1,6 +1,16 @@
 use super::*;
 
 #[tauri::command]
+pub async fn list_system_fonts(state: State<'_, AppState>) -> CommandResult<Vec<String>> {
+    let fonts = std::sync::Arc::clone(&state.system_fonts);
+    tauri::async_runtime::spawn_blocking(move || fonts.families())
+        .await
+        .map_err(|error| {
+            crate::diagnostics::command_error("system.fonts_read_failed", true, &error)
+        })
+}
+
+#[tauri::command]
 pub fn get_bootstrap_status(state: State<'_, AppState>) -> CommandResult<BootstrapStatus> {
     state.service.get_bootstrap_status()
 }

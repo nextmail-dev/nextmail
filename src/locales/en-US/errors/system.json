@@ -66,5 +66,6 @@
   "storage.read_failed": "Could not read the local database.",
   "storage.stored_uids_read_failed": "Could not read synced message identifiers.",
   "storage.sync_settings_read_failed": "Could not read account sync settings.",
-  "storage.sync_settings_write_failed": "Could not save account sync settings."
+  "storage.sync_settings_write_failed": "Could not save account sync settings.",
+  "system.fonts_read_failed": "System fonts could not be loaded. Please try again."
 }

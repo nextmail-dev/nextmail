@@ -1,7 +1,39 @@
 .nextmail-editor-content {
-  min-height: 100%;
+  flex: 1;
+  min-height: 160px;
   padding: 22px 24px 80px;
   outline: none;
+}
+
+.composer-color-range {
+  appearance: none;
+  height: 10px;
+  border-radius: 6px;
+  background: var(--muted);
+  cursor: default;
+}
+
+.composer-color-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--popover);
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.composer-color-range::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--popover);
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.composer-color-range:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 2px;
 }
 
 .nextmail-editor-content .nextmail-composition-reply {

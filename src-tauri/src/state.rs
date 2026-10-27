@@ -19,6 +19,7 @@ use crate::{
 };
 
 pub struct AppState {
+    pub system_fonts: Arc<dyn crate::core::SystemFontProvider>,
     pub demo: crate::demo::DemoSession,
     pub service: Arc<AppService>,
     pub mail: Arc<MailRuntime>,
@@ -67,6 +68,7 @@ impl AppState {
         ));
         let external_link_opener = Arc::new(SystemExternalLinkOpener);
         Ok(Self {
+            system_fonts: Arc::new(crate::adapters::InstalledSystemFonts::default()),
             demo: crate::demo::DemoSession::default(),
             service,
             mail,

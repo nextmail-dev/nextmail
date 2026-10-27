@@ -5,6 +5,7 @@ mod link_opener;
 mod mail_connection;
 mod sqlite;
 mod storage;
+mod system_fonts;
 
 pub use attachment_opener::*;
 pub use credentials::*;
@@ -13,3 +14,4 @@ pub use link_opener::*;
 pub use mail_connection::*;
 pub use sqlite::*;
 pub use storage::*;
+pub use system_fonts::*;

@@ -34,7 +34,6 @@ describe("RichTextEditor composition nodes", () => {
       "paragraph",
       "nextmailSignatureDivider",
       "nextmailSignature",
-      "paragraph",
     ]);
 
     act(() => {
@@ -170,7 +169,7 @@ describe("RichTextEditor composition nodes", () => {
     });
     observer.disconnect();
 
-    await selectMoreFormatting("HTML source");
+    await selectToolbarAction("HTML source");
     expect(screen.getByRole("textbox", { name: "HTML source" })).toBeInTheDocument();
     expect(screen.getByTitle("HTML preview")).toHaveAttribute("sandbox", "");
   });
@@ -238,8 +237,7 @@ describe("RichTextEditor composition nodes", () => {
         onAddInlineImage={onAddInlineImage}
       />,
     );
-    await openMoreFormatting();
-    expect(await screen.findByRole("menuitem", { name: "Insert image" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Insert image" })).toBeInTheDocument();
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     expect(input).not.toBeNull();
     const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "selected.png", {
@@ -398,14 +396,14 @@ describe("RichTextEditor composition nodes", () => {
       />,
     );
 
-    await selectMoreFormatting("HTML source");
+    await selectToolbarAction("HTML source");
     const source = await screen.findByRole("textbox", { name: "HTML source" });
     expect(source.textContent).toContain(exactHtml);
     expect(source.textContent).toContain("data-nextmail-composer-body");
     expect(source.textContent).toContain("line-height:1.2");
 
-    await selectMoreFormatting("HTML source");
-    await selectMoreFormatting("HTML source");
+    await selectToolbarAction("HTML source");
+    await selectToolbarAction("HTML source");
     expect(await screen.findByRole("textbox", { name: "HTML source" })).toHaveTextContent(exactHtml);
   });
 
@@ -472,7 +470,7 @@ describe("RichTextEditor composition nodes", () => {
     const onChange = vi.fn<(content: DraftContent) => void>();
     render(<RichTextEditor initialJson={EMPTY} onChange={onChange} />);
 
-    await selectMoreFormatting("Insert or edit link");
+    await selectToolbarAction("Insert or edit link");
     fireEvent.change(screen.getByRole("textbox", { name: "Link address" }), {
       target: { value: " HTTPS://Example.COM:443/news " },
     });
@@ -512,16 +510,8 @@ describe("normalizeComposerLinkTarget", () => {
   });
 });
 
-async function openMoreFormatting() {
-  fireEvent.pointerDown(await screen.findByRole("button", { name: "More formatting options" }), {
-    button: 0,
-    ctrlKey: false,
-  });
-}
-
-async function selectMoreFormatting(name: string) {
-  await openMoreFormatting();
-  fireEvent.click(await screen.findByRole("menuitem", { name }));
+async function selectToolbarAction(name: string) {
+  fireEvent.click(await screen.findByRole("button", { name }));
 }
 
 function definition(text: string): DraftContent {

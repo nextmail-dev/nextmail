@@ -3,41 +3,17 @@ import { generateJSON } from "@tiptap/core";
 import type { Editor, Extensions, JSONContent } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
-import { TextStyleKit } from "@tiptap/extension-text-style";
-import {
-  Bold,
-  Code2,
-  Italic,
-  List,
-  ListOrdered,
-  Quote,
-  Redo2,
-  Strikethrough,
-  UnderlineIcon,
-  Undo2,
-  Palette,
-  Highlighter,
-  ImagePlus,
-  Link2,
-  MoreHorizontal,
-  Unlink,
-} from "lucide-react";
+import { TextStyleKit, TextStyle } from "@tiptap/extension-text-style";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+
 import { useTranslation } from "react-i18next";
 
 import type { DraftAttachmentSummary, DraftContent } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/input";
-import { Form, Inline, Page } from "@/components/ui/layout";
+import { Form, Page } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
-import { SelectField } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+
 import { Text } from "@/components/ui/typography";
 import { cn } from "@/lib/utils";
 import {
@@ -70,6 +46,10 @@ import {
   NextMailImage,
 } from "./email-content-nodes";
 
+import { EditorToolbar } from "./EditorToolbar";
+import { ComposerTextAttributes } from "./editor-formatting";
+import { ComposerEditing } from "./editor-keymap";
+
 const BASE_COMPOSER_EXTENSIONS: Extensions = [
   StarterKit.configure({
     underline: false,
@@ -83,12 +63,13 @@ const BASE_COMPOSER_EXTENSIONS: Extensions = [
         rel: "noopener noreferrer",
       },
     },
-    trailingNode: {
-      notAfter: ["nextmailOriginalMessage"],
-    },
+    trailingNode: false,
   }),
   Underline,
-  TextStyleKit,
+  TextStyleKit.configure({ textStyle: false }),
+  TextStyle.extend({ priority: 90 }),
+  ComposerTextAttributes,
+  ComposerEditing,
   EmailFormattingAttributes,
   EmailSpan,
   EmailStylesheet,
@@ -178,7 +159,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     ? ensureComposerContentHtml(initialHtml ?? "")
     : initialHtml ?? "");
   const sourceInitializedRef = useRef(initialHtml !== undefined);
-  const preserveExactSourceRef = useRef(initialHtml !== undefined);
   const [linkEditorOpen, setLinkEditorOpen] = useState(false);
   const [linkHref, setLinkHref] = useState("");
   const [linkError, setLinkError] = useState("");
@@ -194,7 +174,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       },
       handleKeyDown: (view, event) => {
         if (disabledRef.current || event.key !== "Tab") return false;
-        preserveExactSourceRef.current = false;
         event.preventDefault();
         view.dispatch(view.state.tr.insertText("\u00a0".repeat(4)));
         return true;
@@ -205,7 +184,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         const plainText = clipboard?.getData("text/plain") ?? "";
         const images = clipboardImageFiles(clipboard);
         if (disabledRef.current || (!html && !images.length)) return false;
-        preserveExactSourceRef.current = false;
         event.preventDefault();
         const currentEditor = editorInstanceRef.current;
         if (currentEditor) void insertClipboardContent(
@@ -218,23 +196,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         );
         return true;
       },
-      handleDOMEvents: {
-        beforeinput: () => {
-          if (!disabledRef.current) preserveExactSourceRef.current = false;
-          return false;
-        },
-        drop: () => {
-          if (!disabledRef.current) preserveExactSourceRef.current = false;
-          return false;
-        },
-        paste: () => {
-          if (!disabledRef.current) preserveExactSourceRef.current = false;
-          return false;
-        },
-      },
     },
     onUpdate: ({ editor: current }) => {
-      if (preserveExactSourceRef.current) return;
       const content = serializeEditor(current, includePortableStyles);
       setSourceHtml(content.html);
       onChange(content);
@@ -245,7 +208,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
   useImperativeHandle(ref, () => ({
     replaceTemplate: (definitionId, content) => {
-      preserveExactSourceRef.current = false;
       return replaceCompositionNode(
         editor,
         "nextmailTemplate",
@@ -254,7 +216,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       );
     },
     replaceSignature: (definitionId, content) => {
-      preserveExactSourceRef.current = false;
       return replaceCompositionNode(
         editor,
         "nextmailSignature",
@@ -265,7 +226,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   }), [editor]);
 
   useEffect(() => {
-    editor?.setEditable(!disabled);
+    editor?.setEditable(!disabled, false);
   }, [disabled, editor]);
 
   useEffect(() => {
@@ -277,22 +238,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   if (!editor) return null;
   const richDisabled = disabled || sourceMode;
   const commitRichEdit = (callback: () => void) => {
-    preserveExactSourceRef.current = false;
     callback();
   };
-  const action = (label: string, active: boolean, onClick: () => void, icon: ReactNode) => (
-    <Button
-      type="button"
-      size="icon"
-      variant={active ? "secondary" : "ghost"}
-      aria-label={label}
-      title={label}
-      disabled={richDisabled}
-      onClick={() => commitRichEdit(onClick)}
-    >
-      {icon}
-    </Button>
-  );
   const updateSource = (value: string) => {
     setSourceHtml(value);
     const document = hydrateInlineImagePreviews(documentFromHtml(value, extensions), previewMap);
@@ -325,7 +272,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       setLinkError(t("composer.invalidLink"));
       return;
     }
-    preserveExactSourceRef.current = false;
     const chain = editor.chain().focus();
     if (editor.isActive("link")) chain.extendMarkRange("link");
     if (editor.state.selection.empty && !editor.isActive("link")) {
@@ -341,7 +287,6 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     setLinkError("");
   };
   const removeLink = () => {
-    preserveExactSourceRef.current = false;
     editor.chain().focus().extendMarkRange("link").unsetLink().run();
     setLinkEditorOpen(false);
     setLinkError("");
@@ -350,138 +295,12 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   return (
     <Page className={cn("flex min-h-0 flex-1 flex-col bg-card", className)}>
       <style data-nextmail-local-composer-style="">{COMPOSER_CONTENT_STYLE}</style>
-      <Inline className="min-h-11 shrink-0 flex-wrap gap-0.5 border-b border-border/70 bg-muted/35 px-3 py-1.5" role="toolbar">
-        <SelectField
-          compact
-          className="shrink-0"
-          triggerClassName="min-w-32 border-transparent"
-          label={t("composer.fontFamily")}
-          value={editor.getAttributes("textStyle").fontFamily ?? "default"}
-          options={[
-            { value: "default", label: t("composer.fontDefault") },
-            { value: "Arial, sans-serif", label: "Arial" },
-            { value: "Georgia, serif", label: "Georgia" },
-            { value: "'Courier New', monospace", label: "Courier New" },
-            { value: "'Microsoft YaHei', sans-serif", label: "微软雅黑" },
-          ]}
-          disabled={richDisabled}
-          onValueChange={(value) => value === "default"
-            ? commitRichEdit(() => { editor.chain().focus().unsetFontFamily().run(); })
-            : commitRichEdit(() => { editor.chain().focus().setFontFamily(value).run(); })}
-        />
-        <SelectField
-          compact
-          className="shrink-0"
-          triggerClassName="min-w-20"
-          label={t("composer.fontSize")}
-          value={editor.getAttributes("textStyle").fontSize ?? "default"}
-          options={[
-            { value: "default", label: t("composer.fontSizeDefault") },
-            { value: "12px", label: "12" },
-            { value: "14px", label: "14" },
-            { value: "16px", label: "16" },
-            { value: "18px", label: "18" },
-            { value: "24px", label: "24" },
-            { value: "32px", label: "32" },
-          ]}
-          disabled={richDisabled}
-          onValueChange={(value) => value === "default"
-            ? commitRichEdit(() => { editor.chain().focus().unsetFontSize().run(); })
-            : commitRichEdit(() => { editor.chain().focus().setFontSize(value).run(); })}
-        />
-        <ColorMenu
-          label={t("composer.textColor")}
-          icon={<Palette size={16} />}
-          disabled={richDisabled}
-          onSelect={(value) => commitRichEdit(() => {
-            if (value) editor.chain().focus().setColor(value).run();
-            else editor.chain().focus().unsetColor().run();
-          })}
-        />
-        <ColorMenu
-          label={t("composer.backgroundColor")}
-          icon={<Highlighter size={16} />}
-          disabled={richDisabled}
-          background
-          onSelect={(value) => commitRichEdit(() => {
-            if (value) editor.chain().focus().setBackgroundColor(value).run();
-            else editor.chain().focus().unsetBackgroundColor().run();
-          })}
-        />
-        <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
-        {action(t("composer.bold"), editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), <Bold size={16} />)}
-        {action(t("composer.italic"), editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), <Italic size={16} />)}
-        {action(t("composer.underline"), editor.isActive("underline"), () => editor.chain().focus().toggleUnderline().run(), <UnderlineIcon size={16} />)}
-        {action(t("composer.strike"), editor.isActive("strike"), () => editor.chain().focus().toggleStrike().run(), <Strikethrough size={16} />)}
-        <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-        {action(t("composer.bulletList"), editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run(), <List size={16} />)}
-        {action(t("composer.numberedList"), editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), <ListOrdered size={16} />)}
-        <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-        {action(t("composer.undo"), false, () => editor.chain().focus().undo().run(), <Undo2 size={16} />)}
-        {action(t("composer.redo"), false, () => editor.chain().focus().redo().run(), <Redo2 size={16} />)}
-        {onAddInlineImage ? (
-          <input
-            ref={imageInputRef}
-            className="sr-only"
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
-            multiple
-            aria-label={t("composer.insertImage")}
-            disabled={richDisabled}
-            onChange={(event) => {
-              const files = Array.from(event.currentTarget.files ?? []);
-              event.currentTarget.value = "";
-              if (files.length) void insertCachedImages(editor, files, onAddInlineImage);
-            }}
-          />
-        ) : null}
-        <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              size="icon"
-              variant={sourceMode ? "secondary" : "ghost"}
-              aria-label={t("composer.moreFormatting")}
-              title={t("composer.moreFormatting")}
-              disabled={disabled}
-            >
-              <MoreHorizontal size={16} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              className={editor.isActive("blockquote") ? "bg-accent text-accent-foreground" : undefined}
-              disabled={richDisabled}
-              onSelect={() => commitRichEdit(() => editor.chain().focus().toggleBlockquote().run())}
-            >
-              <Quote size={16} />{t("composer.quote")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={editor.isActive("link") ? "bg-accent text-accent-foreground" : undefined}
-              disabled={richDisabled}
-              onSelect={openLinkEditor}
-            >
-              <Link2 size={16} />{t("composer.link")}
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled={richDisabled || !editor.isActive("link")} onSelect={removeLink}>
-              <Unlink size={16} />{t("composer.removeLink")}
-            </DropdownMenuItem>
-            {onAddInlineImage ? (
-              <DropdownMenuItem disabled={richDisabled} onSelect={() => imageInputRef.current?.click()}>
-                <ImagePlus size={16} />{t("composer.insertImage")}
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem
-              className={sourceMode ? "bg-accent text-accent-foreground" : undefined}
-              disabled={disabled}
-              onSelect={toggleSourceMode}
-            >
-              <Code2 size={16} />{t("composer.htmlSource")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </Inline>
+      <EditorToolbar editor={editor} disabled={disabled} sourceMode={sourceMode} onEdit={commitRichEdit} onLink={openLinkEditor} onRemoveLink={removeLink} onSource={toggleSourceMode} onImage={onAddInlineImage ? () => imageInputRef.current?.click() : undefined} />
+      {onAddInlineImage ? <input ref={imageInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp" multiple aria-label={t("composer.insertImage")} disabled={richDisabled} onChange={event => {
+        const files = Array.from(event.currentTarget.files ?? []);
+        event.currentTarget.value = "";
+        if (files.length) void insertCachedImages(editor, files, onAddInlineImage);
+      }} /> : null}
       {linkEditorOpen && !sourceMode ? (
         <Form
           className="flex shrink-0 items-end gap-2 border-t border-border bg-card px-3 py-2"
@@ -553,50 +372,18 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       ) : (
         <OverlayScrollArea
           className="min-h-0 flex-1"
+          viewportClassName="flex flex-col"
+          contentClassName="flex-1 shrink-0"
         >
           <EditorContent
             editor={editor}
-            className="min-h-full min-w-0 flex-1 overflow-x-auto"
+            className="nextmail-editor-surface flex min-w-0 flex-1 flex-col overflow-x-auto"
           />
         </OverlayScrollArea>
       )}
     </Page>
   );
 });
-
-function ColorMenu({ label, icon, disabled, background, onSelect }: {
-  label: string;
-  icon: ReactNode;
-  disabled?: boolean;
-  background?: boolean;
-  onSelect: (value: string | null) => void;
-}) {
-  const { t } = useTranslation();
-  const colors = background
-    ? [null, "#fff2a8", "#ffd8a8", "#c8f7d5", "#cfe3ff", "#ead7ff", "#ffd6e7"]
-    : [null, "#202124", "#c93737", "#b45f06", "#18734d", "#2563eb", "#7c3aed", "#d12f7a"];
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" size="icon" disabled={disabled} aria-label={label} title={label}>{icon}</Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48">
-        {colors.map((color) => (
-          <DropdownMenuItem key={color ?? "default"} onSelect={() => onSelect(color)}>
-            <span
-              className="size-4 rounded-xs ring-1 ring-border"
-              style={color ? { backgroundColor: color } : undefined}
-              aria-hidden="true"
-            />
-            <Text className="text-[length:var(--ui-font-control)] text-foreground">
-              {color ? color.toUpperCase() : t("composer.colorDefault")}
-            </Text>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 function clipboardImageFiles(clipboard: DataTransfer | null) {
   const files = Array.from(clipboard?.files ?? [])
