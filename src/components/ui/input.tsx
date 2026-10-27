@@ -31,14 +31,14 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
       </label>
       <div
         className={cn(
-          "flex min-h-10 items-center overflow-hidden rounded-md border border-border/80 bg-input shadow-[var(--shadow-control)] transition-[background-color,border-color,box-shadow] focus-within:border-ring/70 focus-within:bg-card focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/20",
+          "flex min-h-9 items-center overflow-hidden rounded-md border border-border/80 bg-input transition-[background-color,border-color,box-shadow] focus-within:border-ring/70 focus-within:bg-card focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/20",
           error && "border-destructive/60 ring-2 ring-destructive/30",
         )}
       >
         <input
           ref={ref}
           id={id}
-          className="h-10 w-full min-w-0 border-0 bg-transparent px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
+          className="h-9 w-full min-w-0 border-0 bg-transparent px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/70"
           aria-invalid={Boolean(error)}
           aria-describedby={descriptionId}
           {...props}

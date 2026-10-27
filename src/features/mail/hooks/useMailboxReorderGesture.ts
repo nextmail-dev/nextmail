@@ -15,6 +15,7 @@ const HOLD_TOLERANCE_PX = 7;
 interface DropTarget {
   mailboxId: string;
   position: MailboxDropPosition;
+  indicatorTop: number;
 }
 
 interface UseMailboxReorderGestureOptions {
@@ -78,9 +79,24 @@ export function useMailboxReorderGesture({
       return;
     }
     const bounds = row.getBoundingClientRect();
+    const position = clientY < bounds.top + bounds.height / 2 ? "before" : "after";
+    // A folder moves with its descendants. Render one marker in the shared
+    // content coordinate system, not separate top/bottom decorations on rows.
+    let boundaryRow = row;
+    if (position === "after") {
+      const depth = Number(row.dataset.mailboxDepth ?? 0);
+      let sibling = row.nextElementSibling;
+      while (sibling instanceof HTMLElement && sibling.dataset.mailboxReorderId
+        && Number(sibling.dataset.mailboxDepth ?? 0) > depth) {
+        boundaryRow = sibling;
+        sibling = sibling.nextElementSibling;
+      }
+    }
+    const edge = position === "before" ? bounds.top : boundaryRow.getBoundingClientRect().bottom;
     const next = {
       mailboxId: targetId,
-      position: clientY < bounds.top + bounds.height / 2 ? "before" : "after",
+      position,
+      indicatorTop: edge - (row.parentElement?.getBoundingClientRect().top ?? 0),
     } satisfies DropTarget;
     dropTargetRef.current = next;
     setDropTarget(next);

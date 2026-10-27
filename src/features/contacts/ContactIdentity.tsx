@@ -157,7 +157,7 @@ export function ContactIdentity({
       {cardOpen && typeof document !== "undefined" ? createPortal(
         <span
           role="tooltip"
-          className="pointer-events-none fixed z-[70] flex w-max max-w-72 items-center gap-2.5 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-[0_16px_40px_rgb(15_23_42/0.18)]"
+          className="pointer-events-none fixed z-[70] flex w-max max-w-72 items-center gap-2.5 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-[var(--shadow-float)]"
           style={cardPosition}
         >
           <ContactInitial name={name || address.email} />

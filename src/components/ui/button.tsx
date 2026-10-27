@@ -6,24 +6,24 @@ import { cn } from "@/lib/utils";
 import { Spinner } from "./spinner";
 
 const buttonVariants = cva(
-  "text-[length:var(--ui-font-control)] inline-flex shrink-0 cursor-default items-center justify-center gap-2 whitespace-nowrap border-0 font-semibold transition-[color,background-color,filter,opacity,box-shadow] duration-150 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-50",
+  "text-[length:var(--ui-font-control)] inline-flex shrink-0 cursor-default items-center justify-center gap-1.5 whitespace-nowrap border-0 font-medium transition-colors duration-150 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
         primary:
-          "bg-primary [background:var(--primary-gradient)] text-primary-foreground shadow-[var(--shadow-primary)] hover:brightness-[1.04] active:brightness-[0.98] [&_.lucide]:text-primary-foreground",
+          "bg-primary text-primary-foreground hover:bg-primary/85 active:bg-primary/90 [&_.lucide]:text-primary-foreground",
         secondary:
-          "border border-border/80 bg-secondary text-secondary-foreground shadow-[var(--shadow-control)] hover:bg-accent hover:text-accent-foreground",
+          "border border-border bg-card text-secondary-foreground hover:bg-muted hover:text-foreground",
         ghost: "bg-transparent text-muted-foreground hover:bg-foreground/6 hover:text-foreground",
         list: "bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
         danger:
-          "[background:var(--destructive-gradient)] text-white shadow-[var(--shadow-control)] hover:brightness-[1.04] active:brightness-[0.98] [&_.lucide]:text-white",
+          "bg-destructive/10 text-destructive hover:bg-destructive/20 active:bg-destructive/25 [&_.lucide]:text-destructive",
       },
       size: {
-        sm: "h-8 rounded-md px-2.5",
-        md: "h-10 rounded-md px-3.5",
-        lg: "h-11 rounded-md px-4 text-sm",
-        icon: "size-8 rounded-md p-0",
+        sm: "h-8 rounded-none px-2.5",
+        md: "h-9 rounded-none px-3",
+        lg: "h-10 rounded-none px-4 text-sm",
+        icon: "size-8 rounded-none p-0",
       },
     },
     defaultVariants: { variant: "primary", size: "md" },

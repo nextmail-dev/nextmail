@@ -342,7 +342,7 @@ function DefinitionEditorForm({
         </Stack>
         <Page className="flex min-h-0 flex-1 flex-col px-6 pt-4">
           <LabelText className="mb-2 shrink-0">{label}</LabelText>
-          <Page className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-border/80 bg-card shadow-[var(--shadow-raised)]">
+          <Page className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-border/80 bg-card">
             <RichTextEditor
               initialJson={content.editorJson}
               initialHtml={content.html}

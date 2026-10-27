@@ -304,7 +304,7 @@ describe("ComposerApp close lifecycle", () => {
     expect(await screen.findByRole("combobox", { name: "Cc" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Bcc" })).not.toBeInTheDocument();
     const toggle = screen.getByRole("button", { name: "Bcc" });
-    expect(toggle).toHaveClass("bg-secondary");
+    expect(toggle).toHaveClass("border-border", "bg-card");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(toggle);

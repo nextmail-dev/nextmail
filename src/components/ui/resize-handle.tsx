@@ -85,7 +85,7 @@ export function ResizeHandle({
         <Button
           variant="secondary"
           size="icon"
-          className="pointer-events-none absolute top-1/2 z-20 size-5 -translate-y-1/2 rounded-full bg-card p-0 opacity-0 shadow-[var(--shadow-raised)] transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+          className="pointer-events-none absolute top-1/2 z-20 size-5 -translate-y-1/2 rounded-full bg-card p-0 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
           aria-label={collapsed ? expandLabel : collapseLabel}
           title={collapsed ? expandLabel : collapseLabel}
           onPointerDown={(event) => event.stopPropagation()}

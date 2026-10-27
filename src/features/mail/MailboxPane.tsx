@@ -206,8 +206,8 @@ export function MailboxPane({
             ? "mx-auto size-10 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
             : "mx-auto size-10 flex-none justify-center p-0"
           : contactsSelected
-            ? "h-9 w-full flex-none justify-start bg-primary/10 px-3 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
-            : "h-9 w-full flex-none justify-start px-3"}
+            ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+            : "h-9 w-full flex-none justify-start pr-3 pl-4"}
         aria-label={t("contacts.title")}
         title={collapsed ? t("contacts.title") : undefined}
         aria-current={contactsSelected ? "page" : undefined}
@@ -252,11 +252,11 @@ export function MailboxPane({
       ) : null}
       <OverlayScrollArea
         className={collapsed ? "-mr-1 min-h-0 flex-1 self-stretch" : "-mr-3 min-h-0 flex-1"}
-        contentClassName={collapsed ? "gap-0.5 pr-1" : "gap-0.5 pr-3"}
+        contentClassName={collapsed ? "relative gap-0 pr-1" : "relative gap-0 pr-3"}
         trackClassName="right-px w-2"
       >
           {collapsed ? null : (
-            <LabelText className="h-7 w-full px-[26px] pt-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">
+            <LabelText className="h-7 w-full px-4 pt-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">
               {t("mail.favorites")}
             </LabelText>
           )}
@@ -269,8 +269,8 @@ export function MailboxPane({
                   <Button
                     variant="ghost"
                     className={selected
-                      ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-[26px] text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
-                      : "h-9 w-full flex-none justify-start pr-3 pl-[26px] text-muted-foreground"}
+                      ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                      : "h-9 w-full flex-none justify-start pr-3 pl-4 text-muted-foreground"}
                     aria-label={label}
                     data-mailbox-selection-id={mailbox.id}
                     data-mailbox-favorite="true"
@@ -314,8 +314,8 @@ export function MailboxPane({
                 ? "mx-auto size-10 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
                 : "mx-auto size-10 flex-none justify-center p-0"
               : selectedMailboxId === STARRED_MAILBOX_ID
-                ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-[26px] text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
-                : "h-9 w-full flex-none justify-start pr-3 pl-[26px] text-muted-foreground"}
+                ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                : "h-9 w-full flex-none justify-start pr-3 pl-4 text-muted-foreground"}
             aria-label={t("mailboxNames.starred")}
             title={collapsed ? t("mailboxNames.starred") : undefined}
             data-mailbox-selection-id={STARRED_MAILBOX_ID}
@@ -342,8 +342,8 @@ export function MailboxPane({
                     ? "mx-auto size-10 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
                     : "mx-auto size-10 flex-none justify-center p-0"
                   : selectedMailboxId === UNREAD_MAILBOX_ID
-                    ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-[26px] text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
-                    : "h-9 w-full flex-none justify-start pr-3 pl-[26px] text-muted-foreground"}
+                    ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                    : "h-9 w-full flex-none justify-start pr-3 pl-4 text-muted-foreground"}
                 aria-label={t("mailboxNames.unread")}
                 title={collapsed ? t("mailboxNames.unread") : undefined}
                 data-mailbox-selection-id={UNREAD_MAILBOX_ID}
@@ -377,7 +377,7 @@ export function MailboxPane({
           {collapsed ? null : (
             <ContextMenu>
               <ContextMenuTrigger asChild>
-                <Inline className="mt-2 h-7 w-full pr-2 pl-[26px]">
+                <Inline className="mt-2 h-7 w-full pr-2 pl-4">
                   <LabelText className="min-w-0 flex-1 text-[length:var(--ui-font-caption)] tracking-[0.09em] text-muted-foreground uppercase">
                     {t("mail.folders")}
                   </LabelText>
@@ -411,9 +411,6 @@ export function MailboxPane({
             const label = mailbox.role === "other" ? displayName : t(`mailboxNames.${mailbox.role}`);
             const folderCollapsed = collapsedFolderIds.has(mailbox.id);
             const structureMutable = mailbox.role !== "inbox";
-            const dropPosition = dropTarget?.mailboxId === mailbox.id
-              ? dropTarget.position
-              : null;
             const actions = (
               <ContextMenuContent>
                 <ContextMenuItem
@@ -486,7 +483,8 @@ export function MailboxPane({
                       className={`${selected
                         ? "relative h-9 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary shadow-[inset_2px_0_0_var(--primary)]"
                         : "relative h-9 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"} ${draggingId === mailbox.id ? "cursor-grabbing opacity-55" : "cursor-default"}`}
-                      style={{ paddingInlineStart: `${4 + depth * 16}px` }}
+                      style={{ paddingInlineStart: `${depth * 16}px` }}
+                      data-mailbox-depth={depth}
                       aria-grabbed={draggingId === mailbox.id}
                       data-mailbox-selection-id={mailbox.id}
                       onClick={() => {
@@ -495,21 +493,11 @@ export function MailboxPane({
                       }}
                       onKeyDown={handleMailboxArrowKey}
                     >
-                      {dropPosition ? (
-                        <span
-                          aria-hidden="true"
-                          data-mailbox-drop-indicator={dropPosition}
-                          className={`pointer-events-none absolute right-1 left-1 z-20 flex h-2 items-center ${dropPosition === "before" ? "top-0 -translate-y-1/2" : "bottom-0 translate-y-1/2"}`}
-                        >
-                          <span className="size-2 shrink-0 rounded-full border-2 border-primary bg-card" />
-                          <span className="h-0.5 flex-1 bg-primary" />
-                        </span>
-                      ) : null}
                       {hasChildren ? (
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-4 shrink-0 rounded-none bg-transparent p-0 hover:bg-transparent hover:text-foreground"
+                          className="h-6 w-3 shrink-0 rounded-none bg-transparent p-0 hover:bg-transparent hover:text-foreground"
                           aria-label={t(folderCollapsed ? "mail.expandFolder" : "mail.collapseFolder", { folder: label })}
                           aria-expanded={!folderCollapsed}
                           onClick={(event) => {
@@ -517,14 +505,14 @@ export function MailboxPane({
                             toggleFolder(mailbox.id);
                           }}
                         >
-                          {folderCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                          {folderCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                         </Button>
                       ) : (
-                        <Inline className="h-6 w-4 shrink-0" aria-hidden="true" />
+                        <Inline className="h-6 w-3 shrink-0" aria-hidden="true" />
                       )}
                       <Button
                         variant="ghost"
-                        className="h-9 min-w-0 flex-1 justify-start rounded-md bg-transparent px-1.5 text-inherit hover:bg-transparent hover:text-foreground"
+                        className="h-9 min-w-0 flex-1 justify-start rounded-md bg-transparent px-1 text-inherit hover:bg-transparent hover:text-foreground"
                         aria-label={label}
                         data-mailbox-select-button="true"
                       >
@@ -565,6 +553,17 @@ export function MailboxPane({
               </ContextMenu>
             );
           })}
+          {dropTarget && !collapsed ? (
+            <span
+              aria-hidden="true"
+              data-mailbox-drop-indicator={dropTarget.position}
+              className="pointer-events-none absolute right-4 left-1 z-20 flex h-2 -translate-y-1/2 items-center"
+              style={{ top: dropTarget.indicatorTop }}
+            >
+              <span className="size-2 shrink-0 rounded-full border-2 border-primary bg-card" />
+              <span className="h-0.5 flex-1 bg-primary" />
+            </span>
+          ) : null}
           {mailboxes.length ? null : (
             <EmptyState className="mt-6 flex-1 items-center p-4 text-center" icon={<Inbox size={21} />} title={t("mail.noFolders")} />
           )}

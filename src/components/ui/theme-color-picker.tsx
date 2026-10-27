@@ -33,7 +33,7 @@ export function ThemeColorPicker({
           return (
             <label
               key={option.value}
-              className="group relative cursor-default rounded-full"
+              className="group relative cursor-default rounded-none"
               title={option.label}
             >
               <input
@@ -47,15 +47,15 @@ export function ThemeColorPicker({
               />
               <span
                 className={cn(
-                  "grid size-8 place-items-center rounded-full shadow-[inset_0_0_0_1px_rgb(255_255_255/0.24)] transition-[transform,box-shadow] duration-150 group-hover:scale-105 peer-focus-visible:ring-1 peer-focus-visible:ring-ring/70 peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-card",
-                  checked && "shadow-[inset_0_0_0_1px_rgb(255_255_255/0.3),0_0_0_2px_var(--card),0_0_0_4px_var(--foreground)]",
+                  "grid size-8 place-items-center rounded-none border border-foreground/15 transition-opacity duration-150 group-hover:opacity-85 peer-focus-visible:ring-1 peer-focus-visible:ring-ring/70 peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-card",
+                  checked && "outline outline-1 outline-offset-2 outline-foreground",
                 )}
                 style={{ backgroundColor: checked ? "var(--primary)" : option.value }}
                 aria-hidden="true"
               >
                 {checked ? (
                   <Check
-                    className="text-primary-foreground drop-shadow-[0_1px_1px_rgb(0_0_0/0.35)]"
+                    className="text-primary-foreground"
                     size={17}
                     strokeWidth={3}
                   />

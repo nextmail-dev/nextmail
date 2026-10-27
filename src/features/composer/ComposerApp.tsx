@@ -498,7 +498,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
 
   return (
     <AppShell className="flex min-h-0 flex-col overflow-hidden bg-card">
-      <Inline className="h-12 shrink-0 border-b border-border/70 bg-muted/25 px-4 shadow-[inset_0_1px_0_var(--surface-highlight)]">
+      <Inline className="h-12 shrink-0 border-b border-border/70 bg-muted/25 px-4">
         <Button size="sm" loading={sending} onClick={() => void sendMessage()} disabled={!editable || saveState === "saving"}>
           <Send size={16} />{t("composer.send")}
         </Button>
@@ -608,7 +608,7 @@ function ComposerWorkspace({ bootstrap }: { bootstrap: ComposerBootstrap }) {
         {attachments.some((attachment) => !attachment.isInline) ? (
           <Inline className="flex-wrap border-b border-border/70 bg-muted/35 px-4 py-2">
             {attachments.filter((attachment) => !attachment.isInline).map((attachment) => (
-              <Inline key={attachment.id} className="rounded-md border-0 bg-card px-2.5 py-1.5 shadow-xs">
+              <Inline key={attachment.id} className="rounded-none border border-border bg-card px-2.5 py-1.5">
                 <Paperclip size={14} /><Text className="max-w-56 truncate text-xs text-foreground">{attachment.fileName}</Text>
                 <Text className="text-[length:var(--ui-font-caption)]">{formatBytes(attachment.size)}</Text>
                 {editable ? (
@@ -682,12 +682,12 @@ function SendProgressOverlay({ status }: { status: "preparing" | "queued" | "sen
   const { t } = useTranslation();
   return (
     <Page
-      className="app-dialog-overlay fixed inset-0 grid place-items-center bg-black/50 p-6 backdrop-blur-[2px]"
+      className="app-dialog-overlay fixed inset-0 grid place-items-center bg-black/50 p-6"
       role="dialog"
       aria-modal="true"
       aria-label={t("composer.sendProgressTitle")}
     >
-      <Stack className="w-[min(22rem,calc(100vw-3rem))] items-center rounded-lg border-0 bg-popover px-8 py-7 text-center text-popover-foreground shadow-2xl" gap="sm">
+      <Stack className="w-[min(22rem,calc(100vw-3rem))] items-center rounded-none border border-border bg-popover px-8 py-7 text-center text-popover-foreground shadow-2xl" gap="sm">
         <Spinner size={30} />
         <Text className="font-semibold text-foreground">{t("composer.sendProgressTitle")}</Text>
         <Text className="text-xs">{t(`composer.${status}`)}</Text>

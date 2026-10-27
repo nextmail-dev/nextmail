@@ -248,7 +248,7 @@ describe("CompositionDefinitionsSettings", () => {
     renderSettings();
 
     await screen.findByText("Current default signature: Primary.");
-    fireEvent.click(await screen.findByRole("checkbox", {
+    fireEvent.click(await screen.findByRole("switch", {
       name: "Automatically select the default signature for messages",
     }));
 

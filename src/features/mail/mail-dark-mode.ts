@@ -53,7 +53,7 @@ type Cascade = Map<HTMLElement, Partial<Record<ColorProperty, Candidate>>>;
 
 const LIGHT_FOREGROUND: Rgba = { r: 32, g: 33, b: 36, a: 1 };
 const LIGHT_BACKGROUND: Rgba = { r: 255, g: 255, b: 255, a: 1 };
-export const LIGHT_MAIL_SURFACE = "#fbfcfe";
+export const LIGHT_MAIL_SURFACE = "#ffffff";
 export const DARK_MAIL_SURFACE = "#171717";
 const DARK_READER_BACKGROUND: Rgba = { r: 23, g: 23, b: 23, a: 1 };
 const TRANSPARENT: Rgba = { r: 0, g: 0, b: 0, a: 0 };

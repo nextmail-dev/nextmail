@@ -79,7 +79,7 @@ function AccountIdentity({ account, runtime, collapsed = false }: { account?: Ac
   const label = account.displayName || account.email;
   return (
     <Inline className={collapsed ? "min-w-0 justify-center" : "w-full min-w-0 flex-1 justify-start text-left"} title={collapsed ? account.email : undefined}>
-      <IdentityAvatar label={label} fallback={<UserRound size={16} />} className="shadow-[var(--shadow-primary)]" />
+      <IdentityAvatar label={label} fallback={<UserRound size={16} />} />
       {collapsed ? null : (
         <Stack className="min-w-0 flex-1 items-start overflow-hidden whitespace-normal text-left" gap="none">
           <Text className="w-full break-words text-left text-[13px] leading-5 font-semibold whitespace-normal text-foreground">{label}</Text>

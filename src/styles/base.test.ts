@@ -51,24 +51,25 @@ describe("global dialog layer", () => {
 });
 
 describe("desktop window chrome", () => {
-  it("defines shared depth tokens for light, dark, and system themes", () => {
+  it("defines shared neutral surface tokens for light, dark, and system themes", () => {
     expect(themeStyles).toMatch(/--border-strong:/);
     expect(themeStyles).toMatch(/--titlebar:/);
-    expect(themeStyles).toMatch(/--window-background:\s*linear-gradient\(180deg/);
-    expect(themeStyles).toMatch(/--titlebar-background:\s*color-mix\(/);
-    expect(themeStyles).toMatch(/--surface-highlight:/);
+    expect(themeStyles).toMatch(/--window-background:\s*var\(--background\)/);
+    expect(themeStyles).toMatch(/--titlebar-background:\s*var\(--titlebar\)/);
+    expect(themeStyles).not.toContain("gradient(");
     expect(themeStyles).toMatch(/--shadow-control:/);
     expect(themeStyles).toMatch(/--shadow-overlay:/);
     expect(themeStyles).toMatch(/:root\[data-theme="dark"\]/);
     expect(themeStyles).toMatch(/:root\[data-theme="system"\]/);
   });
 
-  it("keeps a visible, layered titlebar above the application surface", () => {
-    expect(baseStyles).toMatch(/--titlebar-height:\s*42px/);
+  it("keeps square window controls flush to the top-right edge", () => {
+    expect(baseStyles).toMatch(/--titlebar-height:\s*40px/);
     expect(baseStyles).toMatch(/\.window-titlebar\s*\{[^}]*border-bottom:\s*1px solid var\(--titlebar-border\)/m);
     expect(baseStyles).toMatch(/\.window-titlebar\s*\{[^}]*background:\s*var\(--titlebar-background\)/m);
-    expect(baseStyles).toMatch(/\.window-titlebar\s*\{[^}]*backdrop-filter:\s*blur\(18px\)/m);
+    expect(baseStyles).not.toContain("backdrop-filter");
+    expect(baseStyles).not.toContain(".window-titlebar-title::before");
     expect(baseStyles).toMatch(/\.window-titlebar-title\s*\{[^}]*left:\s*50%/m);
-    expect(baseStyles).toMatch(/\.window-titlebar-controls\s*\{[^}]*gap:\s*3px/m);
+    expect(baseStyles).toMatch(/\.window-titlebar-controls\s*\{[^}]*inset:\s*0 0 0 auto/m);
   });
 });

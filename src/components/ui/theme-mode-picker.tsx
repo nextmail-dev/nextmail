@@ -43,13 +43,13 @@ export function ThemeModePicker({
               <span
                 className={cn(
                   "relative block overflow-hidden rounded-lg border border-border bg-card p-2 transition-[border-color,box-shadow] duration-150 group-hover:border-foreground/30 peer-focus-visible:ring-1 peer-focus-visible:ring-inset peer-focus-visible:ring-ring/70",
-                  checked && "border-primary shadow-[0_0_0_2px_color-mix(in_srgb,var(--primary)_18%,transparent)]",
+                  checked && "border-primary",
                 )}
                 aria-hidden="true"
               >
                 <ThemePreview mode={option.value} />
                 {checked ? (
-                  <span data-icon-tone="current" className="absolute top-3 right-3 grid size-5 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm">
+                  <span data-icon-tone="current" className="absolute top-3 right-3 grid size-5 place-items-center rounded-none bg-primary text-primary-foreground shadow-sm">
                     <Check size={13} strokeWidth={3} />
                   </span>
                 ) : null}
@@ -81,12 +81,12 @@ function ThemePreview({ mode }: { mode: ThemePreference }) {
 
 function PreviewPane({ dark }: { dark: boolean }) {
   return (
-    <span className={cn("grid h-full grid-cols-[30%_1fr]", dark ? "bg-zinc-950" : "bg-white")}>
-      <span className={cn("border-r", dark ? "border-zinc-700 bg-zinc-900" : "border-slate-200 bg-slate-100")} />
+    <span className={cn("grid h-full grid-cols-[30%_1fr]", dark ? "bg-neutral-950" : "bg-white")}>
+      <span className={cn("border-r", dark ? "border-neutral-700 bg-neutral-900" : "border-neutral-200 bg-neutral-100")} />
       <span className="flex flex-col gap-2 p-2">
-        <span className={cn("h-2 w-2/3 rounded-full", dark ? "bg-zinc-500" : "bg-slate-300")} />
-        <span className="h-3 w-full rounded bg-primary/75" />
-        <span className={cn("h-2 w-4/5 rounded-full", dark ? "bg-zinc-700" : "bg-slate-200")} />
+        <span className={cn("h-2 w-2/3 rounded-none", dark ? "bg-neutral-500" : "bg-neutral-300")} />
+        <span className="h-3 w-full rounded-none bg-primary/75" />
+        <span className={cn("h-2 w-4/5 rounded-none", dark ? "bg-neutral-700" : "bg-neutral-200")} />
       </span>
     </span>
   );

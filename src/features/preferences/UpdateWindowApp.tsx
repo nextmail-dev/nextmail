@@ -64,7 +64,7 @@ export function UpdateWindowApp() {
         <Stack className="min-h-0 flex-1" gap="sm">
           <LabelText>{t("updates.releaseNotes")}</LabelText>
           <OverlayScrollArea
-            className="min-h-0 flex-1 rounded-lg border border-border/70 bg-muted/45 shadow-[var(--shadow-control)]"
+            className="min-h-0 flex-1 rounded-lg border border-border/70 bg-muted/45"
             viewportClassName="p-4"
           >
             {update.notes ? (

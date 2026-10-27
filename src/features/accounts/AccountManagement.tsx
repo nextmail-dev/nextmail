@@ -9,7 +9,7 @@ import type { AccountDraft, AccountSummary, MailboxRole, SyncInterval } from "@/
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
+import { SwitchField } from "@/components/ui/switch";
 import { Modal } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PasswordField } from "@/components/ui/input";
@@ -60,7 +60,7 @@ export function AccountsManagement({
       {accounts.length ? (
         <Page className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] gap-5 overflow-hidden">
           <OverlayScrollArea
-            className="min-h-0 rounded-lg border border-border/70 bg-muted/35 shadow-[var(--shadow-control)]"
+            className="min-h-0 rounded-lg border border-border/70 bg-muted/35"
             contentClassName="gap-1"
             viewportClassName="p-2"
           >
@@ -232,7 +232,7 @@ export function AccountManagementPanel({
             disabled={intervalMutation.isPending}
           />
           <Stack className="rounded-lg bg-muted/60 p-4" gap="sm">
-            <Checkbox
+            <SwitchField
               checked={account.downloadFullMessages}
               disabled={fullMessagesMutation.isPending}
               label={t("accounts.downloadFullMessages")}

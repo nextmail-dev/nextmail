@@ -7,7 +7,7 @@ import { api, normalizeCommandError } from "@/app/api";
 import type { DesktopPreferences } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { SwitchField } from "@/components/ui/switch";
 import { Stack } from "@/components/ui/layout";
 import { Text } from "@/components/ui/typography";
 
@@ -29,7 +29,7 @@ export function UpdateSettings({
 
   return (
     <Stack gap="md">
-      <Checkbox
+      <SwitchField
         checked={preferences.autoCheckUpdates}
         label={t("settings.autoCheckUpdates")}
         description={t("settings.autoCheckUpdatesDescription")}

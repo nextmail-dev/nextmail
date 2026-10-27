@@ -117,7 +117,7 @@ describe("MailboxPane", () => {
     expect(onSelect).toHaveBeenCalledWith("root");
 
     const collapse = screen.getByRole("button", { name: "Collapse Other" });
-    expect(collapse).toHaveClass("w-4");
+    expect(collapse).toHaveClass("w-3");
     fireEvent.click(collapse);
     expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Expand Other" }));
@@ -194,7 +194,7 @@ describe("MailboxPane", () => {
     const receive = current.getByRole("button", { name: "Receive" });
     const settings = current.getByRole("button", { name: "Settings" });
     expect(folderHeading.parentElement).toContainElement(receive);
-    expect(folderHeading.parentElement).toHaveClass("pl-[26px]");
+    expect(folderHeading.parentElement).toHaveClass("pl-4");
     expect(settings).toHaveClass("mt-auto");
 
     fireEvent.click(receive);
@@ -396,7 +396,7 @@ describe("MailboxPane", () => {
     );
 
     const inbox = within(container).getByRole("button", { name: "Inbox" });
-    expect(inbox.previousElementSibling).toHaveClass("w-4");
+    expect(inbox.previousElementSibling).toHaveClass("w-3");
     fireEvent.click(inbox.previousElementSibling!);
     expect(onSelect).toHaveBeenCalledWith("inbox");
   });
@@ -460,8 +460,9 @@ describe("MailboxPane", () => {
       act(() => vi.advanceTimersByTime(360));
       fireEvent.pointerMove(source, { pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 110 });
 
-      const marker = target.querySelector('[data-mailbox-drop-indicator="before"]');
-      expect(marker).toHaveClass("top-0", "-translate-y-1/2");
+      const marker = container.querySelector('[data-mailbox-drop-indicator="before"]');
+      expect(marker).toHaveStyle({ top: "100px" });
+      expect(marker).toHaveClass("-translate-y-1/2");
       expect(marker?.children[0]).toHaveClass("rounded-full", "border-2");
       expect(marker?.children[1]).toHaveClass("h-0.5", "bg-primary");
     } finally {
@@ -469,6 +470,47 @@ describe("MailboxPane", () => {
         configurable: true,
         value: originalElementFromPoint,
       });
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps one marker at the same boundary from either neighboring folder, including expanded children", () => {
+    vi.useFakeTimers();
+    const originalElementFromPoint = document.elementFromPoint;
+    try {
+      const onReorder = vi.fn().mockResolvedValue(undefined);
+      const mailboxes = ["Source", "Projects", "Projects/Child", "Work"].map((name) => ({
+        id: name, accountId: "account-one", name, delimiter: "/", role: "other" as const,
+        selectable: true, totalCount: 0, unreadCount: 0, revision: 1,
+      }));
+      const { container } = render(<MailboxPane mailboxes={mailboxes} selectedMailboxId="" onSelect={vi.fn()}
+        onCompose={vi.fn()} onReceive={vi.fn()} receiving={false} onOpenSettings={vi.fn()} onReorderFolders={onReorder} />);
+      const rows = [...container.querySelectorAll<HTMLElement>("[data-mailbox-reorder-id]")];
+      for (const [index, row] of rows.entries()) {
+        row.getBoundingClientRect = () => ({ x: 0, y: 64 + index * 36, top: 64 + index * 36, left: 0,
+          right: 200, bottom: 100 + index * 36, width: 200, height: 36, toJSON: () => ({}) });
+      }
+      // Scrolling offsets the entire content, but must not change the boundary.
+      rows[0].parentElement!.getBoundingClientRect = () => ({ x: 0, y: -20, top: -20, left: 0,
+        right: 200, bottom: 300, width: 200, height: 320, toJSON: () => ({}) });
+      let hit = rows[1];
+      Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => hit });
+      fireEvent.pointerDown(rows[0], { button: 0, pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 80 });
+      act(() => vi.advanceTimersByTime(360));
+      fireEvent.pointerMove(rows[0], { pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 130 });
+      const marker = container.querySelector("[data-mailbox-drop-indicator]");
+      expect(marker).toHaveStyle({ top: "192px" });
+      expect(marker?.parentElement).toBe(rows[0].parentElement);
+      hit = rows[3];
+      fireEvent.pointerMove(rows[0], { pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 174 });
+      expect(container.querySelectorAll("[data-mailbox-drop-indicator]")).toHaveLength(1);
+      expect(container.querySelector("[data-mailbox-drop-indicator]")).toBe(marker);
+      expect(marker).toHaveStyle({ top: "192px" });
+      fireEvent.pointerUp(rows[0], { pointerId: 1, pointerType: "mouse" });
+      expect(container.querySelector("[data-mailbox-drop-indicator]")).toBeNull();
+      expect(onReorder).toHaveBeenCalledWith(["Projects", "Projects/Child", "Source", "Work"]);
+    } finally {
+      Object.defineProperty(document, "elementFromPoint", { configurable: true, value: originalElementFromPoint });
       vi.useRealTimers();
     }
   });

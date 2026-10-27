@@ -24,7 +24,7 @@ import type {
 import { useRevealWindowWhenReady } from "@/app/windowReady";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { SwitchField } from "@/components/ui/switch";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AppShell, Page, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
@@ -267,7 +267,7 @@ function SettingsContent({
           />
         </SettingsGroup>
         <SettingsGroup title={t("settings.group.startup")}>
-          <Checkbox
+          <SwitchField
             checked={autostartEnabled ?? false}
             disabled={autostartDisabled}
             label={t("settings.launchAtStartup")}
@@ -319,7 +319,7 @@ function SettingsContent({
     return (
       <SettingsSection category={category}>
         <SettingsGroup title={t("settings.group.contentPrivacy")}>
-          <Checkbox
+          <SwitchField
             checked={readingPreferences.autoLoadRemoteImages}
             label={t("settings.autoLoadRemoteImages")}
             description={t("settings.autoLoadRemoteImagesDescription")}
@@ -327,7 +327,7 @@ function SettingsContent({
           />
         </SettingsGroup>
         <SettingsGroup title={t("settings.group.listBehavior")}>
-          <Checkbox
+          <SwitchField
             checked={readingPreferences.autoLoadMoreMessages}
             label={t("settings.autoLoadMoreMessages")}
             description={t("settings.autoLoadMoreMessagesDescription")}
@@ -363,13 +363,13 @@ function SettingsContent({
     return (
       <SettingsSection category={category}>
         <SettingsGroup title={t("settings.group.tray")}>
-          <Checkbox
+          <SwitchField
             checked={desktopPreferences.minimizeToTray}
             label={t("settings.minimizeToTray")}
             description={t("settings.minimizeToTrayDescription")}
             onCheckedChange={(minimizeToTray) => onDesktopChange({ ...desktopPreferences, minimizeToTray })}
           />
-          <Checkbox
+          <SwitchField
             checked={desktopPreferences.askBeforeExit}
             label={t("settings.askBeforeExit")}
             description={t("settings.askBeforeExitDescription")}
@@ -377,7 +377,7 @@ function SettingsContent({
           />
         </SettingsGroup>
         <SettingsGroup title={t("settings.group.listBehavior")}>
-          <Checkbox
+          <SwitchField
             checked={readingPreferences.autoLoadMoreContacts}
             label={t("settings.autoLoadMoreContacts")}
             description={t("settings.autoLoadMoreContactsDescription")}
@@ -438,7 +438,7 @@ function SettingsSection({ category, children }: { category: SettingsCategory; c
 
 function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Stack className="rounded-lg border border-border/70 bg-muted/45 p-5 shadow-[var(--shadow-raised)]" gap="md">
+    <Stack className="rounded-lg border border-border/70 bg-muted/45 p-5" gap="md">
       <Heading level={2} className="text-base">{title}</Heading>
       {children}
     </Stack>

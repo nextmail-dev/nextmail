@@ -17,7 +17,7 @@ export function Modal({ open, onOpenChange, title, closeLabel, contentClassName,
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="app-dialog-overlay fixed inset-0 bg-black/45 backdrop-blur-[3px]" />
+        <DialogPrimitive.Overlay className="app-dialog-overlay fixed inset-0 bg-black/45" />
         <DialogPrimitive.Content className={cn("app-dialog-content fixed top-1/2 left-1/2 w-[min(520px,calc(100vw-40px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border/80 bg-popover p-6 text-popover-foreground shadow-[var(--shadow-overlay)] outline-none", contentClassName)}>
           <DialogPrimitive.Title className="m-0 text-lg font-semibold tracking-tight">
             {title}

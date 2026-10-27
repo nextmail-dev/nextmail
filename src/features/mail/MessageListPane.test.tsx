@@ -210,13 +210,10 @@ describe("MessageListPane", () => {
     expect(row).toHaveClass(
       "bg-selection",
       "before:w-0.5",
-      "after:inset-x-5",
-      "after:h-px",
-      "after:bg-border/80",
     );
     expect(rowButton).toHaveClass("py-2.5", "pr-12", "pl-10");
-    expect(row).not.toHaveClass("after:hidden");
-    expect(lastRow).toHaveClass("after:hidden", "bg-primary/[0.035]");
+    expect(row?.className).not.toContain("after:");
+    expect(lastRow).toHaveClass("bg-primary/[0.035]");
     expect(screen.getByText("Second message")).toHaveClass("font-semibold");
 
     fireEvent.click(rowButton);
@@ -289,8 +286,6 @@ describe("MessageListPane", () => {
     expect(markUnread).toHaveClass("hover:bg-transparent");
     expect(markUnread.querySelector("span")).toHaveClass(
       "border-foreground/15",
-      "group-hover/read-state:ring-2",
-      "group-hover/read-state:ring-foreground/10",
     );
     fireEvent.click(markUnread);
     await waitFor(() => expect(api.setMessageRead).toHaveBeenCalledWith(

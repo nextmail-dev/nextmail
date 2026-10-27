@@ -22,9 +22,9 @@ describe("mail smart inversion", () => {
     const white = document.querySelector<HTMLElement>(".white")!;
     const tinted = document.querySelector<HTMLElement>(".tinted")!;
 
-    expect(document.documentElement.style.backgroundColor).toBe("rgb(251, 252, 254)");
-    expect(document.body.style.backgroundColor).toBe("rgb(251, 252, 254)");
-    expect(white.style.backgroundColor).toBe("rgb(251, 252, 254)");
+    expect(document.documentElement.style.backgroundColor).toBe("rgb(255, 255, 255)");
+    expect(document.body.style.backgroundColor).toBe("rgb(255, 255, 255)");
+    expect(white.style.backgroundColor).toBe("rgb(255, 255, 255)");
     expect(white.style.getPropertyPriority("background-color")).toBe("important");
     expect(tinted.style.backgroundColor).toBe("");
   });

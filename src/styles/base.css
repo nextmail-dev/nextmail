@@ -1,5 +1,5 @@
 :root {
-  --titlebar-height: 42px;
+  --titlebar-height: 40px;
   --ui-font-caption: 11px;
   --ui-font-control: 13px;
   --layer-window-titlebar: 100;
@@ -15,9 +15,16 @@
   --ui-font-control: 14px;
 }
 
-* {
-  box-sizing: border-box;
-  border-color: var(--border);
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: var(--border);
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
 }
 
 html {
@@ -105,9 +112,6 @@ textarea,
   z-index: var(--layer-window-titlebar);
   border-bottom: 1px solid var(--titlebar-border);
   background: var(--titlebar-background);
-  box-shadow: 0 1px 10px rgb(15 23 42 / 0.06);
-  backdrop-filter: blur(18px) saturate(1.15);
-  -webkit-backdrop-filter: blur(18px) saturate(1.15);
   -webkit-app-region: drag;
 }
 
@@ -135,21 +139,17 @@ textarea,
   white-space: nowrap;
 }
 
-.window-titlebar-title::before {
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-right: 7px;
-  border-radius: 999px;
-  background: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 13%, transparent);
-  content: "";
-  vertical-align: 2px;
+.window-titlebar-controls {
+  position: absolute;
+  inset: 0 0 0 auto;
+  height: var(--titlebar-height);
+  gap: 0;
+  margin: 0;
 }
 
-.window-titlebar-controls {
-  gap: 3px;
-  margin-right: 6px;
+.window-titlebar-control {
+  width: var(--titlebar-height);
+  height: var(--titlebar-height);
 }
 
 .window-titlebar-control--danger:hover .lucide,
@@ -235,11 +235,6 @@ textarea,
   display: none;
   width: 0;
   height: 0;
-}
-
-button,
-input {
-  font: inherit;
 }
 
 ::selection {

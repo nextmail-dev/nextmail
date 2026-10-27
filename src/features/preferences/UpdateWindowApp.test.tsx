@@ -37,7 +37,7 @@ describe("UpdateWindowApp", () => {
     expect(screen.getByText("Safer updates").closest(".rounded-lg")).toHaveClass(
       "border",
       "bg-muted/45",
-      "shadow-[var(--shadow-control)]",
+
     );
     fireEvent.click(screen.getByRole("button", { name: "Download and install" }));
     await waitFor(() => expect(api.installUpdate).toHaveBeenCalledOnce());

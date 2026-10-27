@@ -14,10 +14,11 @@ afterEach(() => {
 });
 
 describe("ContactIdentity", () => {
-  it("uses the shared theme gradient for contact avatars", () => {
+  it("uses the shared flat theme color for contact avatars", () => {
     const { container } = render(<ContactInitial name="Alice" />);
     expect(container.querySelector('[data-slot="identity-avatar"]')).toHaveClass(
-      "[background:var(--primary-gradient)]",
+      "bg-primary",
+      "rounded-none",
       "text-primary-foreground",
     );
   });

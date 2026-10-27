@@ -35,7 +35,7 @@ export function Checkbox({
         data-icon-tone="current"
         aria-describedby={description ? `${id}-description` : undefined}
         aria-labelledby={`${id}-label`}
-        className="mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-sm border border-border-strong bg-background text-primary-foreground shadow-[var(--shadow-control)] outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70 data-[state=checked]:border-primary data-[state=checked]:bg-primary disabled:cursor-not-allowed"
+        className="mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-sm border border-border-strong bg-background text-primary-foreground outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70 data-[state=checked]:border-primary data-[state=checked]:bg-primary disabled:cursor-not-allowed"
         checked={checked}
         disabled={disabled}
         onCheckedChange={(value) => onCheckedChange(value === true)}

@@ -17,8 +17,8 @@ describe("SafeMailFrame", () => {
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
     expect(frame).not.toHaveAttribute("allow");
     expect(frame).toHaveStyle({ colorScheme: "light" });
-    expect(frame.getAttribute("srcdoc")).toContain("background:#fbfcfe");
-    expect(frame.getAttribute("srcdoc")).toContain("background-color: rgb(251, 252, 254) !important");
+    expect(frame.getAttribute("srcdoc")).toContain("background:#ffffff");
+    expect(frame.getAttribute("srcdoc")).toContain("background-color: rgb(255, 255, 255) !important");
     expect(frame.getAttribute("srcdoc")).toContain("Hello Taylor");
   });
 

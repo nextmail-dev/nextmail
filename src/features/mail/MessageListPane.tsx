@@ -382,7 +382,6 @@ function MessageListPaneBase({
                   ref={virtualizationEnabled ? virtualizer.measureElement : undefined}
                   message={message}
                   selected={selection.isSelected(message.id)}
-                  divider={index < items.length - 1}
                   yesterdayLabel={t("mail.yesterday")}
                   noSubject={t("mail.noSubject")}
                   highPriorityLabel={t("mail.highPriority")}
@@ -445,7 +444,6 @@ export const MessageListPane = memo(MessageListPaneBase);
 interface MessageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"> {
   message: MessageListItem;
   selected: boolean;
-  divider: boolean;
   yesterdayLabel: string;
   noSubject: string;
   highPriorityLabel: string;
@@ -463,7 +461,6 @@ interface MessageRowProps extends Omit<HTMLAttributes<HTMLDivElement>, "onClick"
 const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageRow({
   message,
   selected,
-  divider,
   yesterdayLabel,
   noSubject,
   highPriorityLabel,
@@ -485,8 +482,7 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
     <Inline
       ref={ref}
       className={cn(
-        "group relative gap-0 after:pointer-events-none after:absolute after:inset-x-5 after:bottom-0 after:h-px after:bg-border/80 after:content-['']",
-        !divider && "after:hidden",
+        "group relative gap-0",
         selected
           ? "bg-selection before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary"
           : message.unread
@@ -510,7 +506,7 @@ const MessageRow = forwardRef<HTMLDivElement, MessageRowProps>(function MessageR
         }}
       >
         <span className={cn(
-          "size-2 rounded-full transition-shadow group-hover/read-state:ring-2 group-hover/read-state:ring-foreground/10",
+          "size-2 rounded-full",
           message.unread ? "bg-primary" : "border border-foreground/15",
         )} />
       </Button>

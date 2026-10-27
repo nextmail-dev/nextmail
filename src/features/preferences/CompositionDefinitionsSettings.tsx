@@ -16,7 +16,7 @@ import type {
 } from "@/app/types";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { SwitchField } from "@/components/ui/switch";
 import { Surface } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Inline, Stack } from "@/components/ui/layout";
@@ -351,7 +351,7 @@ function SignaturePreferencesPanel({
   const defaultSignature = signatures.find((value) => value.id === preferences?.defaultSignatureId);
   return (
     <Surface className="p-4 shadow-none ring-1 ring-border/70">
-      <Checkbox
+      <SwitchField
         checked={preferences?.autoInsert ?? true}
         disabled={!preferences || loading}
         label={t("compositionLibrary.autoSelectDefaultSignature")}
@@ -457,7 +457,7 @@ function DefinitionList<T extends MailTemplate | MailSignature>({
                 <Inline className="gap-2">
                   <LabelText className="truncate">{value.name}</LabelText>
                   {isDefault ? (
-                    <Text className="shrink-0 rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                    <Text className="shrink-0 rounded-none bg-primary/12 px-2 py-0.5 text-[11px] font-semibold text-primary">
                       {t("compositionLibrary.defaultSignature")}
                     </Text>
                   ) : null}

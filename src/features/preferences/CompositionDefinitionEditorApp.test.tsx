@@ -138,7 +138,7 @@ describe("CompositionDefinitionEditorApp", () => {
     expect(screen.getByRole("button", { name: "Insert embedded image" }).parentElement).toHaveClass(
       "border",
       "bg-card",
-      "shadow-[var(--shadow-raised)]",
+
     );
     fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
       target: { value: "Customer reply" },

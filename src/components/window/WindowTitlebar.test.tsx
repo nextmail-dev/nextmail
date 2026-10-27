@@ -54,6 +54,23 @@ describe("WindowTitlebar", () => {
     expect(screen.queryByRole("navigation", { name: "Window controls" })).not.toBeInTheDocument();
   });
 
+  it("invokes window controls without bubbling double clicks into the drag region", () => {
+    platformState.value = "windows";
+    const { unmount } = render(<WindowTitlebar kind="main" />);
+    fireEvent.click(screen.getByRole("button", { name: "Minimize" }));
+    expect(windowMock.minimize).toHaveBeenCalledOnce();
+    fireEvent.doubleClick(screen.getByRole("button", { name: "Minimize" }));
+    expect(windowMock.toggleMaximize).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Maximize or restore" }));
+    expect(windowMock.toggleMaximize).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(windowMock.close).toHaveBeenCalledOnce();
+    unmount();
+    render(<WindowTitlebar kind="settings" />);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(windowMock.destroy).toHaveBeenCalledOnce();
+  });
+
   it("dims title content while the app window is inactive", () => {
     platformState.value = "windows";
     const { container } = render(<WindowTitlebar kind="main" />);

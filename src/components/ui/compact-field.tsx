@@ -31,7 +31,7 @@ export const CompactField = forwardRef<HTMLInputElement, CompactFieldProps>(func
       <input
         ref={ref}
         id={id}
-        className="h-10 min-w-0 flex-1 appearance-none border-none bg-transparent px-1 text-sm text-foreground shadow-none outline-none ring-0 placeholder:text-muted-foreground/60"
+        className="h-9 min-w-0 flex-1 appearance-none border-none bg-transparent px-1 text-sm text-foreground shadow-none outline-none ring-0 placeholder:text-muted-foreground/60"
         {...props}
       />
       {trailing}

@@ -56,7 +56,7 @@ function ColorPanel({ initialColor, onSelect }: { initialColor: string; onSelect
   const color = hsvToHex(hsv.h, hsv.s, hsv.v);
   const change = (next: typeof hsv) => { setHsv(next); setInput(hsvToHex(next.h, next.s, next.v)); setInvalid(false); };
   return <div className="flex flex-col gap-3">
-    <div className="relative h-36 w-full touch-none rounded border border-border" aria-hidden="true"
+    <div className="relative h-36 w-full touch-none rounded-none border border-border" aria-hidden="true"
       style={{ background: `linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,hsl(${hsv.h} 100% 50%))` }}
       onPointerDown={event => {
         if (event.button !== 0) return;
@@ -77,7 +77,7 @@ function ColorPanel({ initialColor, onSelect }: { initialColor: string; onSelect
       <input type="range" min="0" max={max} value={key === "h" ? hsv.h : hsv[key] * 100} aria-label={t(`composer.${label}`)} className="composer-color-range min-w-0 flex-1" style={key === "h" ? { background: "linear-gradient(to right,red,#ff0,#0f0,#0ff,#00f,#f0f,red)" } : undefined}
         onChange={event => change({ ...hsv, [key]: Number(event.target.value) / (key === "h" ? 1 : 100) })} />
     </label>)}
-    <div className="flex items-end gap-2"><span className="mb-1 size-8 shrink-0 rounded border border-border" style={{ backgroundColor: color }} /><TextField label={t("composer.colorHex")} value={input} error={invalid ? t("composer.invalidColor") : undefined}
+    <div className="flex items-end gap-2"><span className="mb-1 size-8 shrink-0 rounded-none border border-border" style={{ backgroundColor: color }} /><TextField label={t("composer.colorHex")} value={input} error={invalid ? t("composer.invalidColor") : undefined}
       onChange={event => { setInput(event.target.value); const hex = colorToHex(event.target.value); if (hex) { setHsv(hexToHsv(hex)); setInvalid(false); } }}
       onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); const hex = colorToHex(input); if (hex) onSelect(hex); else setInvalid(true); } }} /></div>
     <div className="flex justify-between gap-2">

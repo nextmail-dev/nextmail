@@ -17,5 +17,5 @@ export function IconTile({ children, large }: PropsWithChildren<{ large?: boolea
 }
 
 export function StatusDot() {
-  return <span className="size-2 rounded-full bg-success shadow-[0_0_0_4px_var(--success-soft)]" aria-hidden="true" />;
+  return <span className="size-2 rounded-full bg-success" aria-hidden="true" />;
 }

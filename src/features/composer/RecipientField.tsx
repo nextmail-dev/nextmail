@@ -243,7 +243,7 @@ function ContactSuggestions({ id, suggestions, activeIndex, onActiveIndexChange,
           onMouseEnter={() => onActiveIndexChange(index)}
           onClick={() => onSelect(suggestion)}
         >
-          {suggestion.isGroup ? <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><UsersRound size={18} /></span>
+          {suggestion.isGroup ? <span className="grid size-8 shrink-0 place-items-center rounded-none bg-primary/10 text-primary"><UsersRound size={18} /></span>
             : <ContactInitial name={suggestion.name} className="size-8 text-xs" />}
           {suggestion.isGroup ? (
             <span className="block min-w-0">

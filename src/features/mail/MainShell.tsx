@@ -416,7 +416,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
 function EmptyAccountState({ title, description, actionLabel, onAdd }: { title: string; description: string; actionLabel: string; onAdd: () => void }) {
   return (
     <Stack className="max-w-md items-center text-center" gap="md">
-      <span className="grid size-14 place-items-center rounded-full bg-primary/10 text-primary"><CircleUserRound size={26} /></span>
+      <span className="grid size-14 place-items-center rounded-none bg-primary/10 text-primary"><CircleUserRound size={26} /></span>
       <Text className="text-lg font-semibold text-foreground">{title}</Text>
       <Text>{description}</Text>
       <Button onClick={onAdd}><Plus size={16} />{actionLabel}</Button>

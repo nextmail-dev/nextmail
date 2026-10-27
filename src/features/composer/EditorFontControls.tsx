@@ -68,7 +68,7 @@ function FontOptions({ value, onSelect }: { value: string | null; onSelect: (val
     <OverlayScrollArea className="h-64 max-h-[max(80px,calc(var(--radix-popover-content-available-height)-160px))]">
       <div role="listbox" id={id} aria-label={t("composer.fontFamily")} ref={listRef}>
         {visible.map((font, index) => <button type="button" role="option" aria-selected={Boolean(value && fontLabel(value).toLowerCase() === font.toLowerCase())} id={`${id}-${index}`} data-font-index={index} key={font}
-          className={`flex w-full items-center justify-between gap-2 rounded px-2 py-2 text-left focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring ${index === active ? "bg-accent" : "hover:bg-accent"}`}
+          className={`flex w-full items-center justify-between gap-2 rounded-none px-2 py-2 text-left focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring ${index === active ? "bg-accent" : "hover:bg-accent"}`}
           onMouseEnter={() => setActive(index)} onClick={() => onSelect(quoteFontFamily(font))}>
           <span className="min-w-0"><span className="block truncate text-sm" style={{ fontFamily: quoteFontFamily(font) }}>{font}</span><span className="block truncate text-xs text-muted-foreground" style={{ fontFamily: quoteFontFamily(font) }}>{t("composer.fontPreview")}</span></span>
           {value && fontLabel(value).toLowerCase() === font.toLowerCase() ? <Check size={14} className="shrink-0" /> : null}
@@ -117,6 +117,6 @@ export function EditorFontSize({ value, disabled, onSelect }: { value: string | 
         </PopoverContent>
       </Popover>
     </div>
-    {error ? <span role="alert" id={id} className="absolute top-full left-0 z-10 mt-1 w-56 rounded border border-destructive/30 bg-popover p-2 text-xs text-destructive shadow-md">{t("composer.fontSizeHint")}</span> : null}
+    {error ? <span role="alert" id={id} className="absolute top-full left-0 z-10 mt-1 w-56 rounded-none border border-destructive/30 bg-popover p-2 text-xs text-destructive shadow-md">{t("composer.fontSizeHint")}</span> : null}
   </div>;
 }

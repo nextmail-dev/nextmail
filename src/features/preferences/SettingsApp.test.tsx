@@ -120,9 +120,9 @@ describe("SettingsApp", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Reading" }));
     expect(screen.getByText("Automatically load remote images")).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
+    expect(screen.getAllByRole("switch")[0]).not.toBeChecked();
     expect(screen.getByText("Load more messages at the end of the list")).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")[1]).toBeChecked();
+    expect(screen.getAllByRole("switch")[1]).toBeChecked();
   });
 
   it("offers visual theme modes and an accessible theme-color palette", async () => {
@@ -184,7 +184,7 @@ describe("SettingsApp", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "More" }));
-    const toggle = screen.getByRole("checkbox", { name: "Load more contacts at the end of the list" });
+    const toggle = screen.getByRole("switch", { name: "Load more contacts at the end of the list" });
     expect(toggle).toBeChecked();
     fireEvent.click(toggle);
     await waitFor(() =>
@@ -195,7 +195,7 @@ describe("SettingsApp", () => {
     );
   });
 
-  it("makes the full preference row toggle the checkbox", async () => {
+  it("makes the full preference row toggle the switch", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
@@ -208,7 +208,7 @@ describe("SettingsApp", () => {
       "When exit confirmation is disabled, this setting decides whether closing the main window hides it in the tray or exits the app.",
     );
     const row = description.closest("label");
-    expect(row).toHaveClass("w-full", "max-w-full", "rounded-md", "cursor-default", "hover:bg-accent");
+    expect(row).toHaveClass("w-full", "cursor-default", "hover:bg-accent");
     expect(row?.parentElement?.className).not.toContain("[&>label]:");
     fireEvent.click(description);
 
@@ -230,8 +230,8 @@ describe("SettingsApp", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "More" }));
     expect(screen.getByRole("heading", { name: "Tray icon" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Minimize to tray when closing the main window" })).not.toBeChecked();
-    const askToggle = screen.getByRole("checkbox", { name: "Ask before exiting" });
+    expect(screen.getByRole("switch", { name: "Minimize to tray when closing the main window" })).not.toBeChecked();
+    const askToggle = screen.getByRole("switch", { name: "Ask before exiting" });
     expect(askToggle).toBeChecked();
     fireEvent.click(askToggle);
 
@@ -252,7 +252,7 @@ describe("SettingsApp", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    const toggle = screen.getByRole("checkbox", { name: "Launch at startup" });
+    const toggle = screen.getByRole("switch", { name: "Launch at startup" });
     expect(toggle).not.toBeChecked();
     fireEvent.click(toggle);
     await waitFor(() => expect(api.setAutostartEnabled).toHaveBeenCalledWith(true, expect.anything()));
@@ -267,7 +267,7 @@ describe("SettingsApp", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "About" }));
-    expect(screen.getByRole("checkbox", { name: "Automatically check for updates at startup" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Automatically check for updates at startup" })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
     expect(await screen.findByText("You're up to date (0.2.3)")).toBeInTheDocument();
     expect(api.checkForUpdate).toHaveBeenCalledOnce();

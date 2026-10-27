@@ -50,7 +50,7 @@ describe("RawMessageApp", () => {
     expect(source.closest(".rounded-lg")).toHaveClass(
       "border",
       "bg-muted/50",
-      "shadow-[var(--shadow-control)]",
+
     );
     act(() => {
       locationListener?.({

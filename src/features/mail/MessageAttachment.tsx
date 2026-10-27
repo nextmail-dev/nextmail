@@ -69,7 +69,7 @@ export function MessageAttachment({
           onClick={onOpen}
         >
           <Inline className="min-w-0 gap-2.5">
-            <span className={cn("grid size-8 shrink-0 place-items-center rounded-sm", fileVisual.className)}>
+            <span data-icon-tone="current" className={cn("grid size-8 shrink-0 place-items-center rounded-sm", fileVisual.className)}>
               {spinning ? <Spinner size={16} /> : <FileIcon size={17} aria-hidden="true" />}
             </span>
             <Stack className="min-w-0 gap-0">
@@ -149,7 +149,7 @@ function attachmentFileVisual(attachment: AttachmentSummary): AttachmentFileVisu
   }
   if (contentType.startsWith("text/")
     || ["html", "htm", "xml", "json", "js", "ts", "tsx", "jsx", "css", "rs", "toml", "yaml", "yml"].includes(extension)) {
-    return { icon: FileCode2, className: "bg-slate-500/12 text-slate-600 dark:text-slate-400" };
+    return { icon: FileCode2, className: "bg-neutral-500/12 text-neutral-600 dark:text-neutral-400" };
   }
   return { icon: File, className: "bg-muted-foreground/10 text-muted-foreground" };
 }

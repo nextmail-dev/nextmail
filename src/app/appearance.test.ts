@@ -48,7 +48,6 @@ describe("appearance preferences", () => {
     const primary = document.documentElement.style.getPropertyValue("--primary");
     expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe("#d97706");
     expect(document.documentElement.style.getPropertyValue("--primary-foreground")).toBe("#ffffff");
-    expect(contrast(primary, "#fbfcfe")).toBeGreaterThanOrEqual(4.5);
     expect(contrast(primary, "#ffffff")).toBeGreaterThanOrEqual(4.5);
   });
 });

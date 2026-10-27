@@ -41,7 +41,7 @@ export function WindowTitlebar({ kind }: { kind: WindowKind }) {
       <span className="window-titlebar-drag-region min-w-0 flex-1" data-tauri-drag-region />
       <span className="window-titlebar-title" data-tauri-drag-region>{title}</span>
       {isWindows ? (
-        <nav className="window-titlebar-controls ml-auto flex h-8 items-center" aria-label={t("common.windowControls")}>
+        <nav className="window-titlebar-controls flex items-center" aria-label={t("common.windowControls")}>
           <WindowControl label={t("common.minimize")} onClick={() => void appWindow.minimize()}>
             <Minus size={15} strokeWidth={1.7} />
           </WindowControl>
@@ -89,11 +89,13 @@ function WindowControl({
     <button
       type="button"
       className={cn(
-        "grid h-7 w-9 place-items-center rounded-md border-0 bg-transparent text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:bg-primary/10",
+        "window-titlebar-control grid shrink-0 place-items-center rounded-none border-0 bg-transparent text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70",
         danger && "window-titlebar-control--danger hover:bg-[#e5484d] hover:text-white focus-visible:bg-[#e5484d] focus-visible:text-white",
       )}
       aria-label={label}
       title={label}
+      data-icon-tone="current"
+      onDoubleClick={(event) => event.stopPropagation()}
       onClick={onClick}
     >
       {children}
