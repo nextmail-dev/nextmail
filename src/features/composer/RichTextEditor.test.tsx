@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
+import type { Editor } from "@tiptap/core";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import i18n from "@/app/i18n";
@@ -19,6 +20,37 @@ beforeAll(async () => {
 afterEach(cleanup);
 
 describe("RichTextEditor composition nodes", () => {
+  it("hydrates imported HTML into editable styled content and preserves it after the first edit", async () => {
+    const onChange = vi.fn<(content: DraftContent) => void>();
+    const html = '<div data-nextmail-pasted-html=""><style data-nextmail-compose-style="">[data-nextmail-pasted-html] .paint{color:#123456}</style><table><tbody><tr><td><p class="paint" style="font-family:Georgia;font-size:22px"><strong>Original</strong><img src="cid:picture"></p></td></tr></tbody></table></div>';
+    const { container } = render(<RichTextEditor initialJson='{"type":"doc","content":[]}' initialHtml={html} onChange={onChange}
+      inlineImages={[{ id: "image", fileName: "picture.png", contentType: "image/png", size: 8, contentId: "picture", isInline: true, previewDataUrl: "data:image/png;base64,iVBORw0KGgo=" }]} />);
+    const element = await waitFor(() => {
+      const element = container.querySelector<HTMLElement & { editor: Editor }>(".tiptap");
+      expect(element?.editor).toBeDefined(); return element!;
+    });
+    expect(element.querySelector("table strong")).toHaveTextContent("Original");
+    expect(element.querySelector("p.paint")).toHaveStyle({ fontFamily: "Georgia", fontSize: "22px" });
+    expect(element.querySelector("img")).toHaveAttribute("src", "data:image/png;base64,iVBORw0KGgo=");
+    expect(onChange).not.toHaveBeenCalled();
+    let position = 0;
+    element.editor.state.doc.descendants((node, pos) => { if (node.isText && node.text === "Original") position = pos; });
+    act(() => { element.editor.commands.setTextSelection(position + 8); element.editor.commands.insertContent(" revised"); });
+    const saved = onChange.mock.lastCall?.[0];
+    expect(saved?.html).toContain("<table");
+    expect(saved?.html).toContain("Georgia");
+    expect(saved?.html).toContain("cid:picture");
+    expect(saved?.html).not.toContain("data:image/png");
+    expect(saved?.editorJson).toContain("Original revised");
+  });
+
+  it("does not replace a saved editor tree with stale initial HTML", async () => {
+    const json = JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Saved edits" }] }] });
+    const { container } = render(<RichTextEditor initialJson={json} initialHtml="<p>Older content</p>" onChange={vi.fn()} />);
+    await waitFor(() => expect(container.querySelector(".tiptap")).toHaveTextContent("Saved edits"));
+    expect(container.querySelector(".tiptap")).not.toHaveTextContent("Older content");
+  });
+
   it("replaces one stable signature node and removes it without touching the body", async () => {
     const ref = createRef<RichTextEditorHandle>();
     const onChange = vi.fn<(content: DraftContent) => void>();

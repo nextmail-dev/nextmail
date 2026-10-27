@@ -783,6 +783,19 @@ pub struct ImportedDraftSource {
     pub safe_html: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ImportedDraftAttachment {
+    pub file_name: String,
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+    pub content_id: Option<String>,
+}
+
+pub struct ImportedMessage {
+    pub source: ImportedDraftSource,
+    pub attachments: Vec<ImportedDraftAttachment>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftAttachmentSummary {

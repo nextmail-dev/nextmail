@@ -33,10 +33,11 @@ pub async fn open_remote_draft(
     state: State<'_, AppState>,
     account_id: String,
     message_id: String,
+    mailbox_id: Option<String>,
 ) -> CommandResult<()> {
     state
         .composer
-        .open_remote_draft(&account_id, &message_id)
+        .open_remote_draft(&account_id, &message_id, mailbox_id.as_deref())
         .await
 }
 
@@ -415,4 +416,17 @@ pub async fn get_send_job(
     send_job_id: String,
 ) -> CommandResult<SendJobSummary> {
     state.composer.get_send_job(&account_id, &send_job_id).await
+}
+
+#[tauri::command]
+pub async fn edit_sent_message(
+    state: State<'_, AppState>,
+    account_id: String,
+    mailbox_id: String,
+    message_id: String,
+) -> CommandResult<()> {
+    state
+        .composer
+        .edit_sent_message(&account_id, &mailbox_id, &message_id)
+        .await
 }

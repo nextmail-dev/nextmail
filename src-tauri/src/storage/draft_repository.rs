@@ -1,9 +1,11 @@
+mod message_import;
 mod send_job_repository;
 
 use crate::core::{
     CommandError, CommandResult, ComposedMessageActionDraft, DraftAttachmentSummary, DraftContent,
-    DraftDetail, DraftListItem, DraftRecipientFields, DraftStatus, ImportedDraftSource,
-    MessageActionSource, MessageAddress, MessageComposeAction, SendJobStatus,
+    DraftDetail, DraftListItem, DraftRecipientFields, DraftStatus, ImportedDraftAttachment,
+    ImportedDraftSource, MailboxRole, MessageActionSource, MessageAddress, MessageComposeAction,
+    SendJobStatus,
 };
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
@@ -58,6 +60,9 @@ pub struct PersistMessageActionDraftRequest<'a> {
 }
 
 pub struct PersistImportedDraftRequest<'a> {
+    pub mailbox_id: &'a str,
+    pub source_role: MailboxRole,
+    pub attachments: &'a [ImportedDraftAttachment],
     pub account_id: &'a str,
     pub account_slot_id: &'a str,
     pub message_id: &'a str,
@@ -339,121 +344,6 @@ impl DraftRepository {
                 .map(Some);
         }
         Ok(None)
-    }
-
-    pub async fn imported_draft_source(
-        &self,
-        account_slot_id: &str,
-        message_id: &str,
-    ) -> CommandResult<ImportedDraftSource> {
-        let message = sqlx::query(
-            "SELECT subject, to_json, cc_json FROM messages WHERE id = ? AND account_slot_id = ?",
-        )
-        .bind(message_id)
-        .bind(account_slot_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|error| crate::diagnostics::command_error("draft.import_failed", false, &error))?
-        .ok_or_else(|| CommandError::new("message.not_found"))?;
-        let body =
-            sqlx::query("SELECT plain_text, safe_html FROM message_bodies WHERE message_id = ?")
-                .bind(message_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|error| {
-                    crate::diagnostics::command_error("draft.import_failed", false, &error)
-                })?;
-        let plain_text = body
-            .as_ref()
-            .and_then(|row| row.try_get::<Option<String>, _>("plain_text").ok())
-            .flatten()
-            .unwrap_or_default();
-        let safe_html = body
-            .as_ref()
-            .and_then(|row| row.try_get::<Option<String>, _>("safe_html").ok())
-            .flatten();
-        Ok(ImportedDraftSource {
-            recipients: DraftRecipientFields {
-                to: decode_addresses(message.try_get("to_json").map_err(read_error)?)?,
-                cc: decode_addresses(message.try_get("cc_json").map_err(read_error)?)?,
-                bcc: Vec::new(),
-            },
-            subject: message.try_get("subject").map_err(read_error)?,
-            plain_text,
-            safe_html,
-        })
-    }
-
-    pub async fn persist_imported_draft(
-        &self,
-        request: PersistImportedDraftRequest<'_>,
-    ) -> CommandResult<DraftDetail> {
-        let PersistImportedDraftRequest {
-            account_id,
-            account_slot_id,
-            message_id,
-            source,
-            content,
-        } = request;
-        let id = Uuid::new_v4().to_string();
-        let timestamp = now();
-        let mut transaction = super::begin_write(&self.pool).await.map_err(|error| {
-            crate::diagnostics::command_error("draft.import_failed", false, &error)
-        })?;
-        sqlx::query(
-            "INSERT INTO drafts(id, account_slot_id, source_message_id, to_json, cc_json, subject, \
-             editor_json, html, plain_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(account_slot_id)
-        .bind(message_id)
-        .bind(encode_addresses(&source.recipients.to)?)
-        .bind(encode_addresses(&source.recipients.cc)?)
-        .bind(&source.subject)
-        .bind(&content.editor_json)
-        .bind(&content.html)
-        .bind(&content.plain_text)
-        .bind(timestamp)
-        .bind(timestamp)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| crate::diagnostics::command_error("draft.import_failed", false, &error))?;
-        let attachments = sqlx::query(
-            "SELECT file_name, content_type, size, content_hash, content_id FROM attachments \
-             WHERE message_id = ? AND content_hash IS NOT NULL ORDER BY part_index",
-        )
-        .bind(message_id)
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(|error| crate::diagnostics::command_error("draft.import_failed", false, &error))?;
-        for (index, attachment) in attachments.into_iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO draft_attachments(id, draft_id, file_name, content_type, size, content_hash, content_id, is_inline, sort_order, created_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(Uuid::new_v4().to_string())
-            .bind(&id)
-            .bind(attachment.try_get::<String, _>("file_name").map_err(read_error)?)
-            .bind(attachment.try_get::<String, _>("content_type").map_err(read_error)?)
-            .bind(attachment.try_get::<i64, _>("size").map_err(read_error)?)
-            .bind(attachment.try_get::<String, _>("content_hash").map_err(read_error)?)
-            .bind(attachment.try_get::<Option<String>, _>("content_id").map_err(read_error)?)
-            .bind(i64::from(
-                attachment
-                    .try_get::<Option<String>, _>("content_id")
-                    .map_err(read_error)?
-                    .is_some(),
-            ))
-            .bind(index as i64)
-            .bind(timestamp)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| crate::diagnostics::command_error("draft.import_failed", false, &error))?;
-        }
-        transaction.commit().await.map_err(|error| {
-            crate::diagnostics::command_error("draft.import_failed", false, &error)
-        })?;
-        self.get_draft(account_id, account_slot_id, &id).await
     }
 
     pub async fn discard_empty_draft(

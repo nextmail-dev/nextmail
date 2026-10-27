@@ -19,7 +19,13 @@ pub struct MessageActionLabels<'a> {
 
 pub fn compose_imported_draft(source: &ImportedDraftSource) -> CommandResult<DraftContent> {
     Ok(DraftContent {
-        editor_json: editor_document_from_text(&source.plain_text)?,
+        // An empty document means the editor must hydrate from the authoritative,
+        // scoped HTML once. Saved edits subsequently contain ordinary editor JSON.
+        editor_json: if source.safe_html.is_some() {
+            r#"{"type":"doc","content":[]}"#.to_owned()
+        } else {
+            editor_document_from_text(&source.plain_text)?
+        },
         html: source
             .safe_html
             .clone()

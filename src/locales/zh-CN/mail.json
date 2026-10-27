@@ -128,7 +128,9 @@
         "title": "删除文件夹",
         "description": "要从邮件服务器删除“{{folder}}”吗？如果服务器拒绝删除非空文件夹，本地不会提前移除任何内容。"
       }
-    }
+    },
+    "editAgain": "再次编辑",
+    "preparingEditor": "正在准备邮件正文和附件…"
   },
   "mailboxNames": {
     "unread": "未读邮件",

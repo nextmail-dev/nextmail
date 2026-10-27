@@ -232,7 +232,11 @@ function MessageListPaneBase({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: mailQueryKeys.drafts(accountId) }),
   });
   const editDraftOperation = useMutation({
-    mutationFn: (message: MessageListItem) => api.openRemoteDraft(accountId, message.id),
+    mutationFn: (message: MessageListItem) => api.openRemoteDraft(accountId, message.id, message.mailboxId),
+  });
+  const editSentOperation = useMutation({
+    mutationFn: (message: MessageListItem) => api.editSentMessage(accountId, message.mailboxId, message.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: mailQueryKeys.drafts(accountId) }),
   });
   const previewOperation = useMutation({
     mutationFn: (message: MessageListItem) => api.openMessagePreviewWindow(accountId, message.mailboxId, message.id),
@@ -245,7 +249,7 @@ function MessageListPaneBase({
     : unreadView ? t("mailboxNames.unread")
     : starredView ? t("mailboxNames.starred")
     : t("mail.messages");
-  const actionError = operation.error ?? composeOperation.error ?? editDraftOperation.error ?? previewOperation.error ?? saveOperation.error;
+  const actionError = operation.error ?? composeOperation.error ?? editDraftOperation.error ?? editSentOperation.error ?? previewOperation.error ?? saveOperation.error;
   const autoLoadMore = readingPreferences.data?.autoLoadMoreMessages ?? true;
 
   function loadNextPageNearEnd(event: UIEvent<HTMLDivElement>) {
@@ -340,6 +344,9 @@ function MessageListPaneBase({
         )}
       </Stack>
       {actionError ? <MessageListError error={actionError} /> : null}
+      {editSentOperation.isPending || editDraftOperation.isPending ? (
+        <Inline role="status" className="px-5 pb-3 text-xs text-muted-foreground"><Spinner size={14} />{t("mail.preparingEditor")}</Inline>
+      ) : null}
       {items.length ? (
         <OverlayScrollArea
           key={`${accountId}:${mailboxId}`}
@@ -363,10 +370,11 @@ function MessageListPaneBase({
                   ? mailboxes.find((item) => item.id === message.mailboxId)
                   : mailbox}
                 mailboxes={mailboxes}
-                pending={operation.isPending || composeOperation.isPending || editDraftOperation.isPending || previewOperation.isPending || saveOperation.isPending}
+                pending={operation.isPending || composeOperation.isPending || editDraftOperation.isPending || editSentOperation.isPending || previewOperation.isPending || saveOperation.isPending}
                 onCompose={(action) => composeOperation.mutate({ message, action })}
                 onOperate={(kind, destination) => operation.mutate({ messages: operationMessages, reference: message, kind, destination })}
                 onEditDraft={() => editDraftOperation.mutate(message)}
+                onEditSent={() => editSentOperation.mutate(message)}
                 onOpenInNewWindow={() => previewOperation.mutate(message)}
                 onSaveAs={() => saveOperation.mutate(message)}
               >
@@ -574,6 +582,7 @@ function MessageActionsContextMenu({
   onCompose,
   onOperate,
   onEditDraft,
+  onEditSent,
   onOpenInNewWindow,
   onSaveAs,
   children,
@@ -586,6 +595,7 @@ function MessageActionsContextMenu({
   onCompose: (action: "reply" | "reply_all" | "forward") => void;
   onOperate: (kind: MessageListOperationKind, destination?: string) => void;
   onEditDraft: () => void;
+  onEditSent: () => void;
   onOpenInNewWindow: () => void;
   onSaveAs: () => void;
   children: ReactElement;
@@ -609,6 +619,7 @@ function MessageActionsContextMenu({
           </>
         ) : null}
         {single && isDraft ? <ContextMenuItem disabled={pending} onSelect={onEditDraft}><FilePenLine size={16} />{t("mail.editDraft")}</ContextMenuItem> : null}
+        {single && currentMailbox?.role === "sent" ? <ContextMenuItem disabled={pending} onSelect={onEditSent}><FilePenLine size={16} />{t("mail.editAgain")}</ContextMenuItem> : null}
         {single ? <ContextMenuSeparator /> : null}
         <ContextMenuItem disabled={pending} onSelect={() => onOperate("read")}>
           {message.unread ? <MailOpen size={16} /> : <Mail size={16} />}

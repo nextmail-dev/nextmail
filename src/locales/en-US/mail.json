@@ -128,7 +128,9 @@
         "title": "Delete folder",
         "description": "Delete “{{folder}}” from the mail server? If the server refuses to delete a non-empty folder, nothing will be removed locally."
       }
-    }
+    },
+    "editAgain": "Edit again",
+    "preparingEditor": "Preparing message and attachments…"
   },
   "mailboxNames": {
     "unread": "Unread",

@@ -154,6 +154,10 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       t("composer.htmlPreview"),
     ),
   ], [t]);
+  const initialContent = useMemo(
+    () => hydrateInlineImagePreviews(initialDocument(initialJson, initialHtml, extensions), previewMap),
+    [initialJson, initialHtml, extensions, previewMap],
+  );
   const [sourceMode, setSourceMode] = useState(false);
   const [sourceHtml, setSourceHtml] = useState(() => includePortableStyles
     ? ensureComposerContentHtml(initialHtml ?? "")
@@ -164,7 +168,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   const [linkError, setLinkError] = useState("");
   const editor = useEditor({
     extensions,
-    content: hydrateInlineImagePreviews(parseDocument(initialJson), previewMap),
+    content: initialContent,
     editable: !disabled,
     editorProps: {
       attributes: {
@@ -586,6 +590,15 @@ function isHexByte(value: number) {
   return (value >= 0x30 && value <= 0x39)
     || (value >= 0x41 && value <= 0x46)
     || (value >= 0x61 && value <= 0x66);
+}
+
+function initialDocument(json: string, html: string | undefined, extensions: Extensions): JSONContent {
+  const document = parseDocument(json);
+  // Rust imports complete, sanitized MIME as scoped HTML. Hydrate it only when
+  // there is no saved editor tree; never replace an existing user's edits.
+  return document.type === "doc" && document.content?.length === 0 && html !== undefined
+    ? documentFromHtml(html, extensions)
+    : document;
 }
 
 function parseDocument(value: string): JSONContent {

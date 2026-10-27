@@ -88,5 +88,6 @@
   "signature.not_found": "The signature no longer exists.",
   "signature.read_failed": "Could not read the signature.",
   "template.not_found": "The template no longer exists.",
-  "template.read_failed": "Could not read the template."
+  "template.read_failed": "Could not read the template.",
+  "draft.source_not_editable": "This message is no longer in the expected Drafts or Sent folder. Refresh the folder and try again."
 }

@@ -1,5 +1,6 @@
 mod definitions;
 mod delivery;
+mod message_import;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -182,51 +183,6 @@ impl ComposerRuntime {
             return Err(CommandError::new("draft.not_editable"));
         }
         self.show_composer_window(account_id, draft_id).await
-    }
-
-    pub async fn open_remote_draft(&self, account_id: &str, message_id: &str) -> CommandResult<()> {
-        self.mail.ensure_account_writable(account_id)?;
-        let account = self.service.account_record(account_id)?;
-        let mut detail = self
-            .mail
-            .get_message_detail(account_id, message_id, None)
-            .await?;
-        if detail.body_availability != crate::core::ContentAvailability::Available {
-            detail = self
-                .mail
-                .request_message_body(account_id, message_id, None)
-                .await?;
-        }
-        for attachment in detail.attachments {
-            if attachment.availability != crate::core::ContentAvailability::Available {
-                self.mail
-                    .request_attachment(account_id, &attachment.id)
-                    .await?;
-            }
-        }
-        let repository = self.repository().await?;
-        let drafts = repository.drafts();
-        let draft = if let Some(existing) = drafts
-            .existing_imported_draft(account_id, &account.data_slot_id, message_id)
-            .await?
-        {
-            existing
-        } else {
-            let source = drafts
-                .imported_draft_source(&account.data_slot_id, message_id)
-                .await?;
-            let content = compose_imported_draft(&source)?;
-            drafts
-                .persist_imported_draft(PersistImportedDraftRequest {
-                    account_id,
-                    account_slot_id: &account.data_slot_id,
-                    message_id,
-                    source: &source,
-                    content: &content,
-                })
-                .await?
-        };
-        self.show_composer_window(account_id, &draft.id).await
     }
 
     pub async fn open_message_action_composer(

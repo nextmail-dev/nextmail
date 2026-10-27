@@ -88,5 +88,6 @@
   "signature.not_found": "签名已不存在。",
   "signature.read_failed": "无法读取签名。",
   "template.not_found": "模板已不存在。",
-  "template.read_failed": "无法读取模板。"
+  "template.read_failed": "无法读取模板。",
+  "draft.source_not_editable": "这封邮件已不在对应的草稿箱或已发送文件夹中，请刷新文件夹后重试。"
 }

@@ -22,6 +22,7 @@ vi.mock("@/app/api", () => ({
     saveMessageAs: vi.fn(),
     openMessageActionComposer: vi.fn(),
     openRemoteDraft: vi.fn(),
+    editSentMessage: vi.fn(),
     moveMessages: vi.fn(),
     copyMessages: vi.fn(),
     archiveMessages: vi.fn(),
@@ -72,6 +73,30 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("MessageListPane", () => {
+  it.each(["sent", "inbox", "drafts"] as const)("offers Edit again only for a single Sent message (%s)", async (role) => {
+    vi.mocked(api.listMessages).mockResolvedValue({ items: [{ ...serverResult, mailboxId: role }], nextCursor: null });
+    vi.mocked(api.editSentMessage).mockResolvedValue(undefined);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const mailbox = { id: role, accountId: "account-one", name: role, delimiter: "/", role, selectable: true, totalCount: 1, unreadCount: 0, revision: 1 };
+    render(<QueryClientProvider client={queryClient}><MessageListPane
+      accountId="account-one" mailboxId={role} mailbox={mailbox} mailboxes={[mailbox]} selectedMessageId=""
+      onSelect={vi.fn()} onVisibleMessageIdsChange={vi.fn()} onMessagesRemoved={vi.fn()}
+      searchQuery="" submittedSearchQuery="" onSearchChange={vi.fn()} onSearchSubmit={vi.fn()}
+    /></QueryClientProvider>);
+    fireEvent.contextMenu(await screen.findByRole("button", { name: /Alice.*Server-side result/i }));
+    if (role === "sent") {
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Edit again" }));
+      await waitFor(() => expect(api.editSentMessage).toHaveBeenCalledWith("account-one", "sent", "message-one"));
+      expect(api.openMessageActionComposer).not.toHaveBeenCalled();
+    } else {
+      expect(screen.queryByRole("menuitem", { name: "Edit again" })).not.toBeInTheDocument();
+      if (role === "drafts") {
+        fireEvent.click(await screen.findByRole("menuitem", { name: "Continue editing draft" }));
+        await waitFor(() => expect(api.openRemoteDraft).toHaveBeenCalledWith("account-one", "message-one", "drafts"));
+      }
+    }
+  });
+
   it("waits for the explicit search button before querying indexed message content", async () => {
     vi.mocked(api.searchMessages).mockResolvedValue({
       items: [{ ...serverResult, highPriority: true }],

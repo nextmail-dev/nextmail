@@ -169,7 +169,7 @@ function MessageViewerBase({ accountId, mailboxId, messageId, mailboxes, allowOp
       if (["move", "archive", "delete"].includes(kind)) onMessageRemoved(messageId);
     },
   });
-  const editDraftMutation = useMutation({ mutationFn: () => api.openRemoteDraft(accountId, messageId) });
+  const editDraftMutation = useMutation({ mutationFn: () => api.openRemoteDraft(accountId, messageId, mailboxId) });
   const composeMutation = useMutation({
     mutationFn: (action: MessageComposeAction) => api.openMessageActionComposer(accountId, messageId, action),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: mailQueryKeys.drafts(accountId) }),

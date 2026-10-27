@@ -624,7 +624,10 @@ fn valid_image_signature(content_type: &str, bytes: &[u8]) -> bool {
         .is_some_and(|detected| detected.eq_ignore_ascii_case(content_type))
 }
 
-fn inline_raster_content_type(declared_content_type: &str, bytes: &[u8]) -> Option<&'static str> {
+pub(super) fn inline_raster_content_type(
+    declared_content_type: &str,
+    bytes: &[u8],
+) -> Option<&'static str> {
     match declared_content_type.to_ascii_lowercase().as_str() {
         "image/bmp" | "image/x-ms-bmp" => Some("image/bmp"),
         "image/gif" => Some("image/gif"),

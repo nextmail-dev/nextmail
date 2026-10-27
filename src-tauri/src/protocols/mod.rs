@@ -1,11 +1,13 @@
 mod compose;
 mod css;
+mod editable_message;
 mod html;
 mod imap;
 mod links;
 mod tls;
 
 pub use compose::*;
+pub use editable_message::*;
 pub use html::*;
 pub use imap::*;
 pub use links::*;

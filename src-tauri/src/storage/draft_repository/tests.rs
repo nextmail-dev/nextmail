@@ -27,15 +27,28 @@ async fn imports_a_server_message_as_an_editable_local_draft() {
     .await
     .unwrap();
 
-    let source = repository
-        .drafts()
-        .imported_draft_source("slot", "message")
-        .await
-        .unwrap();
+    sqlx::query("INSERT INTO mailboxes(id, account_slot_id, remote_name, display_name, role) VALUES ('drafts', 'slot', 'Drafts', 'Drafts', 'drafts')").execute(&repository.pool).await.unwrap();
+    sqlx::query("INSERT INTO message_locations(id, message_id, mailbox_id, uid, uid_validity) VALUES ('location', 'message', 'drafts', 1, 1)").execute(&repository.pool).await.unwrap();
+    let source = ImportedDraftSource {
+        recipients: DraftRecipientFields {
+            to: vec![MessageAddress {
+                name: None,
+                email: "to@example.com".into(),
+            }],
+            cc: vec![],
+            bcc: vec![],
+        },
+        subject: "Imported".into(),
+        plain_text: "First paragraph\n\nSecond paragraph".into(),
+        safe_html: Some("<p>First paragraph</p><p>Second paragraph</p>".into()),
+    };
     let content = compose_imported_draft(&source).unwrap();
     let draft = repository
         .drafts()
         .persist_imported_draft(PersistImportedDraftRequest {
+            mailbox_id: "drafts",
+            source_role: MailboxRole::Drafts,
+            attachments: &[],
             account_id: "account",
             account_slot_id: "slot",
             message_id: "message",
@@ -46,7 +59,7 @@ async fn imports_a_server_message_as_an_editable_local_draft() {
         .unwrap();
     assert_eq!(draft.subject, "Imported");
     assert_eq!(draft.recipients.to[0].email, "to@example.com");
-    assert!(draft.content.editor_json.contains("Second paragraph"));
+    assert!(draft.content.html.contains("Second paragraph"));
     assert_eq!(draft.status, DraftStatus::Editing);
 }
 

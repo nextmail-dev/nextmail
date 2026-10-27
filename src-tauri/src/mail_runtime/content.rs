@@ -57,7 +57,7 @@ impl MailRuntime {
         Ok(true)
     }
 
-    async fn ensure_raw_message(
+    pub(crate) async fn ensure_raw_message(
         &self,
         account_id: &str,
         message_id: &str,

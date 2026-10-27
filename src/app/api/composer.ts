@@ -26,8 +26,10 @@ export const composerApi = {
   listDrafts: (accountId: string) => invoke<DraftListItem[]>("list_drafts", { accountId }),
   openExistingComposer: (accountId: string, draftId: string) =>
     invoke<void>("open_existing_composer", { accountId, draftId }),
-  openRemoteDraft: (accountId: string, messageId: string) =>
-    invoke<void>("open_remote_draft", { accountId, messageId }),
+  openRemoteDraft: (accountId: string, messageId: string, mailboxId?: string) =>
+    invoke<void>("open_remote_draft", { accountId, messageId, mailboxId }),
+  editSentMessage: (accountId: string, mailboxId: string, messageId: string) =>
+    invoke<void>("edit_sent_message", { accountId, mailboxId, messageId }),
   openMessageActionComposer: (
     accountId: string,
     messageId: string,

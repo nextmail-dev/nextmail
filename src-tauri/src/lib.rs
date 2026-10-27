@@ -181,6 +181,7 @@ pub fn run() {
             commands::list_drafts,
             commands::open_existing_composer,
             commands::open_remote_draft,
+            commands::edit_sent_message,
             commands::open_message_action_composer,
             commands::get_composer_bootstrap,
             commands::list_mail_templates,
