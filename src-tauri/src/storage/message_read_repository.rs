@@ -11,6 +11,39 @@ use super::{
     storage_read_error, ContactIdentity, ContactRepository, PreparedAttachmentFile,
 };
 
+// Keep FTS outside the per-message loop. SQLite 3.51 otherwise favors date-order
+// scans and repeats MATCH for each message, making even empty searches take seconds.
+// CROSS JOIN preserves the equality condition while constraining join order.
+pub(super) const MAILBOX_FULL_TEXT_SEARCH_SQL: &str = "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, m.high_priority, \
+                        l.unread, l.flagged, m.has_attachments, m.body_availability, \
+                        EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
+                          AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
+                 FROM message_search CROSS JOIN messages m ON m.id = message_search.message_id \
+                 JOIN message_locations l ON l.message_id = m.id \
+                 JOIN mailboxes b ON b.id = l.mailbox_id \
+                 WHERE message_search MATCH ? AND message_search.account_slot_id = ? \
+                   AND m.account_slot_id = ? AND l.mailbox_id = ? AND b.account_slot_id = ? \
+                   AND l.local_hidden = 0 \
+                   AND (? IS NULL OR l.internal_date < ? OR (l.internal_date = ? AND m.id < ?)) \
+                 ORDER BY l.internal_date DESC, m.id DESC LIMIT ?";
+
+pub(super) const ACCOUNT_FULL_TEXT_SEARCH_SQL: &str = "SELECT m.id, l.mailbox_id, m.subject, m.from_json, m.received_at AS internal_date, m.preview, m.high_priority, \
+                            l.unread, l.flagged, m.has_attachments, m.body_availability, \
+                            EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
+                              AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
+                     FROM message_search CROSS JOIN messages m ON m.id = message_search.message_id \
+                     JOIN message_locations l ON l.id = ( \
+                       SELECT l2.id FROM message_locations l2 INDEXED BY idx_locations_message_date \
+                       JOIN mailboxes b2 ON b2.id = l2.mailbox_id \
+                       WHERE l2.message_id = m.id AND b2.account_slot_id = ? AND b2.selectable = 1 \
+                         AND l2.local_hidden = 0 \
+                       ORDER BY l2.internal_date DESC, l2.mailbox_id DESC LIMIT 1 \
+                     ) \
+                     WHERE message_search MATCH ? AND message_search.account_slot_id = ? \
+                       AND m.account_slot_id = ? \
+                       AND (? IS NULL OR m.received_at < ? OR (m.received_at = ? AND m.id < ?)) \
+                     ORDER BY m.received_at DESC, m.id DESC LIMIT ?";
+
 #[derive(FromRow)]
 struct MessageDetailRow {
     id: String,
@@ -468,20 +501,7 @@ impl MailReadRepository {
                 let literal_query = format!(
                     "subject : \"{escaped}\" OR addresses : \"{escaped}\" OR body : \"{escaped}\""
                 );
-                sqlx::query(
-                "SELECT m.id, l.mailbox_id, m.subject, m.from_json, l.internal_date, m.preview, m.high_priority, \
-                        l.unread, l.flagged, m.has_attachments, m.body_availability, \
-                        EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
-                          AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
-                 FROM message_search JOIN messages m ON m.id = message_search.message_id \
-                 JOIN message_locations l ON l.message_id = m.id \
-                 JOIN mailboxes b ON b.id = l.mailbox_id \
-                 WHERE message_search MATCH ? AND message_search.account_slot_id = ? \
-                   AND m.account_slot_id = ? AND l.mailbox_id = ? AND b.account_slot_id = ? \
-                   AND l.local_hidden = 0 \
-                   AND (? IS NULL OR l.internal_date < ? OR (l.internal_date = ? AND m.id < ?)) \
-                 ORDER BY l.internal_date DESC, m.id DESC LIMIT ?",
-                )
+                sqlx::query(MAILBOX_FULL_TEXT_SEARCH_SQL)
                 .bind(literal_query)
                 .bind(account_slot_id)
                 .bind(account_slot_id)
@@ -500,24 +520,7 @@ impl MailReadRepository {
                 let literal_query = format!(
                     "subject : \"{escaped}\" OR addresses : \"{escaped}\" OR body : \"{escaped}\""
                 );
-                sqlx::query(
-                    "SELECT m.id, l.mailbox_id, m.subject, m.from_json, m.received_at AS internal_date, m.preview, m.high_priority, \
-                            l.unread, l.flagged, m.has_attachments, m.body_availability, \
-                            EXISTS(SELECT 1 FROM pending_operations o WHERE o.message_id = m.id \
-                              AND o.source_mailbox_id = l.mailbox_id AND o.status IN ('queued','running','retry_wait')) AS pending_operation \
-                     FROM message_search JOIN messages m ON m.id = message_search.message_id \
-                     JOIN message_locations l ON l.id = ( \
-                       SELECT l2.id FROM message_locations l2 INDEXED BY idx_locations_message_date \
-                       JOIN mailboxes b2 ON b2.id = l2.mailbox_id \
-                       WHERE l2.message_id = m.id AND b2.account_slot_id = ? AND b2.selectable = 1 \
-                         AND l2.local_hidden = 0 \
-                       ORDER BY l2.internal_date DESC, l2.mailbox_id DESC LIMIT 1 \
-                     ) \
-                     WHERE message_search MATCH ? AND message_search.account_slot_id = ? \
-                       AND m.account_slot_id = ? \
-                       AND (? IS NULL OR m.received_at < ? OR (m.received_at = ? AND m.id < ?)) \
-                     ORDER BY m.received_at DESC, m.id DESC LIMIT ?",
-                )
+                sqlx::query(ACCOUNT_FULL_TEXT_SEARCH_SQL)
                 .bind(account_slot_id)
                 .bind(literal_query)
                 .bind(account_slot_id)

@@ -10,6 +10,8 @@ use crate::core::{
 use crate::storage::{create_account_slot, initialize_content_database};
 use sqlx::sqlite::SqlitePoolOptions;
 
+mod search;
+
 #[tokio::test]
 async fn write_transactions_wait_for_the_active_writer() {
     let directory = tempfile::tempdir().unwrap();

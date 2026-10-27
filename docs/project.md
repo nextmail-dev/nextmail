@@ -39,7 +39,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - RFC 2047、RFC 2231 连续附件名（包括先分段后形成完整 encoded-word 的兼容形态）、常见 MIME 字符集、IMAP modified UTF-7。
 - Rust 清洗的 HTML/CSS 阅读、远程图片控制、标准 CID、受限 data 图片、误标 octet-stream 图片和 BMP。
 - 原始 EML 按需下载、查看与单封另存为，附件元数据先行与 section 按需下载、安全另存为、受控系统打开和所在文件夹定位。
-- 当前账户下支持当前文件夹或全部可选文件夹范围的本地搜索；Enter 或搜索按钮显式提交。只匹配主题、收发件人和纯文本正文：3 个及以上 Unicode 字符使用 SQLite FTS5 trigram `MATCH`，1–2 字符按时间索引从目标范围的新邮件向旧邮件检查并在收满一页后停止，避免先扫描全账户 FTS 虚表；短查询没有匹配或匹配极少时仍可能检查完整目标范围。
+- 当前账户下支持当前文件夹或全部可选文件夹范围的本地搜索；Enter 或搜索按钮显式提交。只匹配主题、收发件人和纯文本正文：3 个及以上 Unicode 字符使用 SQLite FTS5 trigram `MATCH`，通过带连接条件的 `CROSS JOIN` 约束全文索引先于邮件与位置查询，避免 SQLite 3.51 按时间遍历邮件时逐封重复全文匹配；1–2 字符按时间索引从目标范围的新邮件向旧邮件检查并在收满一页后停止，避免先扫描全账户 FTS 虚表；短查询没有匹配或匹配极少时仍可能检查完整目标范围。
 - Tiptap/ProseMirror + CodeMirror 富文本写信、源码/预览、带 To/Cc/Bcc 覆盖的模板、签名、变量、回复/转发和内嵌图片。
 - 关闭 Composer 时显式决定是否保存；持久化 SMTP 发件、Sent/Drafts APPEND 和 Drafts 定向刷新。
 - Windows/macOS 窗口壳、窗口状态记忆、独立设置/账户/定义/预览/原文窗口。
