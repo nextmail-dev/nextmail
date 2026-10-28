@@ -7,6 +7,8 @@ import { api } from "@/app/api";
 import type { MessageListItem } from "@/app/types";
 import i18n from "@/app/i18n";
 import { MessageListPane } from "./MessageListPane";
+import { MailboxPane } from "./MailboxPane";
+import { MailDragProvider } from "./mail-drag";
 import { STARRED_MAILBOX_ID, UNREAD_MAILBOX_ID } from "./mail-query-keys";
 
 vi.mock("@/app/api", () => ({
@@ -646,3 +648,62 @@ function ControlledSearchPane() {
     />
   );
 }
+
+describe("message drag and drop", () => {
+  it.each(["single", "multiple", "cancel", "outside", "same-folder", "partial-failure", "favorite", "non-selectable", "pending"])("handles %s using the existing move command", async (mode) => {
+    const messages = [serverResult, { ...serverResult, id: "message-two", mailboxId: "other", subject: "Second message" }];
+    if (mode === "pending") messages[0] = { ...serverResult, pendingOperation: true };
+    vi.mocked(api.listMessages).mockResolvedValue({ items: messages, nextCursor: null });
+    vi.mocked(api.moveMessages).mockResolvedValue(undefined);
+    if (mode === "partial-failure") vi.mocked(api.moveMessages).mockImplementation(async (_account, source) => {
+      if (source === "other") throw { code: "common.unexpected_error", params: {}, retryable: false };
+    });
+    const mailbox = { id: "archive", accountId: "account-one", name: "Archive", delimiter: "/", role: "other" as const,
+      selectable: mode !== "non-selectable", totalCount: 0, unreadCount: 0, revision: 1, isFavorite: mode === "favorite" };
+    const destination = mode === "same-folder" ? { ...mailbox, id: "inbox" } : mailbox;
+    const removed = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const { container, unmount } = render(<QueryClientProvider client={queryClient}><MailDragProvider>
+      <MailboxPane mailboxes={[destination]} selectedMailboxId="" onSelect={vi.fn()} onCompose={vi.fn()}
+        onReceive={vi.fn()} receiving={false} onOpenSettings={vi.fn()} />
+      <MessageListPane accountId="account-one" mailboxId="inbox" mailboxes={[destination]} selectedMessageId=""
+        onSelect={vi.fn()} onVisibleMessageIdsChange={vi.fn()} onMessagesRemoved={removed}
+        searchQuery="" submittedSearchQuery="" onSearchChange={vi.fn()} onSearchSubmit={vi.fn()} />
+    </MailDragProvider></QueryClientProvider>);
+    await screen.findByText("Second message");
+    const rows = [...container.querySelectorAll<HTMLElement>("[data-message-selection-id]")];
+    rows[0].style.transform = "translateY(200px)";
+    rows[0].getBoundingClientRect = () => ({ x: 300, y: 300, top: 300, left: 300, right: 600, bottom: 380, width: 300, height: 80, toJSON: () => ({}) });
+    const target = container.querySelector<HTMLElement>(mode === "favorite" ? '[data-mailbox-drop-id="shortcut:archive"]' : "[data-mailbox-reorder-id]")!;
+    target.getBoundingClientRect = () => ({ x: 0, y: 100, top: 100, left: 0, right: 200, bottom: 136, width: 200, height: 36, toJSON: () => ({}) });
+    if (mode === "multiple" || mode === "partial-failure") {
+      fireEvent.click(rows[0].querySelector("[data-message-select-button]")!);
+      fireEvent.click(rows[1].querySelector("[data-message-select-button]")!, { ctrlKey: true });
+      expect(container.querySelectorAll('[data-message-select-button][aria-pressed="true"]')).toHaveLength(2);
+    }
+    fireEvent.pointerDown(rows[0].querySelector("[data-message-select-button]")!, { isPrimary: true, button: 0, pointerId: 1, clientX: 320, clientY: 310 });
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 280, clientY: 310 });
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 100, clientY: 110 });
+    if (mode !== "pending") {
+      const preview = document.querySelector('[data-mail-drag-preview="messages"]')?.parentElement;
+      expect(preview).toHaveStyle({ top: "300px", left: "300px", transform: "translate3d(-188px, -178px, 0) scaleX(1) scaleY(1)" });
+    }
+    if (mode === "cancel") fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    else {
+      if (mode === "outside") fireEvent.pointerMove(document, { pointerId: 1, clientX: 500, clientY: 500 });
+      fireEvent.pointerUp(document, { pointerId: 1 });
+    }
+    if (["cancel", "outside", "same-folder", "non-selectable", "pending"].includes(mode)) expect(api.moveMessages).not.toHaveBeenCalled();
+    else {
+      await waitFor(() => expect(api.moveMessages).toHaveBeenCalledWith("account-one", "inbox", "archive", ["message-one"]));
+      if (mode === "multiple" || mode === "partial-failure") {
+        expect(api.moveMessages).toHaveBeenCalledWith("account-one", "other", "archive", ["message-two"]);
+      }
+      await waitFor(() => expect(removed).toHaveBeenCalledWith(mode === "multiple" ? ["message-one", "message-two"] : ["message-one"]));
+      if (mode === "partial-failure") expect(await screen.findByRole("complementary")).toBeInTheDocument();
+    }
+    unmount();
+    // dnd-kit suppresses the synthetic click immediately following a drop.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
+});

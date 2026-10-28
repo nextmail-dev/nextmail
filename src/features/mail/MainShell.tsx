@@ -1,3 +1,4 @@
+import { MailDragProvider } from "./mail-drag";
 import { formatCommandError } from "@/app/commandErrors";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -290,6 +291,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
   }
 
   return (
+    <MailDragProvider key={`${selectedAccountId}:${workspace}`} >
     <AppShell
       className="grid overflow-hidden bg-card"
       style={{ gridTemplateColumns: `${visibleFolderWidth}px 0 minmax(0,1fr)` }}
@@ -410,6 +412,7 @@ export function MainShell({ accounts: initialAccounts, lastSelectedAccountId }: 
         </Alert>
       ) : null}
     </AppShell>
+    </MailDragProvider>
   );
 }
 

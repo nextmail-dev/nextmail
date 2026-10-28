@@ -1,5 +1,12 @@
 {
   "mail": {
+    "dragMessages": "{{count}} 封邮件",
+    "dragInstructions": "长按文件夹可调整顺序，拖动邮件可移至文件夹。按 Escape 取消。也可通过右键菜单操作文件夹和邮件。",
+    "dragStarted": "正在拖动{{item}}",
+    "dragTarget": "放至{{folder}}",
+    "dragNoTarget": "没有可用的目标位置",
+    "dragFinished": "已放下",
+    "dragCancelled": "已取消拖动",
     "mainToolbar": "主工具栏",
     "messageActions": "邮件操作",
     "reply": "回复",

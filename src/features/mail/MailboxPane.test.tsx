@@ -160,9 +160,9 @@ describe("MailboxPane", () => {
       );
 
       const folder = within(container).getByRole("button", { name: "Archive" });
-      fireEvent.pointerDown(folder, { button: 0, pointerId: 1, pointerType: "mouse" });
+      fireEvent.pointerDown(folder, { button: 0, isPrimary: true, pointerId: 1, pointerType: "mouse" });
       expect(capturePointer).not.toHaveBeenCalled();
-      fireEvent.pointerUp(folder, { button: 0, pointerId: 1, pointerType: "mouse" });
+      fireEvent.pointerUp(folder, { button: 0, isPrimary: true, pointerId: 1, pointerType: "mouse" });
       fireEvent.click(folder);
       expect(onSelect).toHaveBeenCalledWith("archive");
     } finally {
@@ -428,7 +428,6 @@ describe("MailboxPane", () => {
 
   it("shows a circle-and-line insertion marker while reordering folders", () => {
     vi.useFakeTimers();
-    const originalElementFromPoint = document.elementFromPoint;
     try {
       const { container } = render(
         <MailboxPane
@@ -451,12 +450,9 @@ describe("MailboxPane", () => {
         x: 0, y: 100, top: 100, left: 0, right: 200, bottom: 136, width: 200, height: 36,
         toJSON: () => ({}),
       });
-      Object.defineProperty(document, "elementFromPoint", {
-        configurable: true,
-        value: () => target,
-      });
 
-      fireEvent.pointerDown(source, { button: 0, pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 10 });
+
+      fireEvent.pointerDown(source, { button: 0, isPrimary: true, pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 10 });
       act(() => vi.advanceTimersByTime(360));
       fireEvent.pointerMove(source, { pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 110 });
 
@@ -465,18 +461,16 @@ describe("MailboxPane", () => {
       expect(marker).toHaveClass("-translate-y-1/2");
       expect(marker?.children[0]).toHaveClass("rounded-full", "border-2");
       expect(marker?.children[1]).toHaveClass("h-0.5", "bg-primary");
+      fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
     } finally {
-      Object.defineProperty(document, "elementFromPoint", {
-        configurable: true,
-        value: originalElementFromPoint,
-      });
+
+      act(() => vi.advanceTimersByTime(100));
       vi.useRealTimers();
     }
   });
 
   it("keeps one marker at the same boundary from either neighboring folder, including expanded children", () => {
     vi.useFakeTimers();
-    const originalElementFromPoint = document.elementFromPoint;
     try {
       const onReorder = vi.fn().mockResolvedValue(undefined);
       const mailboxes = ["Source", "Projects", "Projects/Child", "Work"].map((name) => ({
@@ -493,15 +487,12 @@ describe("MailboxPane", () => {
       // Scrolling offsets the entire content, but must not change the boundary.
       rows[0].parentElement!.getBoundingClientRect = () => ({ x: 0, y: -20, top: -20, left: 0,
         right: 200, bottom: 300, width: 200, height: 320, toJSON: () => ({}) });
-      let hit = rows[1];
-      Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => hit });
-      fireEvent.pointerDown(rows[0], { button: 0, pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 80 });
+      fireEvent.pointerDown(rows[0], { button: 0, isPrimary: true, pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 80 });
       act(() => vi.advanceTimersByTime(360));
       fireEvent.pointerMove(rows[0], { pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 130 });
       const marker = container.querySelector("[data-mailbox-drop-indicator]");
       expect(marker).toHaveStyle({ top: "192px" });
       expect(marker?.parentElement).toBe(rows[0].parentElement);
-      hit = rows[3];
       fireEvent.pointerMove(rows[0], { pointerId: 1, pointerType: "mouse", clientX: 10, clientY: 174 });
       expect(container.querySelectorAll("[data-mailbox-drop-indicator]")).toHaveLength(1);
       expect(container.querySelector("[data-mailbox-drop-indicator]")).toBe(marker);
@@ -510,7 +501,7 @@ describe("MailboxPane", () => {
       expect(container.querySelector("[data-mailbox-drop-indicator]")).toBeNull();
       expect(onReorder).toHaveBeenCalledWith(["Projects", "Projects/Child", "Source", "Work"]);
     } finally {
-      Object.defineProperty(document, "elementFromPoint", { configurable: true, value: originalElementFromPoint });
+      act(() => vi.advanceTimersByTime(100));
       vi.useRealTimers();
     }
   });

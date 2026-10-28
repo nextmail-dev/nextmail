@@ -1,6 +1,6 @@
 # NextMail 项目开发手册
 
-更新时间：2026-10-27
+更新时间：2026-10-28
 
 本文是 NextMail 新会话唯一必读的长期技术文档，集中保存当前实现事实、开发细则、工程约定和项目记忆。截止 `2026-08-21-02` 的历史计划保留在 `iterations/`，之后的简短开发记录统一写入按日期倒序排列的 [`iterations.md`](./iterations.md)；重大架构或安全取舍保留在 `adr/`，都只在任务相关时按需查阅。
 
@@ -93,6 +93,10 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 ## 3. 技术栈与仓库地图
 
 前端使用 React 19、TypeScript 5.8、Vite 7、TanStack Query 5、react-i18next、react-markdown 10、Tailwind CSS 4、Radix Primitives、Tiptap/ProseMirror 3.27.3、CodeMirror 6、Vitest、Testing Library 和 jsdom。
+
+文件夹排序与邮件移动共用 `@dnd-kit/core` 拖拽上下文：文件夹长按 360ms 后可同级排序，子树整体移动，保持单条插入线；邮件移动超过 6px 开始拖动，支持单封与已选多封，按实际来源文件夹分组复用既有移动 Command。真实文件夹与收藏入口均可接收邮件，虚拟星标/未读、不可选文件夹和全部来自目标文件夹的选择不接受投放；待操作邮件不能开始拖动。Escape 或释放到目标外取消，切换账户或工作区卸载上下文。多来源部分失败时等待所有分组结束再刷新缓存，并移除已成功移动的选择；错误沿用列表提示。拖拽不载入正文，边缘自动滚动限定在文件夹列表；现有方向键选择及右键操作继续保留。
+
+拖拽源按包含 CSS 位移的实际可见矩形测量，避免虚拟邮件行的预览偏移；紧凑预览跟随鼠标右下方，文件夹预览使用 50% 透明度，便于看清目标名称。文件夹排序期间关闭列表内容的指针命中以抑制普通行 hover，dnd-kit 仍按矩形检测排序目标并显示插入线；结束或取消后恢复，邮件拖入目标的高亮不受影响。
 
 桌面/Rust 使用 Tauri 2、Tauri Updater、Tokio、async-imap 0.11、lettre 0.11、mail-parser 0.11、mail-builder 0.4、SQLx 0.9、SQLite WAL/FTS5、rustls 0.23、keyring 4.1、Ammonia 4、cssparser 0.37 和 fontdb 0.23。精确版本以 lockfile 和 manifest 为准。
 

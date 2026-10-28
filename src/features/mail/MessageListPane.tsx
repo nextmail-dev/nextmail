@@ -1,3 +1,4 @@
+import { MessageDragSource } from "./mail-drag";
 import { formatCommandError } from "@/app/commandErrors";
 import {
   Archive,
@@ -192,7 +193,8 @@ function MessageListPaneBase({
       for (const message of messages) {
         groups.set(message.mailboxId, [...(groups.get(message.mailboxId) ?? []), message]);
       }
-      await Promise.all([...groups].map(async ([sourceMailboxId, sourceMessages]) => {
+      const entries = [...groups];
+      const results = await Promise.allSettled(entries.map(async ([sourceMailboxId, sourceMessages]) => {
         const messageIds = sourceMessages.map((message) => message.id);
         if (kind === "read") await api.setMessageRead(accountId, sourceMailboxId, messageIds, reference.unread);
         if (kind === "flag") await api.setMessageFlagged(accountId, sourceMailboxId, messageIds, !reference.flagged);
@@ -201,6 +203,22 @@ function MessageListPaneBase({
         if (kind === "archive") await api.archiveMessages(accountId, sourceMailboxId, messageIds);
         if (kind === "delete") await api.deleteMessages(accountId, sourceMailboxId, messageIds);
       }));
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") {
+        // Other source folders may already have committed their local operation.
+        // Refresh only after all groups settle, even when one group failed.
+        void queryClient.invalidateQueries({ queryKey: mailQueryKeys.mailboxes(accountId) });
+        void queryClient.invalidateQueries({ queryKey: mailQueryKeys.messagesForAccount(accountId) });
+        void queryClient.invalidateQueries({ queryKey: messageQueryKeys.account(accountId) });
+        if (["move", "archive", "delete"].includes(kind)) {
+          const removed = entries.flatMap(([, group], index) => results[index].status === "fulfilled" ? group.map((message) => message.id) : []);
+          if (removed.length) {
+            selection.clear();
+            onMessagesRemoved(removed);
+          }
+        }
+        throw failed.reason;
+      }
       return input;
     },
     onSuccess: ({ kind, messages, reference }) => {
@@ -378,6 +396,15 @@ function MessageListPaneBase({
                 onOpenInNewWindow={() => previewOperation.mutate(message)}
                 onSaveAs={() => saveOperation.mutate(message)}
               >
+                <MessageDragSource
+                  source={message}
+                  messages={operationMessages.map(({ id, mailboxId }) => ({ id, mailboxId }))}
+                  disabled={operation.isPending || operationMessages.some((item) => item.pendingOperation)}
+                  move={(destination) => {
+                    const messages = operationMessages.filter((item) => item.mailboxId !== destination);
+                    if (messages.length) operation.mutate({ messages, reference: message, kind: "move", destination });
+                  }}
+                >
                 <MessageRow
                   ref={virtualizationEnabled ? virtualizer.measureElement : undefined}
                   message={message}
@@ -410,6 +437,7 @@ function MessageListPaneBase({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 />
+                </MessageDragSource>
               </MessageActionsContextMenu>
             );
           })}

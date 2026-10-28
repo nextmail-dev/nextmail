@@ -4,6 +4,15 @@ NextMail 当前不再随安装包分发 Roboto、Droid Sans Fallback 或其他�
 
 若未来重新引入随包字体或其他独立资源，必须在本文件记录来源、版本和许可证，并把对应许可证文本加入发布资源。
 
+## dnd-kit
+
+- 版本：@dnd-kit/core 6.3.1，间接依赖 @dnd-kit/accessibility 3.1.1、@dnd-kit/utilities 3.2.2。
+- 用途：文件夹长按排序、邮件拖动到文件夹、取消与边缘自动滚动。
+- 来源：https://github.com/clauderic/dnd-kit
+- 许可证：MIT
+- Copyright (c) 2021, Claudéric Demers
+- 许可证正文与下方 `react-markdown` 所列 MIT 文本相同。
+
 ## @radix-ui/react-popover
 
 - 版本：1.1.19

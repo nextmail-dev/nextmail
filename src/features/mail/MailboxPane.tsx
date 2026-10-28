@@ -45,7 +45,7 @@ import {
   MailboxFolderDialog,
   type MailboxDialogAction,
 } from "./MailboxFolderDialog";
-import { useMailboxReorderGesture } from "./hooks/useMailboxReorderGesture";
+import { MailDragBoundary, MailboxDragTarget, useMailDragState } from "./mail-drag";
 import { reorderMailboxHierarchy } from "./mailbox-order";
 import { STARRED_MAILBOX_ID, UNREAD_MAILBOX_ID } from "./mail-query-keys";
 
@@ -77,7 +77,11 @@ interface MailboxPaneProps {
   showProgress?: boolean;
 }
 
-export function MailboxPane({
+export function MailboxPane(props: MailboxPaneProps) {
+  return <MailDragBoundary><MailboxPaneContent {...props} /></MailDragBoundary>;
+}
+
+function MailboxPaneContent({
   mailboxes,
   selectedMailboxId,
   onSelect,
@@ -133,22 +137,9 @@ export function MailboxPane({
     void onReorderFolders(orderedMailboxIds)
       .catch((error) => reportCaughtError("mailbox.reorder", error));
   }, [mailboxItems, onReorderFolders]);
-  const canDropFolder = useCallback((sourceId: string, targetId: string) => {
-    const source = mailboxItems.find(({ mailbox }) => mailbox.id === sourceId);
-    const target = mailboxItems.find(({ mailbox }) => mailbox.id === targetId);
-    if (!source || !target) return false;
-    return (source.ancestorIds[source.ancestorIds.length - 1] ?? null)
-      === (target.ancestorIds[target.ancestorIds.length - 1] ?? null);
-  }, [mailboxItems]);
-  const {
-    draggingId,
-    dropTarget,
-    getGestureProps,
-  } = useMailboxReorderGesture({
-    enabled: !collapsed && !folderActionBusy,
-    canDrop: canDropFolder,
-    onDrop: handleFolderDrop,
-  });
+  const dragState = useMailDragState();
+  const draggingId = dragState?.active?.kind === "folder" ? dragState.active.id : null;
+  const dropTarget = dragState?.marker;
 
   function toggleFolder(mailboxId: string) {
     setCollapsedFolderIds((current) => {
@@ -252,7 +243,9 @@ export function MailboxPane({
       ) : null}
       <OverlayScrollArea
         className={collapsed ? "-mr-1 min-h-0 flex-1 self-stretch" : "-mr-3 min-h-0 flex-1"}
-        contentClassName={collapsed ? "relative gap-0 pr-1" : "relative gap-0 pr-3"}
+        // dnd-kit detects targets by geometry; suppress native row hover while sorting.
+        contentClassName={`${collapsed ? "relative gap-0 pr-1" : "relative gap-0 pr-3"}${draggingId ? " pointer-events-none" : ""}`}
+        viewportClassName={draggingId ? "cursor-grabbing" : undefined}
         trackClassName="right-px w-2"
       >
           {collapsed ? null : (
@@ -265,6 +258,7 @@ export function MailboxPane({
             const selected = mailbox.id === selectedMailboxId && favoriteSelectionId === mailbox.id;
             return (
               <ContextMenu key={`favorite-${mailbox.id}`}>
+                <MailboxDragTarget mailbox={mailbox} label={label} disabled={folderActionBusy}>
                 <ContextMenuTrigger asChild>
                   <Button
                     variant="ghost"
@@ -286,6 +280,7 @@ export function MailboxPane({
                     {mailbox.unreadCount ? <Text className="min-w-5 text-right text-[11px] leading-none font-semibold text-primary">{mailbox.unreadCount}</Text> : null}
                   </Button>
                 </ContextMenuTrigger>
+                </MailboxDragTarget>
                 <ContextMenuContent>
                   <ContextMenuItem
                     disabled={folderActionBusy}
@@ -405,7 +400,7 @@ export function MailboxPane({
               </ContextMenuContent>
             </ContextMenu>
           )}
-          {visibleMailboxItems.map(({ mailbox, depth, displayName, hasChildren }) => {
+          {visibleMailboxItems.map(({ mailbox, depth, displayName, hasChildren, ancestorIds }) => {
             const selected = mailbox.id === selectedMailboxId
               && (collapsed || favoriteSelectionId !== mailbox.id);
             const label = mailbox.role === "other" ? displayName : t(`mailboxNames.${mailbox.role}`);
@@ -477,9 +472,10 @@ export function MailboxPane({
             if (!collapsed) {
               return (
                 <ContextMenu key={mailbox.id}>
+                  <MailboxDragTarget mailbox={mailbox} label={label} tree parentId={ancestorIds[ancestorIds.length - 1] ?? null} disabled={folderActionBusy} reorder={(targetId, position) => handleFolderDrop(mailbox.id, targetId, position)}>
                   <ContextMenuTrigger asChild>
                     <Inline
-                      {...getGestureProps(mailbox.id)}
+                      data-mailbox-reorder-id={mailbox.id}
                       className={`${selected
                         ? "relative h-9 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary shadow-[inset_2px_0_0_var(--primary)]"
                         : "relative h-9 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"} ${draggingId === mailbox.id ? "cursor-grabbing opacity-55" : "cursor-default"}`}
@@ -524,12 +520,14 @@ export function MailboxPane({
                       </Button>
                     </Inline>
                   </ContextMenuTrigger>
+                  </MailboxDragTarget>
                   {actions}
                 </ContextMenu>
               );
             }
             return (
               <ContextMenu key={mailbox.id}>
+                <MailboxDragTarget mailbox={mailbox} label={label} disabled={folderActionBusy}>
                 <ContextMenuTrigger asChild>
                   <Button
                     variant="ghost"
@@ -549,6 +547,7 @@ export function MailboxPane({
                     <MailboxIcon role={mailbox.role} />
                   </Button>
                 </ContextMenuTrigger>
+                </MailboxDragTarget>
                 {actions}
               </ContextMenu>
             );

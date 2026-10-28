@@ -1,5 +1,12 @@
 {
   "mail": {
+    "dragMessages": "{{count}} messages",
+    "dragInstructions": "Hold a folder to reorder it, or drag messages to a folder. Press Escape to cancel. Folder and message actions are also available in the context menu.",
+    "dragStarted": "Dragging {{item}}",
+    "dragTarget": "Drop on {{folder}}",
+    "dragNoTarget": "No available destination",
+    "dragFinished": "Dropped",
+    "dragCancelled": "Drag cancelled",
     "mainToolbar": "Main toolbar",
     "messageActions": "Message actions",
     "reply": "Reply",
