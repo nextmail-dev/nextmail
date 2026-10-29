@@ -4,7 +4,17 @@ NextMail 当前不再随安装包分发 Roboto、Droid Sans Fallback 或其他�
 
 若未来重新引入随包字体或其他独立资源，必须在本文件记录来源、版本和许可证，并把对应许可证文本加入发布资源。
 
+## Tauri 系统通知插件
+
+- 版本：tauri-plugin-notification 2.4.0。
+- 用途：Rust 侧发送 Windows、macOS 和 Linux 系统新邮件通知。
+- 来源：https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/notification
+- 许可证：Apache-2.0 OR MIT；Copyright 2019–2023 Tauri Programme within The Commons Conservancy。
+- 新增间接依赖 notify-rust、mac-notification-sys、tauri-winrt-notification、rand / rand_chacha / rand_core、ppv-lite86 和 Windows Rust 支持包均可选 MIT 或 Apache-2.0；zerocopy / zerocopy-derive 可选 BSD-2-Clause、MIT 或 Apache-2.0。
+- MIT 许可证正文与下方 `react-markdown` 所列文本相同；各依赖的版权声明与许可证随 Cargo 源包保留。
+
 ## dnd-kit
+
 
 - 版本：@dnd-kit/core 6.3.1，间接依赖 @dnd-kit/accessibility 3.1.1、@dnd-kit/utilities 3.2.2。
 - 用途：文件夹长按排序、邮件拖动到文件夹、取消与边缘自动滚动。

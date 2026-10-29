@@ -3,6 +3,7 @@ mod credentials;
 mod discovery;
 mod link_opener;
 mod mail_connection;
+mod mail_providers;
 mod sqlite;
 mod storage;
 mod system_fonts;

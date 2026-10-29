@@ -1,4 +1,7 @@
 {
+  "notification.system_permission_failed": "无法请求系统通知权限，请检查系统设置后重试。",
+  "notification.system_permission_denied": "系统通知权限尚未开启，请在系统设置中允许 NextMail 发送通知。",
+  "notification.system_send_failed": "无法发送系统通知，请检查系统通知设置。",
   "demo": {
     "unavailable": "演示模式下无法使用此功能。完全退出应用并重新打开后恢复。",
     "closeEditors": "请先保存或放弃编辑，并关闭写信及模板、签名编辑窗口，再进入演示模式。"

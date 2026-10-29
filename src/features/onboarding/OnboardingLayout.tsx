@@ -25,8 +25,8 @@ export function OnboardingLayout({
 }: OnboardingLayoutProps) {
   const { t } = useTranslation();
   return (
-    <AppShell className="-mt-[var(--titlebar-height)] grid h-[calc(100%+var(--titlebar-height))] grid-cols-[minmax(260px,300px)_minmax(0,1fr)]">
-      <Page className="flex min-h-0 flex-col justify-between bg-sidebar px-7 pt-[calc(var(--titlebar-height)+2rem)] pb-8">
+    <AppShell className="-mt-[var(--titlebar-height)] grid h-[calc(100%+var(--titlebar-height))] grid-cols-[minmax(220px,240px)_minmax(0,1fr)]">
+      <Page className="flex min-h-0 flex-col justify-between border-r border-border bg-sidebar px-5 pt-[calc(var(--titlebar-height)+1.5rem)] pb-6">
         <Stack gap="xl">
           <Brand />
           <ProgressSteps
@@ -46,7 +46,7 @@ export function OnboardingLayout({
       </Page>
       <div className="min-h-0 pt-[var(--titlebar-height)]">
         <OverlayScrollArea className="h-full min-h-0 bg-background">
-          <Page className="min-h-full px-[clamp(44px,7vw,104px)] pt-[clamp(42px,7vh,76px)] pb-[clamp(42px,7vh,76px)]">
+          <Page className="mx-auto w-full max-w-5xl min-h-full px-[clamp(24px,4vw,56px)] py-8">
             {children}
           </Page>
         </OverlayScrollArea>

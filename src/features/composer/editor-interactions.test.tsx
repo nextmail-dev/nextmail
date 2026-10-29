@@ -24,6 +24,7 @@ async function setup(content: object[], initialHtml?: string) {
     const node = result.container.querySelector<HTMLElement & { editor: Editor }>(".tiptap");
     expect(node?.editor).toBeDefined(); return node!;
   });
+  await screen.findByRole("toolbar", { name: "Body formatting" });
   return { ...result, element, editor: element.editor, onChange };
 }
 const line = (text: string) => ({ type: "paragraph", content: text ? [{ type: "text", text }] : [] });

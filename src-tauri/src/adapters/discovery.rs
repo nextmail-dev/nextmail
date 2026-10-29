@@ -15,7 +15,12 @@ const AUTOCONFIG_MAX_BYTES: usize = 1_048_576;
 pub async fn discover_account_config(email: &str) -> CommandResult<DiscoveredAccountConfig> {
     let (local_part, domain) = parse_email(email)?;
 
-    if let Some(config) = built_in_config(email, domain) {
+    if let Some(config) = super::mail_providers::match_provider(email, domain, &[]) {
+        return Ok(config);
+    }
+
+    let mx_hosts = lookup_mx(domain).await;
+    if let Some(config) = super::mail_providers::match_provider(email, domain, &mx_hosts) {
         return Ok(config);
     }
     if let Some(config) = discover_with_srv(email, domain).await {
@@ -47,64 +52,33 @@ pub fn parse_email(email: &str) -> CommandResult<(&str, &str)> {
     Ok((local, domain))
 }
 
-fn built_in_config(email: &str, domain: &str) -> Option<DiscoveredAccountConfig> {
-    let domain = domain.to_ascii_lowercase();
-    let (
-        incoming_host,
-        incoming_port,
-        incoming_security,
-        outgoing_host,
-        outgoing_port,
-        outgoing_security,
-    ) = match domain.as_str() {
-        "gmail.com" | "googlemail.com" => (
-            "imap.gmail.com",
-            993,
-            ConnectionSecurity::Tls,
-            "smtp.gmail.com",
-            465,
-            ConnectionSecurity::Tls,
-        ),
-        "outlook.com" | "hotmail.com" | "live.com" | "office365.com" => (
-            "outlook.office365.com",
-            993,
-            ConnectionSecurity::Tls,
-            "smtp.office365.com",
-            587,
-            ConnectionSecurity::StartTls,
-        ),
-        "icloud.com" | "me.com" | "mac.com" => (
-            "imap.mail.me.com",
-            993,
-            ConnectionSecurity::Tls,
-            "smtp.mail.me.com",
-            587,
-            ConnectionSecurity::StartTls,
-        ),
-        "qq.com" => (
-            "imap.qq.com",
-            993,
-            ConnectionSecurity::Tls,
-            "smtp.qq.com",
-            465,
-            ConnectionSecurity::Tls,
-        ),
-        "163.com" => (
-            "imap.163.com",
-            993,
-            ConnectionSecurity::Tls,
-            "smtp.163.com",
-            465,
-            ConnectionSecurity::Tls,
-        ),
-        _ => return None,
+async fn lookup_mx(domain: &str) -> Vec<String> {
+    let lookup = async {
+        let resolver = Resolver::builder_tokio().ok()?.build().ok()?;
+        let response = resolver.mx_lookup(format!("{domain}.")).await.ok()?;
+        let mut records = response
+            .answers()
+            .iter()
+            .filter_map(|record| match &record.data {
+                RData::MX(mx) => Some((mx.preference, mx.exchange.to_utf8())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        records.sort_by_key(|(priority, _)| *priority);
+        let priority = records.first()?.0;
+        Some(
+            records
+                .into_iter()
+                .filter(|(p, _)| *p == priority)
+                .map(|(_, host)| host)
+                .collect(),
+        )
     };
-
-    Some(DiscoveredAccountConfig {
-        source: "built_in".to_owned(),
-        incoming: server(incoming_host, incoming_port, incoming_security, email),
-        outgoing: server(outgoing_host, outgoing_port, outgoing_security, email),
-    })
+    tokio::time::timeout(Duration::from_secs(3), lookup)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default()
 }
 
 async fn discover_with_srv(email: &str, domain: &str) -> Option<DiscoveredAccountConfig> {
@@ -254,7 +228,12 @@ fn xml_server(config: &XmlServer, email: &str, local_part: &str) -> Option<Serve
     Some(server(&config.hostname, config.port, security, &username))
 }
 
-fn server(host: &str, port: u16, security: ConnectionSecurity, username: &str) -> ServerConfig {
+pub(super) fn server(
+    host: &str,
+    port: u16,
+    security: ConnectionSecurity,
+    username: &str,
+) -> ServerConfig {
     ServerConfig {
         host: host.to_owned(),
         port,
@@ -292,9 +271,24 @@ struct XmlServer {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn public_domains_return_without_dns_wait() {
+        for email in ["person@qq.com", "person@163.com", "person@126.com"] {
+            let config =
+                tokio::time::timeout(Duration::from_millis(50), discover_account_config(email))
+                    .await
+                    .expect("built-in lookup must not await DNS")
+                    .unwrap();
+            assert_eq!(config.source, "built_in");
+            assert_eq!(config.incoming.username, email);
+        }
+    }
+
     #[test]
     fn known_provider_uses_full_email_as_username() {
-        let config = built_in_config("person@gmail.com", "gmail.com").expect("known provider");
+        let config =
+            super::super::mail_providers::match_provider("person@gmail.com", "gmail.com", &[])
+                .expect("known provider");
         assert_eq!(config.incoming.host, "imap.gmail.com");
         assert_eq!(config.incoming.username, "person@gmail.com");
         assert_eq!(config.outgoing.security, ConnectionSecurity::Tls);

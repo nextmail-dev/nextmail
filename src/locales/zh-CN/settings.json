@@ -72,6 +72,11 @@
     "later": "稍后"
   },
   "notifications": {
+    "useSystem": "使用系统通知",
+    "useSystemDescription": "通过系统通知中心显示新邮件。显示时长、声音和勿扰行为由系统设置控制。",
+    "systemBatchMode": "一次收取多封新邮件时",
+    "systemCount": "汇总显示新邮件数量（默认）",
+    "systemLatest": "只显示最后一封新邮件摘要",
     "enabled": "新邮件通知",
     "enabledDescription": "为新同步的未读邮件展示通知。首次同步和缓存重建不会打扰您。",
     "displayMode": "多封邮件到达时",

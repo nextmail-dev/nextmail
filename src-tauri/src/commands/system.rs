@@ -249,6 +249,13 @@ pub fn set_notification_preferences(
     app: AppHandle,
     preferences: NotificationPreferences,
 ) -> CommandResult<NotificationPreferences> {
+    let previous = state.service.get_notification_preferences()?;
+    if preferences.enabled
+        && preferences.use_system_notifications
+        && (!previous.enabled || !previous.use_system_notifications)
+    {
+        crate::system_notifications::ensure_permission(&app)?;
+    }
     let preferences = state.service.set_notification_preferences(preferences)?;
     state.notifications.preferences_changed();
     emit_or_log(&app, "notification-preferences-changed", &preferences);

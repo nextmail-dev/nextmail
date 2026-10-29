@@ -58,18 +58,17 @@ export function AccountsManagement({
         {accounts.length ? <Button variant="primary" size="sm" onClick={() => setAddOpen(true)}><Plus size={15} />{t("accounts.add")}</Button> : null}
       </Inline>
       {accounts.length ? (
-        <Page className="grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] gap-5 overflow-hidden">
+        <Page className="-mr-3 grid min-h-0 flex-1 grid-cols-[210px_minmax(0,1fr)] gap-5 overflow-hidden pr-3">
           <OverlayScrollArea
-            className="min-h-0 rounded-lg border border-border/70 bg-muted/35"
-            contentClassName="gap-1"
-            viewportClassName="p-2"
+            className="account-management-list-scroll -mr-3 min-h-0"
+            contentClassName="gap-0 pr-3"
           >
             {accounts.map((account) => (
               <Button
                 key={account.id}
                 variant="ghost"
                 className={account.id === activeAccountId
-                  ? "relative h-auto justify-start bg-selection px-3 py-2.5 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-selection"
+                  ? "relative h-auto justify-start bg-selection px-3 py-2.5 text-primary hover:bg-selection"
                   : "h-auto justify-start px-3 py-2.5"}
                 onClick={() => onSelectedAccountChange(account.id)}
               >
@@ -82,8 +81,8 @@ export function AccountsManagement({
           </OverlayScrollArea>
           {activeAccountId ? (
             <OverlayScrollArea
-              className="account-management-detail-scroll -ml-1 min-h-0"
-              viewportClassName="px-1"
+              className="account-management-detail-scroll -mr-3 min-h-0"
+              contentClassName="pr-3"
             >
               <AccountManagementPanel
                 accountId={activeAccountId}

@@ -14,7 +14,7 @@ import { Inline, Stack } from "@/components/ui/layout";
 import { OverlayScrollArea } from "@/components/ui/overlay-scroll-area";
 import { SelectField } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
+import { Switch, SwitchField } from "@/components/ui/switch";
 import { LabelText, Text } from "@/components/ui/typography";
 
 export const notificationPreferencesQueryKey = ["notification-preferences"] as const;
@@ -74,7 +74,30 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
         </Inline>
       </Surface>
 
-      <Surface className="grid grid-cols-2 gap-4 bg-muted/60 p-5 shadow-none">
+      <Surface className="bg-muted/60 p-2 shadow-none">
+        <SwitchField
+          label={t("notifications.useSystem")}
+          description={t("notifications.useSystemDescription")}
+          checked={preferences.useSystemNotifications ?? false}
+          disabled={subordinateDisabled}
+          onCheckedChange={(useSystemNotifications) => save({ ...preferences, useSystemNotifications })}
+        />
+      </Surface>
+
+      {preferences.useSystemNotifications ? (
+        <Surface className="bg-muted/60 p-5 shadow-none">
+          <SelectField
+            label={t("notifications.systemBatchMode")}
+            value={preferences.systemNotificationMode ?? "count"}
+            options={[
+              { value: "count", label: t("notifications.systemCount") },
+              { value: "latest", label: t("notifications.systemLatest") },
+            ]}
+            disabled={subordinateDisabled}
+            onValueChange={(value) => save({ ...preferences, systemNotificationMode: value as NotificationPreferences["systemNotificationMode"] })}
+          />
+        </Surface>
+      ) : <Surface className="grid grid-cols-2 gap-4 bg-muted/60 p-5 shadow-none">
         <SelectField
           label={t("notifications.displayMode")}
           value={preferences.displayMode}
@@ -104,7 +127,7 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
           disabled={subordinateDisabled}
           onValueChange={(value) => save({ ...preferences, displayDurationSeconds: Number(value) })}
         />
-      </Surface>
+      </Surface>}
 
       <Stack gap="sm">
         <Stack gap="xs">
@@ -151,7 +174,8 @@ export function NotificationSettings({ accounts }: { accounts: AccountSummary[] 
       >
         <OverlayScrollArea
           intrinsic
-          className="mt-5 max-h-[65vh]"
+          className="-mr-3 mt-5 max-h-[65vh]"
+          contentClassName="pr-3"
         >
           <Stack gap="sm">
             <Text>{t("notifications.folderDescription")}</Text>

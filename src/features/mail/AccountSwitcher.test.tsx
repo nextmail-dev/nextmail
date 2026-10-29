@@ -89,7 +89,7 @@ describe("AccountSwitcher", () => {
     );
     expect(screen.getByRole("button", { name: "Open account menu" })).toHaveClass("w-full");
     expect(screen.getByRole("button", { name: "Open account menu" })).not.toHaveClass("overflow-hidden");
-    expect(container.querySelector('[data-slot="identity-avatar"]')).toHaveClass("bg-primary", "rounded-none");
+    expect(container.querySelector('[data-slot="identity-avatar"]')).toHaveClass("bg-primary", "rounded-md");
   });
 });
 

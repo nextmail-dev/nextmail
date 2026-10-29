@@ -35,10 +35,10 @@ export function AccountStep({ preferences, onPreferencesChange, onCompleted }: A
         </Stack>
       }
     >
-      <Stack className="mx-auto max-w-3xl pb-12" gap="xl">
+      <Stack className="mx-auto w-full max-w-3xl pb-4" gap="xl">
         <Stack gap="sm">
           <Eyebrow>{t("onboarding.accountEyebrow")}</Eyebrow>
-          <Heading>{t("onboarding.accountTitle")}</Heading>
+          <Heading className="text-2xl lg:text-3xl">{t("onboarding.accountTitle")}</Heading>
           <Text className="max-w-2xl text-base leading-relaxed">{t("onboarding.accountDescription")}</Text>
         </Stack>
         <PasswordAccountForm submitLabel={t("onboarding.verifyAndFinish")} onSubmit={submit} />

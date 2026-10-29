@@ -63,6 +63,17 @@ impl NotificationRuntime {
         if candidates.is_empty() || self.app.state::<crate::state::AppState>().demo.active() {
             return;
         }
+        if !preferences.enabled {
+            return;
+        }
+        if preferences.use_system_notifications {
+            crate::system_notifications::present(
+                &self.app,
+                &candidates,
+                &preferences.system_notification_mode,
+            );
+            return;
+        }
         let max_visible = self.max_visible(preferences.max_stacked);
         let limit = if preferences.display_mode == NotificationDisplayMode::Replace {
             1

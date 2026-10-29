@@ -13,6 +13,8 @@ import {
 
 const initialPreferences: NotificationPreferences = {
   enabled: true,
+  useSystemNotifications: false,
+  systemNotificationMode: "count",
   displayMode: "stacked",
   maxStacked: 3,
   displayDurationSeconds: 5,
@@ -64,6 +66,19 @@ afterEach(() => {
 });
 
 describe("NotificationSettings", () => {
+  it("switches to system delivery, hides custom behavior, and remembers the batch choice", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><NotificationSettings accounts={[]} /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("switch", { name: "Use system notifications" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Use system notifications" })).toBeChecked());
+    expect(screen.queryByRole("combobox", { name: "Multiple-message behavior" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Display duration" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("combobox", { name: "When a sync receives multiple messages" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Show only the last message summary" }));
+    await waitFor(() => expect(vi.mocked(api.setNotificationPreferences).mock.calls.some(([p]) => p.systemNotificationMode === "latest")).toBe(true));
+    fireEvent.click(screen.getByRole("switch", { name: "Use system notifications" }));
+    await screen.findByRole("combobox", { name: "Display duration" });
+  });
   it("persists folder settings with inbox-only defaults", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

@@ -990,12 +990,13 @@ impl MailRuntime {
         let Ok(preferences) = self.service.get_notification_preferences() else {
             return;
         };
-        let candidates = limit_notification_batch(
+        let candidates = eligible_new_mail_candidates(&preferences, account_id, candidates);
+        let visible = limit_notification_batch(
             &preferences.display_mode,
             preferences.max_stacked,
-            eligible_new_mail_candidates(&preferences, account_id, candidates),
+            candidates.clone(),
         );
-        for candidate in &candidates {
+        for candidate in &visible {
             if let Err(error) = self.app.emit("new-mail-candidate", candidate) {
                 tracing::warn!(
                     %account_id,
@@ -1005,7 +1006,14 @@ impl MailRuntime {
                 );
             }
         }
-        self.notifications.present_batch(candidates, &preferences);
+        self.notifications.present_batch(
+            if preferences.use_system_notifications {
+                candidates
+            } else {
+                visible
+            },
+            &preferences,
+        );
     }
 
     fn runtime_state_is(&self, account_id: &str, expected: AccountRuntimeState) -> bool {

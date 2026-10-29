@@ -118,7 +118,7 @@ describe("RichTextEditor composition nodes", () => {
     );
     await waitFor(() => expect(ref.current).not.toBeNull());
 
-    expect(screen.getByRole("toolbar")).toHaveClass("flex-wrap");
+    expect(await screen.findByRole("toolbar")).toHaveClass("flex-wrap");
     expect(screen.getByRole("toolbar")).not.toHaveClass("overflow-x-auto");
 
     const editorViewport = container.querySelector(".native-scrollbar-hidden");

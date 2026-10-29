@@ -17,7 +17,7 @@ export function IdentityAvatar({
       data-slot="identity-avatar"
       aria-hidden="true"
       className={cn(
-        "grid size-9 shrink-0 place-items-center rounded-none border border-primary/20 bg-primary text-sm font-bold text-primary-foreground",
+        "grid size-9 shrink-0 place-items-center rounded-md border border-primary/20 bg-primary text-sm font-bold text-primary-foreground",
         className,
       )}
     >

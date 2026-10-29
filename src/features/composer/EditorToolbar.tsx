@@ -1,17 +1,42 @@
 import type { Editor } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
 import { useTranslation } from "react-i18next";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Bold, Code2, Highlighter, ImagePlus, Italic, Link2, List, ListOrdered, Palette, Quote, Redo2, Strikethrough, UnderlineIcon, Undo2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EditorFontPicker, EditorFontSize } from "./EditorFontControls";
 import { EditorColorPicker } from "./EditorColorPicker";
 import { readActiveFormat, readSelectionFormat, toggleInlineFormat } from "./editor-formatting";
 
-export function EditorToolbar({ editor, disabled, sourceMode, onEdit, onLink, onRemoveLink, onImage, onSource }: {
+interface EditorToolbarProps {
   editor: Editor; disabled?: boolean; sourceMode: boolean; onEdit: (run: () => void) => void;
   onLink: () => void; onRemoveLink: () => void; onImage?: () => void; onSource: () => void;
-}) {
+}
+
+export function EditorToolbar(props: EditorToolbarProps) {
+  const { editor } = props;
+  const [readyEditor, setReadyEditor] = useState<Editor | null>(null);
+  useEffect(() => {
+    let active = true;
+    const reveal = () => {
+      // Tiptap emits create before setting isInitialized. Wait until that
+      // lifecycle step completes before reading computed styles from its view.
+      queueMicrotask(() => {
+        if (active && editor.isInitialized && !editor.isDestroyed) setReadyEditor(editor);
+      });
+    };
+    const hide = () => setReadyEditor(null);
+    editor.on("create", reveal).on("unmount", hide).on("destroy", hide);
+    reveal();
+    return () => {
+      active = false;
+      editor.off("create", reveal).off("unmount", hide).off("destroy", hide);
+    };
+  }, [editor]);
+  return readyEditor === editor ? <ReadyEditorToolbar {...props} /> : null;
+}
+
+function ReadyEditorToolbar({ editor, disabled, sourceMode, onEdit, onLink, onRemoveLink, onImage, onSource }: EditorToolbarProps) {
   const { t } = useTranslation();
   const state = useEditorState({ editor, selector: ({ editor }) => ({
     format: readSelectionFormat(editor),

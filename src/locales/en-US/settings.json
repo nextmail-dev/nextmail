@@ -72,6 +72,11 @@
     "later": "Later"
   },
   "notifications": {
+    "useSystem": "Use system notifications",
+    "useSystemDescription": "Show new mail in the system notification center. Duration, sound and Do Not Disturb follow system settings.",
+    "systemBatchMode": "When a sync receives multiple messages",
+    "systemCount": "Show the new-message count (default)",
+    "systemLatest": "Show only the last message summary",
     "enabled": "New mail notifications",
     "enabledDescription": "Show notifications for newly synchronized unread messages. Initial synchronization and cache rebuilds stay silent.",
     "displayMode": "Multiple-message behavior",

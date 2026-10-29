@@ -91,6 +91,8 @@ export interface NotificationFolderSetting {
 
 export interface NotificationPreferences {
   enabled: boolean;
+  useSystemNotifications: boolean;
+  systemNotificationMode: "count" | "latest";
   displayMode: NotificationDisplayMode;
   maxStacked: number;
   displayDurationSeconds: number;

@@ -18,7 +18,7 @@ describe("ContactIdentity", () => {
     const { container } = render(<ContactInitial name="Alice" />);
     expect(container.querySelector('[data-slot="identity-avatar"]')).toHaveClass(
       "bg-primary",
-      "rounded-none",
+      "rounded-md",
       "text-primary-foreground",
     );
   });

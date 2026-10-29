@@ -13,6 +13,7 @@ mod notification_runtime;
 pub mod protocols;
 mod state;
 pub mod storage;
+mod system_notifications;
 mod tray_runtime;
 mod updater_runtime;
 mod window_titles;
@@ -50,6 +51,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)

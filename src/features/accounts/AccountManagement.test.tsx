@@ -78,11 +78,12 @@ describe("AccountsManagement", () => {
     expect(screen.getByRole("button", { name: /Alice alice@example\.com/ })).toHaveClass(
       "bg-selection",
       "text-primary",
-      "shadow-[inset_2px_0_0_var(--primary)]",
     );
     const detailScrollArea = container.querySelector(".account-management-detail-scroll");
-    expect(detailScrollArea).toHaveClass("-ml-1");
-    expect(detailScrollArea?.querySelector(".native-scrollbar-hidden")).toHaveClass("px-1");
+    const listViewport = container.querySelector(".account-management-list-scroll .native-scrollbar-hidden");
+    expect(listViewport).not.toHaveClass("p-2");
+    expect(detailScrollArea).toHaveClass("-mr-3");
+    expect(detailScrollArea?.querySelector(".native-scrollbar-hidden")?.firstElementChild).toHaveClass("pr-3");
     expect(detailScrollArea?.querySelector(".native-scrollbar-hidden")).not.toHaveClass("pr-3");
     fireEvent.click(screen.getByRole("button", { name: /Bob bob@example\.com/ }));
     expect(onSelectedAccountChange).toHaveBeenCalledWith("account-two");

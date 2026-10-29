@@ -1,4 +1,7 @@
 {
+  "notification.system_permission_failed": "Could not request notification permission. Check your system settings and try again.",
+  "notification.system_permission_denied": "Allow notifications for NextMail in your system settings first.",
+  "notification.system_send_failed": "Could not send the system notification. Check your system notification settings.",
   "demo": {
     "unavailable": "This feature is unavailable in demo mode. Quit the app completely and reopen it to return to normal.",
     "closeEditors": "Save or discard your changes and close all message, template and signature editors before entering demo mode."

@@ -136,6 +136,14 @@ pub enum NotificationDisplayMode {
     Replace,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemNotificationMode {
+    #[default]
+    Count,
+    Latest,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct NotificationAccountSetting {
@@ -156,6 +164,8 @@ pub struct NotificationFolderSetting {
 #[serde(rename_all = "camelCase")]
 pub struct NotificationPreferences {
     pub enabled: bool,
+    pub use_system_notifications: bool,
+    pub system_notification_mode: SystemNotificationMode,
     pub display_mode: NotificationDisplayMode,
     pub max_stacked: u8,
     pub display_duration_seconds: u16,
@@ -167,6 +177,8 @@ impl Default for NotificationPreferences {
     fn default() -> Self {
         Self {
             enabled: true,
+            use_system_notifications: false,
+            system_notification_mode: SystemNotificationMode::Count,
             display_mode: NotificationDisplayMode::Stacked,
             max_stacked: 3,
             display_duration_seconds: 5,
@@ -1059,5 +1071,24 @@ mod tests {
         });
         assert!(preferences.folder_enabled("account", "archive", false));
         assert!(!preferences.folder_enabled("other", "archive", false));
+    }
+
+    #[test]
+    fn old_notification_preferences_keep_custom_delivery_and_default_to_count() {
+        let preferences: NotificationPreferences =
+            serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+        assert!(!preferences.use_system_notifications);
+        assert_eq!(
+            preferences.system_notification_mode,
+            super::SystemNotificationMode::Count
+        );
+        let mut updated = preferences;
+        updated.use_system_notifications = true;
+        updated.system_notification_mode = super::SystemNotificationMode::Latest;
+        let saved = serde_json::to_string(&updated).unwrap();
+        assert_eq!(
+            serde_json::from_str::<NotificationPreferences>(&saved).unwrap(),
+            updated
+        );
     }
 }
