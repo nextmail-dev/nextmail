@@ -22,7 +22,7 @@ Nova 与 Lyra 均不在文件夹、收藏夹、联系人入口及设置导航选
 
 ## 2. 产品与当前状态
 
-NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `1.0.1`。
+NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `1.1.0`。
 
 平台边界：
 
@@ -54,6 +54,8 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - 可用更新使用单例独立窗口呈现；Release notes 作为不可信 Markdown 受限渲染，原始 HTML、图片和危险协议不会进入页面。
 
 当前实施状态：
+
+- `1.1.0` 已通过用户验收：新增系统通知与公共域名/MX 邮箱识别，修复多处 UI、主题适配及模板/签名编辑器初始化问题。
 
 - 富文本工具栏等 Tiptap `create` 生命周期完成后才订阅光标样式；编辑器卸载或销毁时移除工具栏，避免添加模板/签名等窗口首次渲染时读取未挂载视图的 `domAtPos` 而触发整窗错误兜底。工具栏回归覆盖无视图创建、挂载及卸载，定义编辑器集成测试使用真实富文本组件。
 
@@ -273,7 +275,7 @@ HTML-only 邮件的派生纯文本与列表预览只从 `<body>` 内容提取，
 - Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
 - SMTP 前生成不可变 MIME/Message-ID，写入 `raw/` 后创建持久化 `send_job`；重试复用相同 MIME。
 - SendWorker 账户内 FIFO、账户间轮转；全局最多两封、每账户最多一封。SMTP 成功后独立 APPEND Sent，归档失败不得再次发信。
-- 客户端头为 `X-Mailer: NextMail/1.0.1`；该值由 Cargo package version 自动生成，版本变化时同步核对各 manifest。
+- 客户端头为 `X-Mailer: NextMail/1.1.0`；该值由 Cargo package version 自动生成，版本变化时同步核对各 manifest。
 
 ## 6. 安全边界
 
