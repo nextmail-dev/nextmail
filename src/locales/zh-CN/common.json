@@ -31,6 +31,9 @@
     "confirm": "确认"
   },
   "preferences": {
+    "interfaceStyle": "界面风格",
+    "novaDescription": "紧凑控件，适度圆角。默认风格。",
+    "lyraDescription": "直角边界，硬朗清晰的布局。",
     "appearance": "外观",
     "theme": "主题",
     "language": "语言",

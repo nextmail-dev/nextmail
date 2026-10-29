@@ -11,7 +11,7 @@ describe("Button", () => {
     expect(button).toHaveClass(
       "bg-primary",
       "hover:bg-primary/85",
-      "rounded-none",
+      "rounded-md",
       "cursor-default",
       "focus-visible:ring-1",
       "focus-visible:ring-inset",

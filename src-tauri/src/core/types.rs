@@ -49,6 +49,8 @@ pub enum LanguagePreference {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppearancePreferences {
+    #[serde(default)]
+    pub style: InterfaceStyle,
     pub theme: ThemePreference,
     pub accent_color: String,
     pub language: LanguagePreference,
@@ -57,11 +59,20 @@ pub struct AppearancePreferences {
 impl Default for AppearancePreferences {
     fn default() -> Self {
         Self {
+            style: InterfaceStyle::Nova,
             theme: ThemePreference::System,
             accent_color: "#2563eb".to_owned(),
             language: LanguagePreference::ZhCn,
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InterfaceStyle {
+    #[default]
+    Nova,
+    Lyra,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -992,6 +1003,22 @@ mod tests {
             AppearancePreferences::default().theme,
             ThemePreference::System
         );
+    }
+
+    #[test]
+    fn interface_style_defaults_for_old_preferences_and_round_trips() {
+        let old = r##"{"theme":"dark","accentColor":"#2563eb","language":"en-US"}"##;
+        let mut preferences: AppearancePreferences = serde_json::from_str(old).unwrap();
+        assert_eq!(preferences.style, super::InterfaceStyle::Nova);
+        assert_eq!(preferences.theme, ThemePreference::Dark);
+        preferences.style = super::InterfaceStyle::Lyra;
+        let saved = serde_json::to_string(&preferences).unwrap();
+        let restored: AppearancePreferences = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.style, super::InterfaceStyle::Lyra);
+        assert!(serde_json::from_str::<AppearancePreferences>(
+            &old.replace("\"theme\"", "\"style\":\"unknown\",\"theme\"")
+        )
+        .is_err());
     }
 
     #[test]

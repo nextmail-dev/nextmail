@@ -42,10 +42,13 @@
   --radius-4xl: var(--radius);
 }
 
+
 :root,
 :root[data-theme="light"] {
   color-scheme: light;
-  --radius: 0rem;
+  --radius: 0.375rem;
+  --control-height: 2rem;
+  --control-height-sm: 1.75rem;
   --background: #fafafa;
   --foreground: #171717;
   --card: #ffffff;
@@ -168,4 +171,17 @@
   :root[data-platform="windows"][data-theme="system"] {
     --muted-foreground: #b0b0b0;
   }
+}
+
+:root[data-style="lyra"],
+[data-interface-style="lyra"] {
+  --radius: 0rem;
+  --control-height: 2.25rem;
+  --control-height-sm: 2rem;
+}
+
+[data-interface-style="nova"] {
+  --radius: 0.375rem;
+  --control-height: 2rem;
+  --control-height-sm: 1.75rem;
 }

@@ -23,6 +23,7 @@ vi.mock("./api", () => ({
 }));
 
 const initialPreferences: AppearancePreferences = {
+  style: "nova",
   theme: "light",
   accentColor: "#2563eb",
   language: "en-US",
@@ -78,6 +79,7 @@ describe("appearance query state", () => {
     })));
     vi.mocked(api.getPreferences).mockResolvedValue({
       ...initialPreferences,
+      style: "nova",
       theme: "system",
     });
     const client = createClient();
@@ -104,6 +106,7 @@ describe("appearance query state", () => {
     const pending = deferred<AppearancePreferences>();
     vi.mocked(api.setAppearancePreferences).mockReturnValue(pending.promise);
     const optimistic: AppearancePreferences = {
+      style: "lyra",
       theme: "dark",
       accentColor: "#7c3aed",
       language: "zh-CN",
@@ -119,6 +122,7 @@ describe("appearance query state", () => {
     await waitFor(() => {
       expect(client.getQueryData(appearanceQueryKey)).toEqual(optimistic);
       expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+      expect(document.documentElement).toHaveAttribute("data-style", "lyra");
     });
 
     pending.resolve(persisted);
@@ -136,6 +140,7 @@ describe("appearance query state", () => {
     const pending = deferred<AppearancePreferences>();
     vi.mocked(api.setAppearancePreferences).mockReturnValue(pending.promise);
     const optimistic: AppearancePreferences = {
+      style: "lyra",
       theme: "dark",
       accentColor: "#dc2626",
       language: "zh-CN",
@@ -154,6 +159,7 @@ describe("appearance query state", () => {
       expect(result.current.mutation.isError).toBe(true);
       expect(client.getQueryData(appearanceQueryKey)).toEqual(initialPreferences);
       expect(document.documentElement).toHaveAttribute("data-theme", "light");
+      expect(document.documentElement).toHaveAttribute("data-style", "nova");
       expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe("#2563eb");
     });
   });
@@ -167,6 +173,7 @@ describe("appearance query state", () => {
       return Promise.resolve(dispose);
     });
     const eventPreferences: AppearancePreferences = {
+      style: "lyra",
       theme: "dark",
       accentColor: "#0f8a7b",
       language: "en-US",
@@ -179,6 +186,7 @@ describe("appearance query state", () => {
 
     expect(client.getQueryData(appearanceQueryKey)).toEqual(eventPreferences);
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    expect(document.documentElement).toHaveAttribute("data-style", "lyra");
     expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe("#0f8a7b");
 
     unmount();

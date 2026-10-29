@@ -39,7 +39,7 @@ export function SelectField({
       <SelectPrimitive.Root value={value} onValueChange={onValueChange} disabled={disabled}>
         <SelectPrimitive.Trigger
           className={cn(
-            "text-[length:var(--ui-font-control)] flex h-9 w-full min-w-36 items-center justify-between gap-3 rounded-md border border-border/80 bg-input px-3 outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring/70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70 disabled:cursor-not-allowed disabled:opacity-50",
+            "text-[length:var(--ui-font-control)] flex h-[var(--control-height)] w-full min-w-36 items-center justify-between gap-3 rounded-md border border-border/80 bg-input px-3 outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring/70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/70 disabled:cursor-not-allowed disabled:opacity-50",
             compact && "h-8 min-w-32 bg-muted px-2.5",
             triggerClassName,
           )}

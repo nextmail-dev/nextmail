@@ -32,7 +32,7 @@ export function ContextMenuItem({
   return (
     <ContextMenuPrimitive.Item
       className={cn(
-        "text-[length:var(--ui-font-control)] relative flex h-9 cursor-default items-center gap-2 rounded-xs px-2.5 outline-none select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
+        "text-[length:var(--ui-font-control)] relative flex h-[var(--control-height)] cursor-default items-center gap-2 rounded-xs px-2.5 outline-none select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
         className,
       )}
       {...props}
@@ -60,7 +60,7 @@ export function ContextMenuSubTrigger({
   return (
     <ContextMenuPrimitive.SubTrigger
       className={cn(
-        "text-[length:var(--ui-font-control)] flex h-9 cursor-default items-center gap-2 rounded-xs px-2.5 outline-none focus:bg-accent data-[state=open]:bg-accent",
+        "text-[length:var(--ui-font-control)] flex h-[var(--control-height)] cursor-default items-center gap-2 rounded-xs px-2.5 outline-none focus:bg-accent data-[state=open]:bg-accent",
         className,
       )}
       {...props}

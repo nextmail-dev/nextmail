@@ -9,6 +9,7 @@ import { SettingsApp } from "./SettingsApp";
 vi.mock("@/app/api", () => ({
   api: {
     getPreferences: vi.fn().mockResolvedValue({
+      style: "nova",
       theme: "system",
       accentColor: "#2563eb",
       language: "en-US",
@@ -104,7 +105,6 @@ describe("SettingsApp", () => {
       "h-9",
       "bg-primary/10",
       "text-primary",
-      "shadow-[inset_2px_0_0_var(--primary)]",
     );
     expect(screen.getByText("Language")).toBeInTheDocument();
     expect(document.querySelector(".native-scrollbar-hidden")).toBeInTheDocument();
@@ -140,11 +140,15 @@ describe("SettingsApp", () => {
     expect(screen.getByRole("radio", { name: "Dark" })).not.toBeChecked();
     expect(screen.getByText("Theme color")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Blue" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Nova" })).toBeChecked();
+    expect(document.querySelector('[data-interface-style="nova"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-interface-style="lyra"]')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
     await waitFor(() => {
       const calls = vi.mocked(api.setAppearancePreferences).mock.calls;
       expect(calls[calls.length - 1]?.[0]).toEqual({
+        style: "nova",
         theme: "dark",
         accentColor: "#2563eb",
         language: "en-US",
@@ -155,11 +159,18 @@ describe("SettingsApp", () => {
     await waitFor(() => {
       const calls = vi.mocked(api.setAppearancePreferences).mock.calls;
       expect(calls[calls.length - 1]?.[0]).toEqual({
+        style: "nova",
         theme: "dark",
         accentColor: "#ea580c",
         language: "en-US",
       });
     });
+    fireEvent.click(screen.getByRole("radio", { name: "Lyra" }));
+    await waitFor(() => expect(api.setAppearancePreferences).toHaveBeenLastCalledWith({
+      style: "lyra",
+      theme: "dark", accentColor: "#ea580c", language: "en-US",
+    }, expect.anything()));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Lyra" })).toBeChecked());
   });
 
   it("does not duplicate account management in the settings categories", async () => {

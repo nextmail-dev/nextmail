@@ -18,11 +18,21 @@ function contrast(first: string, second: string) {
 describe("appearance preferences", () => {
   afterEach(() => {
     document.documentElement.removeAttribute("data-theme");
+    document.documentElement.removeAttribute("data-style");
     document.documentElement.removeAttribute("style");
   });
 
   it("follows the system theme before persisted preferences are available", () => {
     expect(defaultPreferences.theme).toBe("system");
+    expect(defaultPreferences.style).toBe("nova");
+  });
+
+  it("switches interface style independently of theme and accent", () => {
+    applyAppearance({ ...defaultPreferences, style: "lyra", theme: "dark" });
+    expect(document.documentElement.dataset.style).toBe("lyra");
+    applyAppearance({ ...defaultPreferences, style: "nova", theme: "dark" });
+    expect(document.documentElement.dataset.style).toBe("nova");
+    expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
   it("adapts a dark-theme accent for readable surfaces and controls", () => {

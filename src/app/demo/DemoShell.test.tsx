@@ -15,7 +15,7 @@ afterEach(() => { cleanup(); Reflect.deleteProperty(globalThis, "__TAURI_INTERNA
 it("renders the existing mail shell entirely from demo data, including the sandbox reader", async () => {
   await i18n.changeLanguage("en-US");
   Object.defineProperty(globalThis, "__TAURI_INTERNALS__", { configurable: true, value: {} });
-  vi.mocked(invoke).mockResolvedValueOnce({ theme: "light", accentColor: "#2563eb", language: "en-US" }).mockResolvedValueOnce(content);
+  vi.mocked(invoke).mockResolvedValueOnce({ style: "nova", theme: "light", accentColor: "#2563eb", language: "en-US" }).mockResolvedValueOnce(content);
   await initializeDemoSession();
   vi.mocked(invoke).mockClear();
   const bootstrap = await api.getBootstrapStatus();
@@ -38,9 +38,9 @@ it("renders the existing mail shell entirely from demo data, including the sandb
   const proposal = "Autumn brand proposal · Final review";
   fireEvent.click(await screen.findByText(proposal));
   await waitFor(async () => expect(await api.getMessageDetail("demo-account", "demo-message-0", "demo-inbox")).toMatchObject({ unread: false }));
-  vi.mocked(invoke).mockResolvedValueOnce({ theme: "light", accentColor: "#2563eb", language: "zh-CN" });
+  vi.mocked(invoke).mockResolvedValueOnce({ style: "nova", theme: "light", accentColor: "#2563eb", language: "zh-CN" });
   await act(async () => {
-    await api.setAppearancePreferences({ theme: "light", accentColor: "#2563eb", language: "zh-CN" });
+    await api.setAppearancePreferences({ style: "nova", theme: "light", accentColor: "#2563eb", language: "zh-CN" });
     await i18n.changeLanguage("zh-CN");
     await client.invalidateQueries();
   });

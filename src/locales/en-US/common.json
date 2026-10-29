@@ -31,6 +31,9 @@
     "confirm": "Confirm"
   },
   "preferences": {
+    "interfaceStyle": "Interface style",
+    "novaDescription": "Compact controls and gentle corners. Default style.",
+    "lyraDescription": "Straight edges and a crisp, structured layout.",
     "appearance": "Appearance",
     "theme": "Theme",
     "language": "Language",

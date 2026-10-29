@@ -139,6 +139,7 @@ beforeEach(() => {
   closeHandler = undefined;
   dragDropHandler = undefined;
   vi.mocked(api.getPreferences).mockResolvedValue({
+    style: "nova",
     theme: "system",
     accentColor: "#2563eb",
     language: "en-US",

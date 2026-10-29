@@ -197,7 +197,7 @@ function MailboxPaneContent({
             ? "mx-auto size-10 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
             : "mx-auto size-10 flex-none justify-center p-0"
           : contactsSelected
-            ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+            ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary hover:bg-primary/15"
             : "h-9 w-full flex-none justify-start pr-3 pl-4"}
         aria-label={t("contacts.title")}
         title={collapsed ? t("contacts.title") : undefined}
@@ -263,7 +263,7 @@ function MailboxPaneContent({
                   <Button
                     variant="ghost"
                     className={selected
-                      ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                      ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary hover:bg-primary/15"
                       : "h-9 w-full flex-none justify-start pr-3 pl-4 text-muted-foreground"}
                     aria-label={label}
                     data-mailbox-selection-id={mailbox.id}
@@ -309,7 +309,7 @@ function MailboxPaneContent({
                 ? "mx-auto size-10 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
                 : "mx-auto size-10 flex-none justify-center p-0"
               : selectedMailboxId === STARRED_MAILBOX_ID
-                ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary hover:bg-primary/15"
                 : "h-9 w-full flex-none justify-start pr-3 pl-4 text-muted-foreground"}
             aria-label={t("mailboxNames.starred")}
             title={collapsed ? t("mailboxNames.starred") : undefined}
@@ -337,7 +337,7 @@ function MailboxPaneContent({
                     ? "mx-auto size-10 flex-none justify-center bg-primary/10 p-0 text-primary hover:bg-primary/15"
                     : "mx-auto size-10 flex-none justify-center p-0"
                   : selectedMailboxId === UNREAD_MAILBOX_ID
-                    ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                    ? "h-9 w-full flex-none justify-start bg-primary/10 pr-3 pl-4 text-primary hover:bg-primary/15"
                     : "h-9 w-full flex-none justify-start pr-3 pl-4 text-muted-foreground"}
                 aria-label={t("mailboxNames.unread")}
                 title={collapsed ? t("mailboxNames.unread") : undefined}
@@ -477,7 +477,7 @@ function MailboxPaneContent({
                     <Inline
                       data-mailbox-reorder-id={mailbox.id}
                       className={`${selected
-                        ? "relative h-9 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary shadow-[inset_2px_0_0_var(--primary)]"
+                        ? "relative h-9 w-full gap-0 rounded-md bg-primary/10 pr-2 text-primary"
                         : "relative h-9 w-full gap-0 rounded-md pr-2 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"} ${draggingId === mailbox.id ? "cursor-grabbing opacity-55" : "cursor-default"}`}
                       style={{ paddingInlineStart: `${depth * 16}px` }}
                       data-mailbox-depth={depth}

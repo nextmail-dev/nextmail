@@ -9,6 +9,7 @@ import type { AppearancePreferences } from "./types";
 export const appearanceQueryKey = ["preferences"] as const;
 
 export const defaultPreferences: AppearancePreferences = {
+  style: "nova",
   theme: "system",
   accentColor: "#2563eb",
   language: "zh-CN",
@@ -24,6 +25,7 @@ export function applyAppearance(
   const dark = preferences.theme === "dark" || (preferences.theme === "system" && systemDark);
   const primary = accessiblePrimary(preferences.accentColor, dark);
   document.documentElement.dataset.theme = preferences.theme;
+  document.documentElement.dataset.style = preferences.style ?? "nova";
   document.documentElement.lang = preferences.language;
   document.documentElement.style.setProperty(
     "--accent-color",

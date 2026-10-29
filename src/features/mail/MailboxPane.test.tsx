@@ -74,7 +74,6 @@ describe("MailboxPane", () => {
     expect(viewport?.firstElementChild).toHaveClass("pr-3");
     expect(within(container).getByRole("button", { name: "Inbox" }).parentElement).toHaveClass(
       "h-9",
-      "shadow-[inset_2px_0_0_var(--primary)]",
     );
   });
 

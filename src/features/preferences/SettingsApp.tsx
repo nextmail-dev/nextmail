@@ -32,6 +32,7 @@ import { SelectField } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { ThemeColorPicker, type ThemeColorOption } from "@/components/ui/theme-color-picker";
 import { ThemeModePicker } from "@/components/ui/theme-mode-picker";
+import { InterfaceStylePicker } from "@/components/ui/interface-style-picker";
 import { Heading, Text } from "@/components/ui/typography";
 import { CompositionDefinitionsSettings } from "./CompositionDefinitionsSettings";
 import { NotificationSettings } from "./NotificationSettings";
@@ -168,7 +169,7 @@ export function SettingsApp() {
           <Heading level={1} className="text-xl">{t("settings.title")}</Heading>
           <Text className="text-xs">{t("settings.description")}</Text>
         </Stack>
-        <nav className="flex min-h-0 flex-1 flex-col gap-1" aria-label={t("settings.categories") }>
+        <nav className="flex min-h-0 flex-1 flex-col gap-0" aria-label={t("settings.categories") }>
           {categories.map((item) => {
             const Icon = item.icon;
             return (
@@ -176,7 +177,7 @@ export function SettingsApp() {
                 key={item.id}
                 variant="ghost"
                 className={category === item.id
-                  ? "h-9 w-full justify-start bg-primary/10 px-3 text-primary shadow-[inset_2px_0_0_var(--primary)] hover:bg-primary/15"
+                  ? "h-9 w-full justify-start bg-primary/10 px-3 text-primary hover:bg-primary/15"
                   : "h-9 w-full justify-start px-3"}
                 aria-current={category === item.id ? "page" : undefined}
                 onClick={() => setCategory(item.id)}
@@ -294,6 +295,7 @@ function SettingsContent({
     return (
       <SettingsSection category={category}>
         <SettingsGroup title={t("settings.group.theme")}>
+          <InterfaceStylePicker value={preferences.style ?? "nova"} onValueChange={(style) => onChange({ ...preferences, style })} />
           <ThemeModePicker
             label={t("preferences.theme")}
             value={preferences.theme}

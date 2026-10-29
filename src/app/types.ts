@@ -49,6 +49,7 @@ export interface DataDirectoryValidation {
 }
 
 export interface AppearancePreferences {
+  style: "nova" | "lyra";
   theme: ThemePreference;
   accentColor: string;
   language: LanguagePreference;

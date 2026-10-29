@@ -6,6 +6,7 @@ import { OnboardingLayout } from "./OnboardingLayout";
 afterEach(cleanup);
 
 const preferences = {
+  style: "nova" as const,
   theme: "system" as const,
   accentColor: "#2563eb",
   language: "en-US" as const,
