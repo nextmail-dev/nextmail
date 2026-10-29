@@ -22,7 +22,7 @@ Nova 与 Lyra 均不在文件夹、收藏夹、联系人入口及设置导航选
 
 ## 2. 产品与当前状态
 
-NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `1.0.0`。
+NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮件客户端，当前版本为 `1.0.1`。
 
 平台边界：
 
@@ -54,6 +54,8 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 - 可用更新使用单例独立窗口呈现；Release notes 作为不可信 Markdown 受限渲染，原始 HTML、图片和危险协议不会进入页面。
 
 当前实施状态：
+
+- `1.0.1` 已通过用户验收：新增默认 Nova 与可视化风格切换，保留 Lyra；支持邮件拖入文件夹，优化文件夹拖动排序及列表选中样式。
 
 - 隐藏演示模式已实现，待实机验收：设置 → 关于 → 应用信息的 NextMail 标题连续点击 11 次后确认进入（相邻点击不超过 2 秒，点击其他位置重置）。进入前需关闭写信、模板与签名编辑窗口，防止丢失未保存内容；确认后关闭其他业务窗口并重载主窗口，清除真实 Query 缓存、选择与回调。演示账户、联系人及 12 封不同类型邮件均为双语虚构商务内容，展示身份统一使用 `next-mail.app` 域名；已读、星标、搜索、移动/复制/归档/删除及文件夹收藏等只操作内存。账户管理、文件访问、真实设置与独立邮件窗口在演示期间不可用；新建邮件按钮保持正常外观，点击时静默忽略。
 - 演示状态和语言偏好仅保存在 Rust 进程内，WebView 启动先读取状态再挂载业务 UI；`api.ts` 经演示适配层读取内存数据，Rust Command 入口另以允许列表阻止访问真实业务。演示 HTML 仍经现有 Rust 权威清洗器与原有 sandbox iframe。进入时停止后续收发调度、屏蔽真实邮件事件与通知；已经开始的真实网络操作允许完成收尾，不中途取消已提交 SMTP 发送。Ctrl+L（macOS 同时支持 Cmd+L）呼出语言选择框，并切换界面与演示文案；原生菜单 accelerator 覆盖 iframe 焦点，未放宽邮件脚本权限。只能完全退出进程并重新打开恢复正常，关闭到托盘或重新聚焦不会退出演示。
@@ -261,7 +263,7 @@ HTML-only 邮件的派生纯文本与列表预览只从 `<body>` 内容提取，
 - Composer 图片进入账户隔离的内容寻址存储并以 CID 发件；远程图片不静默下载。
 - SMTP 前生成不可变 MIME/Message-ID，写入 `raw/` 后创建持久化 `send_job`；重试复用相同 MIME。
 - SendWorker 账户内 FIFO、账户间轮转；全局最多两封、每账户最多一封。SMTP 成功后独立 APPEND Sent，归档失败不得再次发信。
-- 客户端头为 `X-Mailer: NextMail/1.0.0`；该值由 Cargo package version 自动生成，版本变化时同步核对各 manifest。
+- 客户端头为 `X-Mailer: NextMail/1.0.1`；该值由 Cargo package version 自动生成，版本变化时同步核对各 manifest。
 
 ## 6. 安全边界
 
