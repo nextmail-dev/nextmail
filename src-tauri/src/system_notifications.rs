@@ -1,9 +1,31 @@
 use tauri::{AppHandle, Manager};
-use tauri_plugin_notification::{NotificationExt, PermissionState};
+use tauri_plugin_notification::{ActionPerformed, NotificationExt, PermissionState};
 
 use crate::core::{
     CommandError, CommandResult, LanguagePreference, NewMailCandidate, SystemNotificationMode,
 };
+
+const TARGET_KEY: &str = "nextmailTarget";
+
+pub fn setup(app: &AppHandle) -> CommandResult<()> {
+    let action_app = app.clone();
+    app.notification()
+        .on_action(move |action| {
+            if let Some(token) = action_target(action) {
+                activate(&action_app, token);
+            }
+        })
+        .map_err(|error| {
+            crate::diagnostics::command_error("notification.system_send_failed", false, &error)
+        })
+}
+
+fn action_target(action: &ActionPerformed) -> Option<&str> {
+    if action.action_id() != "tap" {
+        return None;
+    }
+    action.notification()?.extra().get(TARGET_KEY)?.as_str()
+}
 
 pub fn ensure_permission(app: &AppHandle) -> CommandResult<()> {
     let permission = app.notification().request_permission().map_err(|error| {
@@ -38,10 +60,43 @@ pub fn present(app: &AppHandle, candidates: &[NewMailCandidate], mode: &SystemNo
     else {
         return;
     };
-    if let Err(error) = app.notification().builder().title(title).body(body).show() {
-        // Never log sender, subject, body or the native error's raw text.
+    let token = state.notifications.register_system_target(last);
+    // Only an opaque token goes through the OS callback. Resolve the trusted
+    // location once in Rust instead of accepting location IDs from its payload.
+    let result = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .extra(TARGET_KEY, &token)
+        .show();
+    if let Err(error) = result {
+        let _ = state.notifications.take_system_target(&token);
         let _ = crate::diagnostics::command_error("notification.system_send_failed", true, &error);
     }
+}
+
+fn activate(app: &AppHandle, token: &str) {
+    let state = app.state::<crate::state::AppState>();
+    if state.demo.active() {
+        return;
+    }
+    let Some(candidate) = state.notifications.take_system_target(token) else {
+        return;
+    };
+    let Ok(preferences) = state.service.get_notification_preferences() else {
+        return;
+    };
+    if !preferences.enabled
+        || !preferences.use_system_notifications
+        || !preferences.account_enabled(&candidate.account_id)
+    {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::notification_runtime::activate_candidate(&app, &candidate).await;
+    });
 }
 
 fn text(value: &str) -> String {
@@ -99,6 +154,47 @@ fn content(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_tap_with_our_string_token_requests_navigation() {
+        for (action_id, notification, expected) in [
+            (
+                "tap",
+                serde_json::json!({"id": 1, "extra": {"nextmailTarget": "token"}}),
+                Some("token"),
+            ),
+            (
+                "dismiss",
+                serde_json::json!({"id": 1, "extra": {"nextmailTarget": "token"}}),
+                None,
+            ),
+            (
+                "other",
+                serde_json::json!({"id": 1, "extra": {"nextmailTarget": "token"}}),
+                None,
+            ),
+            ("tap", serde_json::Value::Null, None),
+            ("tap", serde_json::json!({"id": 1}), None),
+            (
+                "tap",
+                serde_json::json!({"id": 1, "extra": {"nextmailTarget": 123}}),
+                None,
+            ),
+            (
+                "tap",
+                serde_json::json!({"id": 1, "extra": {"accountId": "other", "messageId": "other"}}),
+                None,
+            ),
+        ] {
+            let action: ActionPerformed = serde_json::from_value(serde_json::json!({
+                "actionId": action_id,
+                "notification": notification,
+            }))
+            .unwrap();
+            assert_eq!(action_target(&action), expected);
+        }
+    }
+
     fn candidate(subject: &str) -> NewMailCandidate {
         NewMailCandidate {
             account_id: "a".into(),

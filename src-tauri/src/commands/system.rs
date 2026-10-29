@@ -294,55 +294,6 @@ pub async fn activate_new_mail_notification(
     let notification = state
         .notifications
         .take_for_window(&notification_id, window.label())?;
-    if let Some(main) = app.get_webview_window("main") {
-        if let Err(error) = main.show() {
-            tracing::warn!(
-                error_type = std::any::type_name_of_val(&error),
-                "main window show failed"
-            );
-        }
-        if let Err(error) = main.unminimize() {
-            tracing::warn!(
-                error_type = std::any::type_name_of_val(&error),
-                "main window unminimize failed"
-            );
-        }
-        if let Err(error) = main.set_focus() {
-            tracing::warn!(
-                error_type = std::any::type_name_of_val(&error),
-                "main window focus failed"
-            );
-        }
-        if let Some(target) = state
-            .mail
-            .resolve_notification_target(&notification.candidate())
-            .await
-        {
-            if let Some(message_id) = target.message_id.as_ref() {
-                if let Err(error) = state
-                    .mail
-                    .set_message_read(
-                        &target.account_id,
-                        &target.mailbox_id,
-                        std::slice::from_ref(message_id),
-                        true,
-                    )
-                    .await
-                {
-                    tracing::warn!(
-                        code = %error.code,
-                        retryable = error.retryable,
-                        "notification target mark-read failed"
-                    );
-                }
-            }
-            if let Err(error) = app.emit_to("main", "open-mail-location", target) {
-                tracing::warn!(
-                    error_type = std::any::type_name_of_val(&error),
-                    "notification navigation event failed"
-                );
-            }
-        }
-    }
+    crate::notification_runtime::activate_candidate(&app, &notification.candidate()).await;
     Ok(())
 }

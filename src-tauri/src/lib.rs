@@ -73,6 +73,7 @@ pub fn run() {
             logging::init(app.handle());
             let state = state::AppState::from_handle(app.handle())?;
             app.manage(state);
+            system_notifications::setup(app.handle())?;
             create_main_window(app)?;
             if let Err(error) = tray_runtime::setup(app.handle()) {
                 tracing::warn!(

@@ -1,6 +1,7 @@
 use std::{
+    collections::VecDeque,
     sync::{Arc, Mutex, MutexGuard},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tauri::{
@@ -21,6 +22,8 @@ const NOTIFICATION_WIDTH: f64 = 360.0;
 const NOTIFICATION_HEIGHT: f64 = 116.0;
 const NOTIFICATION_MARGIN: f64 = 16.0;
 const NOTIFICATION_GAP: f64 = 10.0;
+const SYSTEM_TARGET_LIMIT: usize = 128;
+const SYSTEM_TARGET_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub struct NotificationRuntime {
     app: AppHandle,
@@ -32,6 +35,13 @@ pub struct NotificationRuntime {
 struct NotificationState {
     active: Vec<ActiveNotification>,
     next_generation: u64,
+    system_targets: VecDeque<SystemTarget>,
+}
+
+struct SystemTarget {
+    token: String,
+    candidate: NewMailCandidate,
+    created_at: Instant,
 }
 
 #[derive(Clone)]
@@ -189,6 +199,16 @@ impl NotificationRuntime {
 
     pub fn preferences_changed(&self) {
         self.dismiss_all();
+        self.state().system_targets.clear();
+    }
+
+    pub(crate) fn register_system_target(&self, candidate: &NewMailCandidate) -> String {
+        self.state()
+            .register_system_target(candidate, Instant::now())
+    }
+
+    pub(crate) fn take_system_target(&self, token: &str) -> Option<NewMailCandidate> {
+        self.state().take_system_target(token, Instant::now())
     }
 
     pub fn dismiss_account(&self, account_id: &str) {
@@ -319,6 +339,44 @@ impl NotificationRuntime {
 }
 
 impl NotificationState {
+    fn register_system_target(&mut self, candidate: &NewMailCandidate, now: Instant) -> String {
+        self.prune_system_targets(now);
+        let token = Uuid::new_v4().to_string();
+        self.system_targets.push_back(SystemTarget {
+            token: token.clone(),
+            // Only public location IDs are retained, never mail text or addresses.
+            candidate: NewMailCandidate {
+                account_id: candidate.account_id.clone(),
+                mailbox_id: candidate.mailbox_id.clone(),
+                message_id: candidate.message_id.clone(),
+                sender_name: None,
+                sender_email: String::new(),
+                subject: String::new(),
+            },
+            created_at: now,
+        });
+        while self.system_targets.len() > SYSTEM_TARGET_LIMIT {
+            self.system_targets.pop_front();
+        }
+        token
+    }
+
+    fn prune_system_targets(&mut self, now: Instant) {
+        self.system_targets
+            .retain(|target| now.duration_since(target.created_at) < SYSTEM_TARGET_LIFETIME);
+    }
+
+    fn take_system_target(&mut self, token: &str, now: Instant) -> Option<NewMailCandidate> {
+        self.prune_system_targets(now);
+        let index = self
+            .system_targets
+            .iter()
+            .position(|target| target.token == token)?;
+        self.system_targets
+            .remove(index)
+            .map(|target| target.candidate)
+    }
+
     fn present(
         &mut self,
         mut notification: NewMailNotification,
@@ -374,6 +432,8 @@ impl NotificationState {
     }
 
     fn remove_account(&mut self, account_id: &str) -> Vec<String> {
+        self.system_targets
+            .retain(|target| target.candidate.account_id != account_id);
         let mut removed = Vec::new();
         self.active.retain(|active| {
             if active.notification.account_id == account_id {
@@ -448,12 +508,68 @@ fn clamp_i64_to_i32(value: i64) -> i32 {
     value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
 }
 
+// Shared by custom windows and native notification actions.
+pub(crate) async fn activate_candidate(app: &AppHandle, candidate: &NewMailCandidate) {
+    let state = app.state::<crate::state::AppState>();
+    if state.demo.active() || state.service.account_record(&candidate.account_id).is_err() {
+        return;
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        if let Err(error) = main.show() {
+            tracing::warn!(
+                error_type = std::any::type_name_of_val(&error),
+                "main window show failed"
+            );
+        }
+        if let Err(error) = main.unminimize() {
+            tracing::warn!(
+                error_type = std::any::type_name_of_val(&error),
+                "main window unminimize failed"
+            );
+        }
+        if let Err(error) = main.set_focus() {
+            tracing::warn!(
+                error_type = std::any::type_name_of_val(&error),
+                "main window focus failed"
+            );
+        }
+        if let Some(target) = state.mail.resolve_notification_target(candidate).await {
+            if let Some(message_id) = target.message_id.as_ref() {
+                if let Err(error) = state
+                    .mail
+                    .set_message_read(
+                        &target.account_id,
+                        &target.mailbox_id,
+                        std::slice::from_ref(message_id),
+                        true,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        code = %error.code,
+                        retryable = error.retryable,
+                        "notification target mark-read failed"
+                    );
+                }
+            }
+            if let Err(error) = app.emit_to("main", "open-mail-location", target) {
+                tracing::warn!(
+                    error_type = std::any::type_name_of_val(&error),
+                    "notification navigation event failed"
+                );
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         notification_capacity, notification_position, NotificationDisplayMode, NotificationState,
+        SYSTEM_TARGET_LIFETIME, SYSTEM_TARGET_LIMIT,
     };
     use crate::core::NewMailNotification;
+    use std::time::{Duration, Instant};
     use tauri::{PhysicalPosition, PhysicalRect, PhysicalSize};
 
     fn notification(id: &str, account_id: &str, subject: &str) -> NewMailNotification {
@@ -532,6 +648,11 @@ mod tests {
     #[test]
     fn account_removal_only_dismisses_matching_notifications() {
         let mut state = NotificationState::default();
+        let now = Instant::now();
+        let token_a =
+            state.register_system_target(&notification("one", "a", "One").candidate(), now);
+        let token_b =
+            state.register_system_target(&notification("two", "b", "Two").candidate(), now);
         state.present(
             notification("one", "a", "One"),
             &NotificationDisplayMode::Stacked,
@@ -544,5 +665,57 @@ mod tests {
         );
         assert_eq!(state.remove_account("a"), vec!["one"]);
         assert_eq!(state.active_ids(), vec!["two"]);
+        assert!(state.take_system_target(&token_a, now).is_none());
+        assert_eq!(
+            state.take_system_target(&token_b, now).unwrap().account_id,
+            "b"
+        );
+    }
+
+    #[test]
+    fn native_targets_are_one_shot_and_retain_only_trusted_location_ids() {
+        let mut state = NotificationState::default();
+        let now = Instant::now();
+        let candidate = notification("one", "account", "Private subject").candidate();
+        let token = state.register_system_target(&candidate, now);
+        assert!(uuid::Uuid::parse_str(&token).is_ok());
+        assert!(state.take_system_target("forged-token", now).is_none());
+        let target = state.take_system_target(&token, now).unwrap();
+        assert_eq!(target.account_id, candidate.account_id);
+        assert_eq!(target.mailbox_id, candidate.mailbox_id);
+        assert_eq!(target.message_id, candidate.message_id);
+        assert!(target.sender_name.is_none());
+        assert!(target.sender_email.is_empty());
+        assert!(target.subject.is_empty());
+        assert!(state.take_system_target(&token, now).is_none());
+        assert!(NotificationState::default()
+            .take_system_target(&token, now)
+            .is_none());
+    }
+
+    #[test]
+    fn native_targets_are_bounded_and_expire_without_sleeping() {
+        let mut state = NotificationState::default();
+        let now = Instant::now();
+        let candidate = notification("one", "account", "One").candidate();
+        let oldest = state.register_system_target(&candidate, now);
+        let mut latest = String::new();
+        for _ in 0..SYSTEM_TARGET_LIMIT {
+            latest = state.register_system_target(&candidate, now);
+        }
+        assert_eq!(state.system_targets.len(), SYSTEM_TARGET_LIMIT);
+        assert!(state.take_system_target(&oldest, now).is_none());
+        assert!(state
+            .take_system_target(
+                &latest,
+                now + SYSTEM_TARGET_LIFETIME - Duration::from_secs(1)
+            )
+            .is_some());
+        let expired_at = now + SYSTEM_TARGET_LIFETIME;
+        let token = state.system_targets.front().unwrap().token.clone();
+        assert!(state.take_system_target(&token, expired_at).is_none());
+        assert!(state.system_targets.is_empty());
+        let fresh = state.register_system_target(&candidate, expired_at);
+        assert!(state.take_system_target(&fresh, expired_at).is_some());
     }
 }
