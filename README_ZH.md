@@ -15,12 +15,9 @@
     <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&amp;logo=tauri&amp;logoColor=white" />
     <img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?style=flat-square&amp;logo=react&amp;logoColor=white" />
     <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&amp;logo=rust&amp;logoColor=white" />
-    <img alt="Windows 与 macOS" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-4C566A?style=flat-square" />
+    <img alt="Windows 与 macOS" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4C566A?style=flat-square" />
   </p>
 </div>
-
-> [!IMPORTANT]
-> NextMail 当前处于预览阶段。Windows 10 22H2+ 和 macOS 12+ 是主要支持平台。Linux 提供早期测试包，尚未经过同等程度的适配和验收。
 
 ## 应用预览
 
@@ -73,7 +70,7 @@ NextMail 会把“展示邮箱所需的信息”和“邮件正文中的大块�
 | Linux x64 | 用于早期测试的实验性产物 |
 
 > [!WARNING]
-> 预览版本尚未使用正式的 Windows 代码签名或 Apple 公证，操作系统可能显示“开发者未经验证”等提示。请只从本仓库下载 NextMail。
+> 当前安装包尚未使用正式的 Windows 代码签名或 Apple 公证，操作系统可能显示“开发者未经验证”等提示。请只从本仓库下载 NextMail。
 
 ## 本地开发
 
