@@ -15,7 +15,7 @@
     <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&amp;logo=tauri&amp;logoColor=white" />
     <img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?style=flat-square&amp;logo=react&amp;logoColor=white" />
     <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&amp;logo=rust&amp;logoColor=white" />
-    <img alt="Windows 与 macOS" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4C566A?style=flat-square" />
+    <img alt="Windows、macOS 与 Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4C566A?style=flat-square" />
   </p>
 </div>
 
@@ -67,7 +67,7 @@ NextMail 会把“展示邮箱所需的信息”和“邮件正文中的大块�
 | --- | --- |
 | Windows 10 22H2+ x64 | 主要实机验收平台 |
 | macOS 12+ Intel 与 Apple Silicon | 支持目标；ad-hoc 签名，尚未公证 |
-| Linux x64 | 用于早期测试的实验性产物 |
+| Linux x64 | 正式支持；提供 DEB、RPM 和 AppImage 安装包 |
 
 > [!WARNING]
 > 当前安装包尚未使用正式的 Windows 代码签名或 Apple 公证，操作系统可能显示“开发者未经验证”等提示。请只从本仓库下载 NextMail。
@@ -108,7 +108,7 @@ cargo clippy --offline --locked --all-targets -- -D warnings
 
 ## 当前边界
 
-NextMail 当前尚未提供统一收件箱、会话聚合和跨账户搜索。Linux 仍属于实验性平台，Windows 正式代码签名和 Apple 公证也尚未提供。
+NextMail 当前尚未提供统一收件箱、会话聚合和跨账户搜索。Windows 正式代码签名和 Apple 公证尚未提供。
 
 ## 许可证
 

@@ -28,7 +28,7 @@ NextMail 是基于 Tauri 2、React/TypeScript 和 Rust 的本地优先桌面邮�
 
 - Windows 10 22H2+ x64 是主要开发与实机验收平台。
 - macOS 12+ Intel/Apple Silicon 是正式目标平台；未实际执行的行为不得宣称通过。
-- Linux x64 提供实验性 bundle，不做深度适配或完整实机承诺。
+- Linux x64 是正式支持平台，提供 DEB、RPM 和 AppImage 安装包；安装时需满足发行版的系统依赖。
 - 当前产物没有 Windows 正式代码签名，也没有 Apple Developer 签名或公证。
 
 已经实现：

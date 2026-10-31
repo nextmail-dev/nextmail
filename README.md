@@ -15,7 +15,7 @@
     <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&amp;logo=tauri&amp;logoColor=white" />
     <img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?style=flat-square&amp;logo=react&amp;logoColor=white" />
     <img alt="Rust" src="https://img.shields.io/badge/Rust-stable-000000?style=flat-square&amp;logo=rust&amp;logoColor=white" />
-    <img alt="Windows and macOS" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4C566A?style=flat-square" />
+    <img alt="Windows, macOS, and Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4C566A?style=flat-square" />
   </p>
 </div>
 
@@ -67,7 +67,7 @@ Download available builds from [GitHub Releases](https://github.com/nextmail-dev
 | --- | --- |
 | Windows 10 22H2+ x64 | Primary validation platform |
 | macOS 12+ Intel and Apple Silicon | Supported target; ad-hoc signed and not notarized |
-| Linux x64 | Experimental build for early testing |
+| Linux x64 | Officially supported; DEB, RPM, and AppImage packages |
 
 > [!WARNING]
 > Current builds do not use production Windows code signing or Apple notarization. Your operating system may show an unverified-developer warning. Only download NextMail from this repository.
@@ -108,7 +108,7 @@ For implementation details, engineering conventions, and current limitations, se
 
 ## Current limitations
 
-NextMail does not currently provide a unified inbox, conversation aggregation, or cross-account search. Linux remains an experimental platform, and production code signing and notarization are not yet available.
+NextMail does not currently provide a unified inbox, conversation aggregation, or cross-account search. Production Windows code signing and Apple notarization are not yet available.
 
 ## License
 
